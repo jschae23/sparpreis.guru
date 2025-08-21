@@ -6,9 +6,6 @@ on:
       - main
     tags:
       - 'v*'        # z.B. v1.2.3
-  pull_request:
-    branches:
-      - main
   workflow_dispatch: {}
 
 # Für GHCR-Login via GITHUB_TOKEN
