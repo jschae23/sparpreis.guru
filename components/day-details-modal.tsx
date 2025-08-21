@@ -240,6 +240,7 @@ export function DayDetailsModal({
                     {new Date(data.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
                     <span className="mx-1">→</span>
                     {new Date(data.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                    <span className="ml-2">({calculateDuration(data.abfahrtsZeitpunkt, data.ankunftsZeitpunkt)})</span>
                   </div>
                 )}
                 {data.abfahrtsZeitpunkt && startStation && zielStation && (
@@ -355,7 +356,7 @@ export function DayDetailsModal({
                       <div className="font-semibold mb-1 text-blue-800">Bestpreis-Zeitfenster</div>
                       <div>
                         Die Bahn gruppiert Bestpreis-Verbindungen in folgende Zeitfenster:<br />
-                        0–7 Uhr, 10–13 Uhr, 13–16 Uhr, 16–19 Uhr, 19–24 Uhr.<br />
+                        0–7 Uhr, 7-10 Uhr, 10–13 Uhr, 13–16 Uhr, 16–19 Uhr, 19–24 Uhr.<br />
                         Pro Zeitfenster wird jeweils die günstigste Verbindung angezeigt.<br />
                         Dies entspricht der offiziellen Bestpreis-Suche der Bahn.
                       </div>
