@@ -4,11 +4,22 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'        # z.B. v1.2.3
+  pull_request:
+    branches:
+      - main
   workflow_dispatch: {}
+
+# Für GHCR-Login via GITHUB_TOKEN
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   docker:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,6 +43,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Generiert automatisch Tags & Labels:
+      # - Branch/PR: <image>:<branch>, <image>:sha-<7>
+      # - SemVer-Tag (v1.2.3): v1.2.3, v1.2, v1 ; "latest" nur auf Default-Branch oder Release
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -39,12 +53,23 @@ jobs:
           images: |
             butti/sparpreis-guru
             ghcr.io/${{ github.repository_owner }}/sparpreis-guru
+          flavor: |
+            latest=true
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}},prefix=v
+            type=semver,pattern={{major}}.{{minor}},prefix=v
+            type=semver,pattern={{major}},prefix=v
+            type=sha,format=long,prefix=sha-
 
       - name: Build and push Docker images
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
