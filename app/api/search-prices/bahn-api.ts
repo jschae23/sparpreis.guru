@@ -381,15 +381,11 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       }
     }
 
-    // Markiere die günstigste Verbindung pro ursprünglichem Intervall
-    const intervalMap = new Map<number, IntervalDetails[]>()
-    let intervalIndex = 0
+    // Sammle alle Intervalle ohne Bestpreis-Markierung (wird später in route.ts gemacht)
+    const finalAllIntervals: IntervalDetails[] = []
     
-    // Gruppiere Verbindungen nach ursprünglichen Intervallen
     for (const iv of data.intervalle) {
       if (iv.preis && typeof iv.preis === "object" && "betrag" in iv.preis && Array.isArray(iv.verbindungen)) {
-        const intervalConnections: IntervalDetails[] = []
-        
         for (const verbindung of iv.verbindungen) {
           let newPreis = 0
           if (verbindung.abPreis && typeof verbindung.abPreis === "object" && "betrag" in verbindung.abPreis) {
@@ -405,7 +401,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
               ankunftsOrt: abschnitt.ankunftsOrt
             }))
             const info = abschnitte.map((a: IntervalAbschnitt) => `${a.abfahrtsOrt} → ${a.ankunftsOrt}`).join(' | ')
-            intervalConnections.push({
+            finalAllIntervals.push({
               preis: newPreis,
               abschnitte,
               abfahrtsZeitpunkt: abschnitte[0].abfahrtsZeitpunkt,
@@ -414,42 +410,17 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
               ankunftsOrt: abschnitte[abschnitte.length-1].ankunftsOrt,
               info,
               umstiegsAnzahl: verbindung.verbindung.umstiegsAnzahl || 0,
+              // Keine isCheapestPerInterval-Markierung hier - wird in route.ts gemacht
             })
           }
         }
-        
-        if (intervalConnections.length > 0) {
-          intervalMap.set(intervalIndex, intervalConnections)
-          intervalIndex++
-        }
       }
     }
-    
-    // Markiere günstigste Verbindung pro Intervall
-    const finalAllIntervals: IntervalDetails[] = []
-    intervalMap.forEach((connections) => {
-      const minPrice = Math.min(...connections.map(c => c.preis))
-      // Sortiere nach Abfahrtszeit und markiere nur die ERSTE günstigste Verbindung
-      const sortedConnections = connections.sort((a, b) => new Date(a.abfahrtsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime())
-      let isFirstCheapest = true
-      
-      sortedConnections.forEach(connection => {
-        const isCheapest = connection.preis === minPrice && isFirstCheapest
-        if (isCheapest) {
-          isFirstCheapest = false // Nur die erste günstigste markieren
-        }
-        
-        finalAllIntervals.push({
-          ...connection,
-          isCheapestPerInterval: isCheapest
-        })
-      })
-    })
 
-    // Erstelle vollständigen Cache-Eintrag mit ALLEN Verbindungen (mit Markierung)
+    // Erstelle vollständigen Cache-Eintrag mit ALLEN Verbindungen (ohne Markierung)
     const fullResult = {
       [tag]: {
-        preis: 0, // Wird später gesetzt
+        preis: 0, // Wird später in route.ts gesetzt
         info: "",
         abfahrtsZeitpunkt: "",
         ankunftsZeitpunkt: "",
@@ -491,7 +462,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       return { result, wasApiCall: true }
     }
 
-    // Finde günstigste Verbindung für Bestpreis-Anzeige
+    // Finde günstigste Verbindung für Bestpreis-Anzeige (aber ohne isCheapestPerInterval-Markierung)
     const bestPrice = Math.min(...timeFilteredIntervals.map(iv => iv.preis))
     const bestInterval = timeFilteredIntervals.find(interval => interval.preis === bestPrice)
     const sortedTimeFilteredIntervals = timeFilteredIntervals.sort((a, b) => a.preis - b.preis)

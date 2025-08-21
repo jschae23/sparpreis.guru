@@ -363,9 +363,16 @@ export async function POST(request: NextRequest) {
                     priceData.ankunftsZeitpunkt = ""
                     priceData.info = "Keine Verbindungen im gewählten Zeitfenster"
                   } else {
-                    // Finde neuen Bestpreis nach Filterung
+                    // Finde neuen Bestpreis nach Filterung - bei gleichem Preis erst nach Dauer, dann nach Abfahrt sortieren
                     const minPrice = Math.min(...filteredIntervals.map(i => i.preis))
-                    const bestInterval = filteredIntervals.find(i => i.preis === minPrice)
+                    const bestPriceIntervals = filteredIntervals.filter(i => i.preis === minPrice)
+                    bestPriceIntervals.sort((a, b) => {
+                      const aDuration = new Date(a.ankunftsZeitpunkt).getTime() - new Date(a.abfahrtsZeitpunkt).getTime()
+                      const bDuration = new Date(b.ankunftsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
+                      if (aDuration !== bDuration) return aDuration - bDuration
+                      return new Date(a.abfahrtsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
+                    })
+                    const bestInterval = bestPriceIntervals[0]
                     
                     priceData.preis = minPrice
                     priceData.abfahrtsZeitpunkt = bestInterval?.abfahrtsZeitpunkt || priceData.abfahrtsZeitpunkt
@@ -378,6 +385,58 @@ export async function POST(request: NextRequest) {
 
             const duration = Date.now() - t0
             updateAverageResponseTimes(duration, isCached)
+
+            // Markiere günstigste Verbindung pro Zeitfenster NACH allen Filtern
+            if (dayResponse.result) {
+              for (const dateKey of Object.keys(dayResponse.result)) {
+                const priceData = dayResponse.result[dateKey]
+                if (priceData && priceData.allIntervals && Array.isArray(priceData.allIntervals)) {
+                  // Definiere die Zeitfenster (wie bei der Bahn)
+                  const timeSlots = [
+                    { start: 0, end: 7 },    // 0-7 Uhr
+                    { start: 7, end: 10 },   // 7-10 Uhr
+                    { start: 10, end: 13 },  // 10-13 Uhr
+                    { start: 13, end: 16 },  // 13-16 Uhr
+                    { start: 16, end: 19 },  // 16-19 Uhr
+                    { start: 19, end: 24 },  // 19-24 Uhr
+                  ]
+
+                  // Gruppiere Verbindungen nach Zeitfenstern
+                  const slotMap = new Map<number, any[]>()
+                  for (const interval of priceData.allIntervals) {
+                    const depDate = new Date(interval.abfahrtsZeitpunkt)
+                    const depHour = depDate.getHours() + (depDate.getMinutes() / 60)
+                    const slotIndex = timeSlots.findIndex(slot => depHour >= slot.start && depHour < slot.end)
+                    if (slotIndex >= 0) {
+                      if (!slotMap.has(slotIndex)) {
+                        slotMap.set(slotIndex, [])
+                      }
+                      slotMap.get(slotIndex)!.push(interval)
+                    }
+                  }
+
+                  // Markiere günstigste Verbindung pro Zeitfenster
+                  slotMap.forEach((intervals) => {
+                    if (intervals.length > 0) {
+                      // Sortiere: erst Preis, dann Reisedauer, dann Abfahrt
+                      const sortedIntervals = intervals.slice().sort((a, b) => {
+                        if (a.preis !== b.preis) return a.preis - b.preis
+                        // Reisedauer berechnen
+                        const aDuration = new Date(a.ankunftsZeitpunkt).getTime() - new Date(a.abfahrtsZeitpunkt).getTime()
+                        const bDuration = new Date(b.ankunftsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
+                        if (aDuration !== bDuration) return aDuration - bDuration
+                        // Abfahrtszeit
+                        return new Date(a.abfahrtsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
+                      })
+                      // Nur die erste Verbindung markieren
+                      sortedIntervals.forEach((interval, idx) => {
+                        interval.isCheapestPerInterval = idx === 0
+                      })
+                    }
+                  })
+                }
+              }
+            }
 
             return { currentDateStr, dayResponse, dayCount }
           })
