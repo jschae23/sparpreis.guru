@@ -42,8 +42,6 @@ export async function POST(request: NextRequest) {
       start,
       ziel,
       tage, // Array der gewünschten Tage im Format ["2024-07-01", "2024-07-03", ...]
-      reisezeitraumAb, // Fallback falls tage nicht übergeben wird
-      dayLimit, // Fallback falls tage nicht übergeben wird
       alter,
       ermaessigungArt,
       ermaessigungKlasse,
@@ -53,13 +51,17 @@ export async function POST(request: NextRequest) {
       maximaleUmstiege,
       abfahrtAb,
       ankunftBis,
+      umstiegszeit,
     } = body
 
     console.log("\n🚂 Starting bestpreissuche request")
     console.log("📋 Request parameters:")
-    console.log("  - Start:", start, "Ziel:", ziel)
-    console.log("  - abfahrtAb:", abfahrtAb, "ankunftBis:", ankunftBis)
-    console.log("  - klasse:", klasse, "maximaleUmstiege:", maximaleUmstiege)
+    console.log("  - Route:", start, "→", ziel)
+    console.log("  - Days:", tage?.length || 0, "| Time:", abfahrtAb || "any", "-", ankunftBis || "any")
+    console.log("  - Class:", klasse, "| Max transfers:", maximaleUmstiege)
+    if (umstiegszeit && umstiegszeit !== "normal") {
+      console.log("  - Transfer time:", umstiegszeit, "min")
+    }
 
     if (!start || !ziel) {
       return NextResponse.json({ error: "Start and destination required" }, { status: 400 })
@@ -69,11 +71,11 @@ export async function POST(request: NextRequest) {
     const sessionId = providedSessionId || crypto.randomUUID()
     console.log(`📱 Session ID: ${sessionId}`)
 
-    // Search for stations
-    console.log("\n📍 Searching for stations...")
-    const startStation = await searchBahnhof(start)
-    const zielStation = await searchBahnhof(ziel)
-
+        // Search for stations
+        console.log("\n📍 Searching for stations...")
+        const startStation = await searchBahnhof(start)
+        const zielStation = await searchBahnhof(ziel)
+        
     if (!startStation || !zielStation) {
       return NextResponse.json(
         {
@@ -125,50 +127,32 @@ export async function POST(request: NextRequest) {
           // Verwende tage-Array wenn vorhanden, sonst fallback zu altem System
           let datesToProcess: string[] = []
           let maxDays = 0
-
-          if (tage && Array.isArray(tage) && tage.length > 0) {
-            // Neues System: Verwende die übergebenen Tage
-            datesToProcess = tage.slice(0, 30) // Limitiere auf max 30 Tage
-            maxDays = datesToProcess.length
-            console.log(`\n🔍 Using provided dates array: ${datesToProcess.length} specific dates`)
-            console.log(`📅 Dates to process: ${datesToProcess.join(', ')}`)
-          } else {
-            // Fallback: Altes System mit Zeitraum
-            const [jahr, monat, tag] = reisezeitraumAb.split("-").map(Number)
-            const startDate = new Date(jahr, monat - 1, tag)
-            maxDays = Math.min(Math.max(Number.parseInt(dayLimit || "3"), 1), 30)
-            
-            for (let dayCount = 0; dayCount < maxDays; dayCount++) {
-              const currentDate = new Date(startDate)
-              currentDate.setDate(currentDate.getDate() + dayCount)
-              datesToProcess.push(formatDateKey(currentDate))
-            }
-            console.log(`\n🔍 Using fallback date range: ${maxDays} consecutive days starting from ${formatDateKey(startDate)}`)
-          }
-
+          datesToProcess = tage.slice(0, 30) // Limitiere auf max 30 Tage
+          maxDays = datesToProcess.length
+          console.log(`\n🔍 Processing ${datesToProcess.length} specific dates`)
           console.log(`📊 Cache status: ${getCacheSize()} entries`)
 
           // Erstelle Liste aller Tage mit Cache-Status
-          const dayStatusList: { date: string; isCached: boolean }[] = []
+          const dayStatusList: { date: string; isCached: boolean; cacheKey: string }[] = []
           for (const dateStr of datesToProcess) {
             const cacheKey = generateCacheKey({
               startStationId: startStation.normalizedId,
               zielStationId: zielStation.normalizedId,
               date: dateStr,
-              alter,
+              alter: alter || "ERWACHSENER",
               ermaessigungArt: ermaessigungArt || "KEINE_ERMAESSIGUNG",
               ermaessigungKlasse: ermaessigungKlasse || "KLASSENLOS",
-              klasse,
+              klasse: klasse || "KLASSE_2",
               maximaleUmstiege: Number.parseInt(maximaleUmstiege || "0"),
               schnelleVerbindungen: Boolean(schnelleVerbindungen === true || schnelleVerbindungen === "true"),
               nurDeutschlandTicketVerbindungen: Boolean(
                 nurDeutschlandTicketVerbindungen === true || nurDeutschlandTicketVerbindungen === "true",
               ),
-              abfahrtAb,
-              ankunftBis,
+              // abfahrtAb und ankunftBis NICHT im Cache-Key!
+              umstiegszeit: (umstiegszeit && umstiegszeit !== "normal" && umstiegszeit !== "undefined") ? umstiegszeit : undefined,
             })
             const isCached = !!getCachedResult(cacheKey)
-            dayStatusList.push({ date: dateStr, isCached })
+            dayStatusList.push({ date: dateStr, isCached, cacheKey })
           }
 
           // Gesamtanzahl der gecachten und ungecachten Tage für die gesamte Suche
@@ -187,6 +171,7 @@ export async function POST(request: NextRequest) {
               nurDeutschlandTicketVerbindungen,
               abfahrtAb,
               ankunftBis,
+              umstiegszeit,
             },
             sessionId,
           }
@@ -241,6 +226,7 @@ export async function POST(request: NextRequest) {
                 nurDeutschlandTicketVerbindungen === true || nurDeutschlandTicketVerbindungen === "1",
               abfahrtAb,
               ankunftBis,
+              umstiegszeit,
             })
 
             // Prüfe Session-Abbruch NACH dem Request aber VOR der Verarbeitung
@@ -582,7 +568,6 @@ export async function POST(request: NextRequest) {
           )
 
           console.log(`\n✅ Bestpreissuche completed: ${processedDays} days processed (of ${maxDays} planned)`)
-          console.log(`📊 Final cache status: ${getCacheSize()} entries`)
 
           // Add station info for booking links
           const resultsWithStations = {

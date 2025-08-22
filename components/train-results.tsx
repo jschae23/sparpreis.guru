@@ -16,10 +16,10 @@ interface SearchParams {
   schnelleVerbindungen?: string
   nurDeutschlandTicketVerbindungen?: string
   maximaleUmstiege?: string
-  dayLimit?: string
   abfahrtAb?: string
   ankunftBis?: string
   tage?: string // JSON-String mit Array der gewünschten Tage
+  umstiegszeit?: string
 }
 
 interface TrainResultsProps {
@@ -54,6 +54,7 @@ interface MetaData {
     nurDeutschlandTicketVerbindungen?: string | boolean
     abfahrtAb?: string
     ankunftBis?: string
+    umstiegszeit?: string
   }
 }
 
@@ -176,10 +177,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     schnelleVerbindungen: searchParams.schnelleVerbindungen,
     nurDeutschlandTicketVerbindungen: searchParams.nurDeutschlandTicketVerbindungen,
     maximaleUmstiege: searchParams.maximaleUmstiege,
-    dayLimit: searchParams.dayLimit,
     abfahrtAb: searchParams.abfahrtAb,
     ankunftBis: searchParams.ankunftBis,
     tage: searchParams.tage,
+    umstiegszeit: searchParams.umstiegszeit,
   })
 
   useEffect(() => {
@@ -223,9 +224,9 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             schnelleVerbindungen: searchParams.schnelleVerbindungen === "1",
             nurDeutschlandTicketVerbindungen: searchParams.nurDeutschlandTicketVerbindungen === "1",
             maximaleUmstiege: Number.parseInt(searchParams.maximaleUmstiege || "0"),
-            dayLimit: Number.parseInt(searchParams.dayLimit || "3"),
             abfahrtAb: searchParams.abfahrtAb,
             ankunftBis: searchParams.ankunftBis,
+            umstiegszeit: searchParams.umstiegszeit,
           }),
         })
 
@@ -329,12 +330,12 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     searchParams.schnelleVerbindungen,
     searchParams.nurDeutschlandTicketVerbindungen,
     searchParams.maximaleUmstiege,
-    searchParams.dayLimit,
     searchParams.ermaessigungArt,
     searchParams.ermaessigungKlasse,
     searchParams.abfahrtAb,
     searchParams.ankunftBis,
     searchParams.tage,
+    searchParams.umstiegszeit,
   ])
 
   // --- Tag-Navigation für Modal und Kalender ---
@@ -413,7 +414,6 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
               zielStation={zielStation}
               searchParams={searchParams}
               isStreaming={isStreaming}
-              expectedDays={Number.parseInt(searchParams.dayLimit || "3")}
               sessionId={sessionId}
               onCancelSearch={cancelSearch}
               selectedDay={selectedDay || undefined}
