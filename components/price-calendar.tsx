@@ -38,6 +38,8 @@ interface PriceCalendarProps {
   expectedDays?: number
   sessionId?: string | null
   onCancelSearch?: () => void
+  onNavigateDay?: (direction: number) => void // Neue Prop für Tag-Navigation
+  selectedDay?: string // Neu: Ausgewählter Tag (YYYY-MM-DD)
 }
 
 // Wochentage so anpassen, dass Montag links steht
@@ -57,7 +59,7 @@ const months = [
   "Dezember",
 ]
 
-export function PriceCalendar({ results, onDayClick, startStation, zielStation, searchParams, isStreaming, expectedDays, sessionId, onCancelSearch }: PriceCalendarProps) {
+export function PriceCalendar({ results, onDayClick, startStation, zielStation, searchParams, isStreaming, expectedDays, sessionId, onCancelSearch, onNavigateDay, selectedDay }: PriceCalendarProps) {
   const today = new Date()
   const resultDates = Object.keys(results).filter(key => key !== '_meta').sort()
   
@@ -76,9 +78,6 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
       </div>
     )
   }
-
-  // State for calendar navigation
-  const [currentMonth, setCurrentMonth] = useState(new Date())
 
   // Get the date range from results or expected range
   const dates = Object.keys(results).filter(key => key !== '_meta').sort()
@@ -125,6 +124,15 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
 
   const firstDate = dates.length > 0 ? new Date(dates[0]) : firstExpectedDate
   const lastDate = dates.length > 0 ? new Date(dates[dates.length - 1]) : lastExpectedDate
+
+  // State for calendar navigation
+  const [currentMonth, setCurrentMonth] = useState(() => new Date())
+
+  useEffect(() => {
+    if (firstDate) {
+      setCurrentMonth(new Date(firstDate.getFullYear(), firstDate.getMonth(), 1))
+    }
+  }, [firstDate.getFullYear(), firstDate.getMonth()])
 
   // Find min and max prices for color coding
   const prices = Object.values(results)
@@ -194,6 +202,46 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
       onDayClick(dateKey, priceData)
     }
   }
+
+  // --- Tag-Navigation (Pfeile, Keyboard, Swipe) ---
+  // Hole alle Tage mit Preis
+  const dayKeys = dates.filter(dateKey => results[dateKey]?.preis > 0)
+
+  // Ermittle den aktuell ausgewählten Tag (aus Parent)
+  // (Parent-Komponente muss selectedDay und onNavigateDay bereitstellen)
+
+  // Swipe-Handling
+  const touchStartX = React.useRef<number | null>(null)
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX
+  }
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current
+    if (Math.abs(deltaX) > 50) {
+      if (deltaX < 0) {
+        // Swipe nach links → nächster Tag
+        onNavigateDay && onNavigateDay(1)
+      } else {
+        // Swipe nach rechts → vorheriger Tag
+        onNavigateDay && onNavigateDay(-1)
+      }
+    }
+    touchStartX.current = null
+  }
+
+  // Keyboard-Handling
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        onNavigateDay && onNavigateDay(-1)
+      } else if (e.key === 'ArrowRight') {
+        onNavigateDay && onNavigateDay(1)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onNavigateDay])
 
   // Fortschritt und Zeitmessung mit Progress-API
   const [elapsed, setElapsed] = useState(0)
@@ -395,9 +443,22 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
             <ChevronLeft className="h-4 w-4" />
           </Button>
 
-          <h3 className="text-lg font-semibold">
-            {months[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold">
+              {months[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+            </h3>
+            {/* Tag-Navigation für ausgewählten Tag (Parent muss selectedDay und onNavigateDay bereitstellen) */}
+            {typeof selectedDay === 'string' && (
+              <>
+                <Button variant="ghost" size="icon" onClick={() => onNavigateDay && onNavigateDay(-1)} disabled={dayKeys.indexOf(selectedDay) <= 0}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => onNavigateDay && onNavigateDay(1)} disabled={dayKeys.indexOf(selectedDay) === dayKeys.length - 1}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </>
+            )}
+          </div>
 
           <Button
             variant="outline"
@@ -428,7 +489,10 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
         </div>
 
         {/* Calendar Grid */}
-        <div className="p-4">
+        <div className="p-4"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
           {/* Weekday Headers */}
           <div className="grid grid-cols-7 gap-1 mb-2">
             {weekdays.map((day) => (

@@ -27,7 +27,7 @@ export default async function Page({
 
   return (
     <div className="min-h-screen bg-white">
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <div className="container mx-auto px-6 py-10 max-w-6xl">
         <header className="mb-8">
           <h1 className="text-4xl font-bold mb-2">
             <a href="/" className="text-gray-600 hover:text-retro-gradient">
