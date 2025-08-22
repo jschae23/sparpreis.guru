@@ -3,6 +3,7 @@ import { globalRateLimiter } from './rate-limiter'
 import { searchBahnhof, getBestPrice } from './bahn-api'
 import { updateProgress, updateAverageResponseTimes, getAverageResponseTimes } from './utils'
 import { generateCacheKey, getCachedResult, getCacheSize } from './cache'
+import { recommendBestPrice } from '@/lib/recommendation-engine'
 
 // Hilfsfunktion für lokales Datum im Format YYYY-MM-DD
 function formatDateKey(date: Date) {
@@ -353,7 +354,7 @@ export async function POST(request: NextRequest) {
                     return true
                   })
 
-                  // Aktualisiere die Intervalle und berechne neuen Bestpreis
+                  // Aktualisiere die Intervalle und berechne neuen Bestpreis mit intelligentem Algorithmus
                   priceData.allIntervals = filteredIntervals
                   
                   if (filteredIntervals.length === 0) {
@@ -363,21 +364,31 @@ export async function POST(request: NextRequest) {
                     priceData.ankunftsZeitpunkt = ""
                     priceData.info = "Keine Verbindungen im gewählten Zeitfenster"
                   } else {
-                    // Finde neuen Bestpreis nach Filterung - bei gleichem Preis erst nach Dauer, dann nach Abfahrt sortieren
-                    const minPrice = Math.min(...filteredIntervals.map(i => i.preis))
-                    const bestPriceIntervals = filteredIntervals.filter(i => i.preis === minPrice)
-                    bestPriceIntervals.sort((a, b) => {
-                      const aDuration = new Date(a.ankunftsZeitpunkt).getTime() - new Date(a.abfahrtsZeitpunkt).getTime()
-                      const bDuration = new Date(b.ankunftsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
-                      if (aDuration !== bDuration) return aDuration - bDuration
-                      return new Date(a.abfahrtsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
-                    })
-                    const bestInterval = bestPriceIntervals[0]
+                    // Verwende intelligenten Algorithmus für Bestpreis-Auswahl
+                    const recommendedTrip = recommendBestPrice(filteredIntervals)
                     
-                    priceData.preis = minPrice
-                    priceData.abfahrtsZeitpunkt = bestInterval?.abfahrtsZeitpunkt || priceData.abfahrtsZeitpunkt
-                    priceData.ankunftsZeitpunkt = bestInterval?.ankunftsZeitpunkt || priceData.ankunftsZeitpunkt
-                    priceData.info = bestInterval?.info || priceData.info
+                    if (recommendedTrip) {
+                      priceData.preis = recommendedTrip.preis
+                      priceData.abfahrtsZeitpunkt = recommendedTrip.abfahrtsZeitpunkt
+                      priceData.ankunftsZeitpunkt = recommendedTrip.ankunftsZeitpunkt
+                      priceData.info = recommendedTrip.info
+                    } else {
+                      // Fallback zur alten Logik falls Algorithmus nichts findet
+                      const minPrice = Math.min(...filteredIntervals.map(i => i.preis))
+                      const bestPriceIntervals = filteredIntervals.filter(i => i.preis === minPrice)
+                      bestPriceIntervals.sort((a, b) => {
+                        const aDuration = new Date(a.ankunftsZeitpunkt).getTime() - new Date(a.abfahrtsZeitpunkt).getTime()
+                        const bDuration = new Date(b.ankunftsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
+                        if (aDuration !== bDuration) return aDuration - bDuration
+                        return new Date(a.abfahrtsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
+                      })
+                      const bestInterval = bestPriceIntervals[0]
+                      
+                      priceData.preis = minPrice
+                      priceData.abfahrtsZeitpunkt = bestInterval?.abfahrtsZeitpunkt || priceData.abfahrtsZeitpunkt
+                      priceData.ankunftsZeitpunkt = bestInterval?.ankunftsZeitpunkt || priceData.ankunftsZeitpunkt
+                      priceData.info = bestInterval?.info || priceData.info
+                    }
                   }
                 }
               }
@@ -391,6 +402,18 @@ export async function POST(request: NextRequest) {
               for (const dateKey of Object.keys(dayResponse.result)) {
                 const priceData = dayResponse.result[dateKey]
                 if (priceData && priceData.allIntervals && Array.isArray(priceData.allIntervals)) {
+                  // Falls noch kein spezifischer Bestpreis gesetzt wurde (d.h. keine Zeitfilter), 
+                  // verwende den intelligenten Algorithmus auch hier
+                  if (!abfahrtAb && !ankunftBis && priceData.allIntervals.length > 1) {
+                    const recommendedTrip = recommendBestPrice(priceData.allIntervals)
+                    if (recommendedTrip) {
+                      priceData.preis = recommendedTrip.preis
+                      priceData.abfahrtsZeitpunkt = recommendedTrip.abfahrtsZeitpunkt
+                      priceData.ankunftsZeitpunkt = recommendedTrip.ankunftsZeitpunkt
+                      priceData.info = recommendedTrip.info
+                    }
+                  }
+
                   // Definiere die Zeitfenster (wie bei der Bahn)
                   const timeSlots = [
                     { start: 0, end: 7 },    // 0-7 Uhr
@@ -418,20 +441,29 @@ export async function POST(request: NextRequest) {
                   // Markiere günstigste Verbindung pro Zeitfenster
                   slotMap.forEach((intervals) => {
                     if (intervals.length > 0) {
-                      // Sortiere: erst Preis, dann Reisedauer, dann Abfahrt
-                      const sortedIntervals = intervals.slice().sort((a, b) => {
-                        if (a.preis !== b.preis) return a.preis - b.preis
-                        // Reisedauer berechnen
-                        const aDuration = new Date(a.ankunftsZeitpunkt).getTime() - new Date(a.abfahrtsZeitpunkt).getTime()
-                        const bDuration = new Date(b.ankunftsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
-                        if (aDuration !== bDuration) return aDuration - bDuration
-                        // Abfahrtszeit
-                        return new Date(a.abfahrtsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
-                      })
-                      // Nur die erste Verbindung markieren
-                      sortedIntervals.forEach((interval, idx) => {
-                        interval.isCheapestPerInterval = idx === 0
-                      })
+                      // Verwende intelligenten Algorithmus für beste Verbindung pro Slot
+                      const bestInSlot = recommendBestPrice(intervals)
+                      if (bestInSlot) {
+                        // Markiere nur die empfohlene Verbindung im Slot
+                        intervals.forEach(interval => {
+                          interval.isCheapestPerInterval = interval === bestInSlot
+                        })
+                      } else {
+                        // Fallback: Sortiere nach Preis, dann Reisedauer, dann Abfahrt
+                        const sortedIntervals = intervals.slice().sort((a, b) => {
+                          if (a.preis !== b.preis) return a.preis - b.preis
+                          // Reisedauer berechnen
+                          const aDuration = new Date(a.ankunftsZeitpunkt).getTime() - new Date(a.abfahrtsZeitpunkt).getTime()
+                          const bDuration = new Date(b.ankunftsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
+                          if (aDuration !== bDuration) return aDuration - bDuration
+                          // Abfahrtszeit
+                          return new Date(a.abfahrtsZeitpunkt).getTime() - new Date(b.abfahrtsZeitpunkt).getTime()
+                        })
+                        // Nur die erste Verbindung markieren
+                        sortedIntervals.forEach((interval, idx) => {
+                          interval.isCheapestPerInterval = idx === 0
+                        })
+                      }
                     }
                   })
                 }

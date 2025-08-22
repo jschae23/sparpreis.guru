@@ -36,7 +36,16 @@ interface TrainSearchFormProps {
 export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
   const [start, setStart] = useState(searchParams.start || "")
   const [ziel, setZiel] = useState(searchParams.ziel || "")
-  const [reisezeitraumAb, setReisezeitraumAb] = useState(searchParams.reisezeitraumAb || new Date().toISOString().split("T")[0])
+  // Hilfsfunktion für morgen im Format YYYY-MM-DD
+  function getTomorrowISO() {
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return tomorrow.toISOString().split("T")[0]
+  }
+
+  const [reisezeitraumAb, setReisezeitraumAb] = useState(
+    searchParams.reisezeitraumAb || getTomorrowISO()
+  )
   const [alter, setAlter] = useState(searchParams.alter || "ERWACHSENER")
   const [ermaessigungArt, setErmaessigungArt] = useState(searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG")
   const [ermaessigungKlasse, setErmaessigungKlasse] = useState(searchParams.ermaessigungKlasse || "KLASSENLOS")

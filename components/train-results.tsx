@@ -337,6 +337,19 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     searchParams.tage,
   ])
 
+  // --- Tag-Navigation für Modal und Kalender ---
+  const dayKeys = validPriceResults.map(([date]) => date).sort()
+  const handleNavigateDay = (direction: number) => {
+    if (!selectedDay) return
+    const idx = dayKeys.indexOf(selectedDay)
+    const newIdx = idx + direction
+    if (newIdx >= 0 && newIdx < dayKeys.length) {
+      const newDay = dayKeys[newIdx]
+      setSelectedDay(newDay)
+      setSelectedData(priceResults[newDay])
+    }
+  }
+
   // Show nothing if no search params
   if (!searchParams.start || !searchParams.ziel) {
     return null
@@ -403,6 +416,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
               expectedDays={Number.parseInt(searchParams.dayLimit || "3")}
               sessionId={sessionId}
               onCancelSearch={cancelSearch}
+              selectedDay={selectedDay || undefined}
+              onNavigateDay={handleNavigateDay}
           />
         </div>
 
@@ -418,6 +433,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             startStation={startStation}
             zielStation={zielStation}
             searchParams={searchParams}
+            onNavigateDay={handleNavigateDay}
+            dayKeys={dayKeys}
         />
       </div>
   )

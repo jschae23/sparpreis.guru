@@ -30,8 +30,8 @@ class GlobalRateLimiter {
   // Adaptive Rate Limiting mit DB-API Burst-Logik
   private readonly baseInterval = 1200 // Basis-Intervall (1,2 Sekunden)
   private readonly burstInterval = 2000 // Nach Burst-Limit: 2 Sekunden
-  private readonly burstLimitCount = 15 // Burst-Limit: 15 Requests
-  private readonly burstLimitWindow = 20 * 1000 // 20 Sekunden
+  private readonly burstLimitCount = 15 // Burst-Limit: 20 Requests
+  private readonly burstLimitWindow = 30 * 1000 // 30 Sekunden
   private readonly sustainedInterval = 2500 // Nach Sustained-Limit: 2,5 Sekunden
   private readonly maxInterval = 10000 // Maximum 10 Sekunden
   
@@ -400,7 +400,7 @@ class GlobalRateLimiter {
       limitReason = `Sustained limit: ${requestsIn60Seconds}/50 requests in 60s`
     } else if (requestsInBurst >= this.burstLimitCount) {
       newInterval = this.burstInterval  
-      limitReason = `Burst limit: ${requestsInBurst}/20 requests in 20s`
+      limitReason = `Burst limit: ${requestsInBurst}/15 requests in 30s`
     } else {
       // Langsam zurück zum Basis-Intervall wenn unter den Limits
       if (this.minInterval > this.baseInterval) {
