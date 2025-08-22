@@ -221,18 +221,15 @@ export function DayDetailsModal({
   // Filter intervals based on toggle state
   const displayedIntervals = showOnlyCheapest 
     ? (() => {
-        // First try to filter by isCheapestPerInterval flag
+        // Filter by isCheapestPerInterval flag (günstigste pro Zeitfenster)
         const markedCheapest = intervals.filter(interval => interval.isCheapestPerInterval === true)
-        // If no intervals are marked as cheapest, fall back to showing the actual cheapest price intervals
-        let result: IntervalData[] = []
+        // If no intervals are marked as cheapest, fall back to showing all intervals
+        // (this maintains backward compatibility if the backend doesn't set the flag)
         if (markedCheapest.length === 0 && intervals.length > 0) {
-          const minPrice = Math.min(...intervals.map(i => i.preis))
-          result = intervals.filter(interval => interval.preis === minPrice)
-        } else {
-          result = markedCheapest
+          console.warn('No intervals marked as cheapest per time slot, showing all intervals')
+          return sortIntervals(intervals)
         }
-        // Immer nach Preis sortieren
-        return sortIntervals(result)
+        return sortIntervals(markedCheapest)
       })()
     : sortIntervals(intervals)
 
@@ -652,7 +649,8 @@ export function DayDetailsModal({
                 <div className="space-y-3">
                   {displayedIntervals.map((interval: any, index: number) => {
                     const isFastest = minDuration !== null && getDurationMinutes(interval.abfahrtsZeitpunkt, interval.ankunftsZeitpunkt) === minDuration;
-                    const isBestPrice = interval.preis === data.preis;
+                    // Ein Intervall ist "Bestpreis" wenn es entweder den Tagesbestpreis hat ODER als günstigstes im Zeitfenster markiert ist
+                    const isBestPrice = interval.preis === data.preis || interval.isCheapestPerInterval === true;
                     const isRecommended = recommendedTrip && 
                       interval.abfahrtsZeitpunkt === recommendedTrip.abfahrtsZeitpunkt && 
                       interval.ankunftsZeitpunkt === recommendedTrip.ankunftsZeitpunkt &&

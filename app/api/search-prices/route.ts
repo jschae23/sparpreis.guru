@@ -26,6 +26,7 @@ interface TrainResult {
     ankunftsOrt: string
     info: string
     umstiegsAnzahl: number
+    isCheapestPerInterval?: boolean
   }>
 }
 
@@ -424,6 +425,11 @@ export async function POST(request: NextRequest) {
                     { start: 19, end: 24 },  // 19-24 Uhr
                   ]
 
+                  // Setze alle Verbindungen erstmal auf false
+                  for (const interval of priceData.allIntervals) {
+                    interval.isCheapestPerInterval = false
+                  }
+
                   // Gruppiere Verbindungen nach Zeitfenstern
                   const slotMap = new Map<number, any[]>()
                   for (const interval of priceData.allIntervals) {
@@ -438,16 +444,20 @@ export async function POST(request: NextRequest) {
                     }
                   }
 
-                  // Markiere günstigste Verbindung pro Zeitfenster
+                                    // Markiere günstigste Verbindung pro Zeitfenster
                   slotMap.forEach((intervals) => {
                     if (intervals.length > 0) {
                       // Verwende intelligenten Algorithmus für beste Verbindung pro Slot
                       const bestInSlot = recommendBestPrice(intervals)
                       if (bestInSlot) {
-                        // Markiere nur die empfohlene Verbindung im Slot
-                        intervals.forEach(interval => {
-                          interval.isCheapestPerInterval = interval === bestInSlot
-                        })
+                        // Finde die entsprechende Verbindung und markiere sie
+                        for (const interval of intervals) {
+                          interval.isCheapestPerInterval = (
+                            interval.abfahrtsZeitpunkt === bestInSlot.abfahrtsZeitpunkt &&
+                            interval.ankunftsZeitpunkt === bestInSlot.ankunftsZeitpunkt &&
+                            interval.preis === bestInSlot.preis
+                          )
+                        }
                       } else {
                         // Fallback: Sortiere nach Preis, dann Reisedauer, dann Abfahrt
                         const sortedIntervals = intervals.slice().sort((a, b) => {
