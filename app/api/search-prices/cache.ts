@@ -53,32 +53,44 @@ export function generateCacheKey(params: {
   nurDeutschlandTicketVerbindungen: boolean
   abfahrtAb?: string
   ankunftBis?: string
+  umstiegszeit?: string
 }): string {
-  return JSON.stringify(params)
+  // Bereinige undefined Werte für konsistente Cache-Keys
+  const cleanedParams = {
+    startStationId: params.startStationId,
+    zielStationId: params.zielStationId,
+    date: params.date,
+    alter: params.alter,
+    ermaessigungArt: params.ermaessigungArt,
+    ermaessigungKlasse: params.ermaessigungKlasse,
+    klasse: params.klasse,
+    maximaleUmstiege: params.maximaleUmstiege,
+    schnelleVerbindungen: params.schnelleVerbindungen,
+    nurDeutschlandTicketVerbindungen: params.nurDeutschlandTicketVerbindungen,
+    // Nur definierte optionale Parameter hinzufügen
+    ...(params.abfahrtAb && params.abfahrtAb !== "undefined" && { abfahrtAb: params.abfahrtAb }),
+    ...(params.ankunftBis && params.ankunftBis !== "undefined" && { ankunftBis: params.ankunftBis }),
+    ...(params.umstiegszeit && params.umstiegszeit !== "undefined" && { umstiegszeit: params.umstiegszeit }),
+  }
+  
+  return JSON.stringify(cleanedParams)
 }
 
 export function getCachedResult(cacheKey: string): TrainResults | null {
-  console.log(`🔍 Looking for cache key: ${cacheKey.substring(0, 100)}...`)
-  console.log(`📊 Cache currently has ${cache.size} entries`)
-  
   const entry = cache.get(cacheKey)
   if (!entry) {
-    console.log(`❌ No cache entry found`)
     return null
   }
   
   const now = Date.now()
   const age = now - entry.timestamp
-  console.log(`⏱️ Cache entry age: ${Math.round(age / 1000)}s, TTL: ${Math.round(entry.ttl / 1000)}s`)
   
   if (age > entry.ttl) {
     // Cache ist abgelaufen
-    console.log(`⏰ Cache entry expired`)
     cache.delete(cacheKey)
     return null
   }
   
-  console.log(`📦 Cache hit for key: ${cacheKey.substring(0, 100)}...`)
   return entry.data
 }
 
@@ -88,7 +100,6 @@ export function setCachedResult(cacheKey: string, data: TrainResults | null): vo
     const oldestKey = cache.keys().next().value
     if (typeof oldestKey === 'string') {
       cache.delete(oldestKey)
-      console.log(`🗑️ Removed oldest cache entry to keep cache size <= ${MAX_CACHE_ENTRIES}`)
     }
   }
   cache.set(cacheKey, {
@@ -96,19 +107,20 @@ export function setCachedResult(cacheKey: string, data: TrainResults | null): vo
     timestamp: Date.now(),
     ttl: CACHE_TTL
   })
-  console.log(`💾 Cached result for key: ${cacheKey.substring(0, 100)}...`)
-  // Speicherverbrauch schätzen (Summe der JSON-Strings aller Cache-Values)
-  let totalBytes = 0
-  for (const entry of cache.values()) {
-    try {
-      totalBytes += Buffer.byteLength(JSON.stringify(entry), 'utf8')
-    } catch {}
+  
+  // Reduzierte Logs: Nur alle 50 Cache-Einträge loggen
+  if (cache.size % 50 === 0 || cache.size < 10) {
+    let totalBytes = 0
+    for (const entry of cache.values()) {
+      try {
+        totalBytes += Buffer.byteLength(JSON.stringify(entry), 'utf8')
+      } catch {}
+    }
+    let sizeStr = totalBytes < 1024 * 1024
+      ? (totalBytes / 1024).toFixed(1) + ' kB'
+      : (totalBytes / (1024 * 1024)).toFixed(2) + ' MB'
+    console.log(`� Cache: ${cache.size} entries, ${sizeStr}`)
   }
-  let sizeStr = totalBytes < 1024 * 1024
-    ? (totalBytes / 1024).toFixed(1) + ' kB'
-    : (totalBytes / (1024 * 1024)).toFixed(2) + ' MB'
-  const humanReadable = cache.size.toLocaleString('de-DE')
-  console.log(`📊 Cache now has ${cache.size} entries (${humanReadable}), approx. ${sizeStr}`)
 }
 
 // Cache-Bereinigung (entfernt abgelaufene Einträge)

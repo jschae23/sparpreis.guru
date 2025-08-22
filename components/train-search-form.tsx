@@ -22,11 +22,11 @@ interface SearchParams {
   schnelleVerbindungen?: string
   nurDeutschlandTicketVerbindungen?: string
   maximaleUmstiege?: string
-  dayLimit?: string
   reisezeitraumBis?: string
   abfahrtAb?: string
   ankunftBis?: string
   tage?: string // JSON-String mit Array der gewünschten Tage
+  umstiegszeit?: string
 }
 
 interface TrainSearchFormProps {
@@ -67,7 +67,6 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
       ? searchParams.maximaleUmstiege
       : "3"
   )
-  const [dayLimit, setDayLimit] = useState(searchParams.dayLimit || "3")
   const [reisezeitraumBis, setReisezeitraumBis] = useState(() => {
     if (searchParams.reisezeitraumBis) return searchParams.reisezeitraumBis
     const ab = new Date(reisezeitraumAb)
@@ -141,6 +140,9 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     if (nurDeutschlandTicket) params.set("nurDeutschlandTicketVerbindungen", "1")
     if (abfahrtAb) params.set("abfahrtAb", abfahrtAb)
     if (ankunftBis) params.set("ankunftBis", ankunftBis)
+    if (umstiegszeit && umstiegszeit !== "normal") {
+      params.set("umstiegszeit", umstiegszeit)
+    }
     if (nurDirektverbindungen) {
       params.set("maximaleUmstiege", "0")
     } else {
@@ -148,7 +150,6 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     }
     const diffTime = new Date(reisezeitraumBis).getTime() - new Date(reisezeitraumAb).getTime()
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1
-    params.set("dayLimit", Math.max(1, Math.min(30, diffDays)).toString())
     // Sende die einzelnen Tage als JSON-String
     params.set("tage", JSON.stringify(selectedDates))
 
@@ -167,9 +168,9 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     setNurDeutschlandTicket(false)
     setNurDirektverbindungen(false)
     setMaximaleUmstiege("3")
-    setDayLimit("3")
     setAbfahrtAb("")
     setAnkunftBis("")
+    setUmstiegszeit("normal")
     setSelectedWeekdays([1,2,3,4,5,6,0]) // Reset zu allen Wochentagen
     // URL bereinigen
     window.history.replaceState({}, document.title, window.location.pathname)
@@ -219,6 +220,9 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
       ? searchParams.maximaleUmstiege
       : "3"
   )
+  
+  // Umstiegszeit State
+  const [umstiegszeit, setUmstiegszeit] = useState(searchParams.umstiegszeit || "normal")
 
   return (
     <div className="bg-gray-50 p-6 rounded-lg">
@@ -555,6 +559,8 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 Nur Deutschland-Ticket-Verbindungen
               </Label>
             </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center mt-4 w-full">
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="direktverbindungen"
@@ -579,6 +585,27 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 onChange={handleMaximaleUmstiegeChange}
                 className={`w-24 ${nurDirektverbindungen ? 'bg-gray-100 text-gray-500' : ''}`}
               />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="umstiegszeit" className="mb-0">
+                <span className="inline-flex items-center gap-1"><Clock className="w-4 h-4 text-black" />Umstiegszeit</span>
+              </Label>
+              <Select value={umstiegszeit} onValueChange={setUmstiegszeit} disabled={nurDirektverbindungen}>
+                <SelectTrigger className={`w-32 ${nurDirektverbindungen ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} disabled={nurDirektverbindungen}>
+                  <SelectValue placeholder="Normal" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="normal">Normal</SelectItem>
+                  <SelectItem value="10">10 Minuten</SelectItem>
+                  <SelectItem value="15">15 Minuten</SelectItem>
+                  <SelectItem value="20">20 Minuten</SelectItem>
+                  <SelectItem value="25">25 Minuten</SelectItem>
+                  <SelectItem value="30">30 Minuten</SelectItem>
+                  <SelectItem value="35">35 Minuten</SelectItem>
+                  <SelectItem value="40">40 Minuten</SelectItem>
+                  <SelectItem value="45">45 Minuten</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>

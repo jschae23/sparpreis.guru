@@ -5,13 +5,19 @@ import { getAppVersion, getCurrentYear } from "@/lib/app-info"
 interface SearchParams {
   start?: string
   ziel?: string
-  abfahrtab?: string
+  reisezeitraumAb?: string
+  reisezeitraumBis?: string
+  alter?: string
+  ermaessigungArt?: string
+  ermaessigungKlasse?: string
+  abfahrtAb?: string // Fixed typo: was "abfahrtab" 
+  ankunftBis?: string
   klasse?: string
   schnelleVerbindungen?: string
   nurDeutschlandTicketVerbindungen?: string
   maximaleUmstiege?: string
-  dayLimit?: string
   tage?: string // JSON-String mit Array der gewünschten Tage
+  umstiegszeit?: string // Das hat gefehlt!
 }
 
 export default async function Page({
@@ -27,7 +33,7 @@ export default async function Page({
 
   return (
     <div className="min-h-screen bg-white">
-      <div className="container mx-auto px-6 py-10 max-w-6xl">
+      <div className="container mx-auto px-4 py-6 max-w-6xl">
         <header className="mb-8">
           <h1 className="text-4xl font-bold mb-2">
             <a href="/" className="text-gray-600 hover:text-retro-gradient">

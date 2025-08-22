@@ -521,7 +521,7 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
                 <div
                   key={dateKey}
                   className={`
-                    relative min-h-[64px] sm:min-h-[80px] p-1 sm:p-2 border rounded-lg transition-all hover:shadow-sm
+                    relative min-h-[90px] sm:min-h-[100px] p-2 sm:p-3 border rounded-lg transition-all hover:shadow-sm flex flex-col justify-between
                     ${!isCurrentMonth ? "opacity-30" : ""}
                     ${isToday ? "ring-2 ring-blue-500" : ""}
                     ${hasPrice ? getPriceBg(priceData.preis) : 

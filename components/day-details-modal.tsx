@@ -5,9 +5,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { MapPin, ArrowRight, Euro, Calendar, Train, TrendingUp, GraduationCap, User, Percent, Shuffle, Clock, Filter, Info, Star, ChevronLeft, ChevronRight } from "lucide-react"
+import { MapPin, ArrowRight, Euro, Calendar, Train, TrendingUp, GraduationCap, User, Percent, Shuffle, Clock, Filter, Info, Star, ChevronLeft, ChevronRight, Timer } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { recommendOne } from "@/lib/recommendation-engine"
+import { AnimatePresence, motion } from "framer-motion"
+import { start } from "repl"
 
 interface Interval {
   preis: number
@@ -82,6 +84,8 @@ function getRParam(alter: string, ermaessigungArt: string, ermaessigungKlasse: s
 
 function createBookingLink(
   abfahrtsZeitpunkt: string,
+  startStationName: string,
+  zielStationName: string,
   startStationId: string,
   zielStationId: string,
   klasse: string,
@@ -89,6 +93,7 @@ function createBookingLink(
   alter: string,
   ermaessigungArt: string,
   ermaessigungKlasse: string,
+  umstiegszeit?: string
 ): string {
   if (!abfahrtsZeitpunkt || !startStationId || !zielStationId) {
     return ""
@@ -100,7 +105,12 @@ function createBookingLink(
 
   const rParam = getRParam(alter, ermaessigungArt, ermaessigungKlasse, klasse)
 
-  return `https://www.bahn.de/buchung/fahrplan/suche#sts=true&kl=${klasseParam}&r=${rParam}&hd=${departureTime}&soid=${encodeURIComponent(startStationId)}&zoid=${encodeURIComponent(zielStationId)}&bp=true&d=${direktverbindung}`
+  let url = `https://www.bahn.de/buchung/fahrplan/suche#sts=true&kl=${klasseParam}&r=${rParam}&hd=${departureTime}&so=${encodeURIComponent(startStationName)}&zo=${encodeURIComponent(zielStationName)}&soid=${encodeURIComponent(startStationId)}&zoid=${encodeURIComponent(zielStationId)}&bp=true&d=${direktverbindung}`
+
+  if (umstiegszeit && umstiegszeit !== "normal") {
+    url += `&mud=${umstiegszeit}`
+  }
+  return url
 }
 
 function getAlterLabel(alter: string | undefined) {
@@ -125,22 +135,24 @@ export function DayDetailsModal({
   dayKeys = [],
 }: DayDetailsModalProps) {
   const [showOnlyCheapest, setShowOnlyCheapest] = useState(true)
-  // Sortier-Logik für die Tabelle
-  type SortKey = 'abfahrt' | 'ankunft' | 'umstiege' | 'dauer' | 'preis'
-  const [sortKey, setSortKey] = useState<SortKey>('preis')
+  const [sortKey, setSortKey] = useState<'preis' | 'abfahrt' | 'ankunft' | 'umstiege' | 'dauer'>('preis')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
-
-  // Swipe-Handling für Tag-Navigation im Modal - Hooks IMMER oben
-  const touchStartX = React.useRef<number | null>(null)
+  const [animationDirection, setAnimationDirection] = useState<1 | -1>(1)
   
-  // Keyboard-Handling für Tag-Navigation im Modal - Hooks IMMER oben
+  // Swipe-Handling für Tag-Navigation im Modal
+  const touchStartX = React.useRef<number | null>(null)
+  const previousDate = React.useRef<string | null>(null)
+  
+  // Keyboard-Handling für Tag-Navigation im Modal
   React.useEffect(() => {
     if (!isOpen) return
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft' && onNavigateDay) {
+        setAnimationDirection(-1)
         onNavigateDay(-1)
       } else if (e.key === 'ArrowRight' && onNavigateDay) {
+        setAnimationDirection(1)
         onNavigateDay(1)
       }
     }
@@ -149,18 +161,39 @@ export function DayDetailsModal({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onNavigateDay])
 
+  // Track animation direction based on date changes
+  React.useEffect(() => {
+    if (!date || !dayKeys.length || !previousDate.current) {
+      previousDate.current = date
+      return
+    }
+
+    const currentIdx = dayKeys.indexOf(date)
+    const prevIdx = dayKeys.indexOf(previousDate.current)
+    
+    if (currentIdx !== -1 && prevIdx !== -1 && currentIdx !== prevIdx) {
+      setAnimationDirection(currentIdx > prevIdx ? 1 : -1)
+    }
+    
+    previousDate.current = date
+  }, [date, dayKeys])
+
+  // Define SortKey type for table sorting
+  type SortKey = 'preis' | 'abfahrt' | 'ankunft' | 'umstiege' | 'dauer'
+
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX
   }
+  
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (touchStartX.current === null || !onNavigateDay) return
     const deltaX = e.changedTouches[0].clientX - touchStartX.current
-    if (Math.abs(deltaX) > 50) {
+    if (Math.abs(deltaX) > 100) {
       if (deltaX < 0) {
-        // Swipe nach links → nächster Tag
+        setAnimationDirection(1)
         onNavigateDay(1)
       } else {
-        // Swipe nach rechts → vorheriger Tag
+        setAnimationDirection(-1)
         onNavigateDay(-1)
       }
     }
@@ -215,6 +248,7 @@ export function DayDetailsModal({
     month: "long",
     day: "numeric",
   })
+  const shortDate = dateObj.toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })
 
   const intervals = data.allIntervals || []
   
@@ -249,6 +283,20 @@ export function DayDetailsModal({
     return `${hours}h ${minutes}min`
   }
 
+  // Hilfsfunktion um Zeitfenster zu bestimmen
+  const getTimeSlotLabel = (abfahrtsZeitpunkt: string): string => {
+    const depDate = new Date(abfahrtsZeitpunkt)
+    const depHour = depDate.getHours()
+    
+    if (depHour >= 0 && depHour < 7) return "0–7 Uhr"
+    if (depHour >= 7 && depHour < 10) return "7–10 Uhr"
+    if (depHour >= 10 && depHour < 13) return "10–13 Uhr"
+    if (depHour >= 13 && depHour < 16) return "13–16 Uhr"
+    if (depHour >= 16 && depHour < 19) return "16–19 Uhr"
+    if (depHour >= 19) return "19–24 Uhr"
+    return "Unbekannt"
+  }
+
   // Hilfsfunktion für Vergleich: Dauer in Minuten
   const getDurationMinutes = (departure: string, arrival: string) => {
     const dep = new Date(departure)
@@ -272,20 +320,22 @@ export function DayDetailsModal({
     return "text-orange-600 bg-orange-50"
   }
 
+  const swipeDirection = animationDirection
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto"
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto sm:px-4 px-4"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Calendar className="h-5 w-5 text-blue-600" />
-            {formattedDate}
+            <span className="hidden sm:inline">{formattedDate}</span>
+            <span className="sm:hidden">{shortDate}</span>
             {isWeekend && <Badge variant="secondary">Wochenende</Badge>}
           </DialogTitle>
         </DialogHeader>
-
         {/* Desktop: Tag-Navigation Pfeile unterhalb des Headers */}
         {onNavigateDay && dayKeys.length > 1 && (
           <>
@@ -294,8 +344,12 @@ export function DayDetailsModal({
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => onNavigateDay(-1)}
-                disabled={!date || dayKeys.indexOf(date) <= 0}
+                onClick={() => {
+                  setAnimationDirection(-1)
+                  onNavigateDay(-1)
+                }}
+                disabled={!date || dayKeys.indexOf(date) <= 0
+                }
                 className="h-8 px-3"
                 title="Vorheriger Tag (Pfeil links)"
               >
@@ -308,7 +362,10 @@ export function DayDetailsModal({
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => onNavigateDay(1)}
+                onClick={() => {
+                  setAnimationDirection(1)
+                  onNavigateDay(1)
+                }}
                 disabled={!date || dayKeys.indexOf(date) >= dayKeys.length - 1}
                 className="h-8 px-3"
                 title="Nächster Tag (Pfeil rechts)"
@@ -318,11 +375,14 @@ export function DayDetailsModal({
               </Button>
             </div>
             {/* Mobile: Kompaktere, kleinere Pfeile unter dem Datum */}
-            <div className="flex md:hidden items-center justify-center gap-2 py-0 mt-1 mb-1">
+            <div className="flex md:hidden items-center justify-center gap-2 py-0 mt-0 mb-0">
               <Button 
                 variant="outline" 
                 size="icon"
-                onClick={() => onNavigateDay(-1)}
+                onClick={() => {
+                  setAnimationDirection(-1)
+                  onNavigateDay(-1)
+                }}
                 disabled={!date || dayKeys.indexOf(date) <= 0}
                 className="h-8 w-8"
                 title="Vorheriger Tag"
@@ -335,7 +395,10 @@ export function DayDetailsModal({
               <Button 
                 variant="outline" 
                 size="icon"
-                onClick={() => onNavigateDay(1)}
+                onClick={() => {
+                  setAnimationDirection(1)
+                  onNavigateDay(1)
+                }}
                 disabled={!date || dayKeys.indexOf(date) >= dayKeys.length - 1}
                 className="h-8 w-8"
                 title="Nächster Tag"
@@ -348,317 +411,126 @@ export function DayDetailsModal({
 
         {/* Swipe-Hinweis für Mobile */}
         {onNavigateDay && dayKeys.length > 1 && (
-          <div className="md:hidden text-center text-xs text-gray-400 pb-2">
+          <div className="md:hidden text-center text-xs text-gray-400 pb-0 pt-0">
             💡 Wische nach links/rechts um zwischen Tagen zu wechseln
           </div>
         )}
 
-        <div className="space-y-4">
-          {/* Strecken-Info Header */}
-          <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
-            <div className="flex items-center gap-2 text-blue-700 text-lg font-semibold mb-3">
-              <MapPin className="h-5 w-5" />
-              <span>{startStation?.name}</span>
-              <ArrowRight className="h-5 w-5 text-gray-400" />
-              <span>{zielStation?.name}</span>
-            </div>
-            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-700">
-              <div className="flex items-center gap-1">
-                <User className="w-4 h-4" />
-                <span>{getAlterLabel(searchParams.alter)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Train className="w-4 h-4" />
-                <span>{searchParams.klasse === "KLASSE_1" ? "1. Klasse" : "2. Klasse"}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Percent className="w-4 h-4" />
-                <span>{searchParams.ermaessigungArt === "KEINE_ERMAESSIGUNG" ? "Keine Ermäßigung" : `${searchParams.ermaessigungArt === "BAHNCARD25" ? "BahnCard 25" : searchParams.ermaessigungArt === "BAHNCARD50" ? "BahnCard 50" : searchParams.ermaessigungArt}, ${searchParams.ermaessigungKlasse === "KLASSE_1" ? "1. Klasse" : "2. Klasse"}`}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Shuffle className="w-4 h-4" />
-                <span>Max. Umstiege: {searchParams.maximaleUmstiege || "0"}</span>
-              </div>
-              {searchParams.abfahrtAb && (
-                <div className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  <span>Abfahrt ab: {searchParams.abfahrtAb} Uhr</span>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={date}
+            initial={{ opacity: 0, x: animationDirection * 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: animationDirection * -40 }}
+            transition={{ duration: 0.25 }}
+          >
+            <div className="space-y-6">
+              {/* Strecken-Info Header */}
+              <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                <div className="flex items-center gap-2 text-blue-700 text-lg font-semibold mb-3">
+                  <MapPin className="h-5 w-5" />
+                  <span>{startStation?.name}</span>
+                  <ArrowRight className="h-5 w-5 text-gray-400" />
+                  <span>{zielStation?.name}</span>
                 </div>
-              )}
-              {searchParams.ankunftBis && (
-                <div className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  <span>Ankunft bis: {searchParams.ankunftBis} Uhr</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Top-Optionen: Bestpreis vs. KI-Empfehlung */}
-          <div className="grid gap-4 md:grid-cols-2">
-            {/* Bestpreis */}
-            <div className="bg-green-50 border-2 border-green-200 p-4 rounded-lg relative flex flex-col justify-between h-full">
-              <div className="absolute -top-3 left-4 flex gap-2">
-                <Badge className="bg-green-600 text-white px-3 py-1">
-                  <Euro className="h-3 w-3 mr-1" />
-                  Bestpreis
-                </Badge>
-                {recommendation && recommendedTrip && recommendedTrip.preis === data.preis && (
-                  <Badge className="bg-amber-100 text-amber-800 border border-amber-400 px-3 py-1">
-                    <Star className="h-3 w-3 mr-1" />
-                    Empfohlen
-                  </Badge>
-                )}
-              </div>
-              <div className="flex-1 flex flex-col justify-between">
-                <div>
-                  <div className="text-4xl font-bold text-green-700 mb-2">{data.preis}€</div>
-                  {/* Gemeinsame Zeile für Reisedaten */}
-                  {data.abfahrtsZeitpunkt && data.ankunftsZeitpunkt && (() => {
-                    // Nutze recommendBestPrice für die Anzeige
-                    const bestPriceTrip = intervals.length > 0 ? require('@/lib/recommendation-engine').recommendBestPrice(intervals) : null
-                    return bestPriceTrip ? (
-                      <div className="flex flex-wrap items-center gap-2 md:gap-4 text-sm text-gray-600 mb-3">
-                        <span>
-                          {new Date(bestPriceTrip.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                          <ArrowRight className="inline h-3 w-3 mx-1" />
-                          {new Date(bestPriceTrip.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                        <span>({calculateDuration(bestPriceTrip.abfahrtsZeitpunkt, bestPriceTrip.ankunftsZeitpunkt)})</span>
-                        <span className="flex items-center gap-1">
-                          <Shuffle className="h-4 w-4 text-gray-500" />
-                          <span className="hidden md:inline">Umstiege:</span>
-                          {bestPriceTrip.umstiegsAnzahl || 0}
-                        </span>
-                        {(bestPriceTrip.umstiegsAnzahl || 0) === 0 && (
-                          <span className="block md:inline w-full md:w-auto text-center md:text-left mt-2 md:mt-0">
-                            <Badge variant="outline" className="text-green-700 border-green-300 text-xs ml-0.5 mx-auto md:mx-0">Direktverbindung</Badge>
-                          </span>
-                        )}
-                      </div>
-                    ) : null
-                  })()}
-                </div>
-                {data.abfahrtsZeitpunkt && startStation && zielStation && (
-                  <Button
-                    onClick={() => {
-                      const bookingLink = createBookingLink(
-                        data.abfahrtsZeitpunkt,
-                        startStation.id,
-                        zielStation.id,
-                        searchParams.klasse || "KLASSE_2",
-                        searchParams.maximaleUmstiege || "0",
-                        searchParams.alter || "ERWACHSENER",
-                        searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG",
-                        searchParams.ermaessigungKlasse || "KLASSENLOS",
-                      )
-                      if (bookingLink) {
-                        window.open(bookingLink, "_blank")
-                      }
-                    }}
-                    className="bg-green-600 hover:bg-green-700 w-full mt-auto"
-                  >
-                    <Train className="h-4 w-4 mr-2" />
-                    Bestpreis buchen
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* KI-Empfehlung */}
-            {recommendation && recommendedTrip && recommendedTrip.preis !== data.preis ? (
-              <div className="bg-amber-50 border-2 border-amber-200 p-4 rounded-lg relative flex flex-col justify-between h-full">
-                <div className="absolute -top-3 left-4">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Badge className="bg-amber-600 text-white px-3 py-1 cursor-help">
-                        <Star className="h-3 w-3 mr-1" />
-                        Empfohlen
-                      </Badge>
-                    </PopoverTrigger>
-                    <PopoverContent className="max-w-sm text-sm">
-                      <div className="font-semibold mb-2 text-amber-800">🧠 Intelligente Empfehlung</div>
-                      <div className="space-y-2">
-                        <div>Unser Algorithmus bewertet alle Verbindungen nach:</div>
-                        <ul className="list-disc list-inside space-y-1 text-xs text-gray-600">
-                          <li><strong>45%</strong> Preis</li>
-                          <li><strong>30%</strong> Reisezeit</li>
-                          <li><strong>25%</strong> Anzahl Umstiege (Komfort)</li>
-                          <li><strong>Direktverbindung</strong> wird bis zu 40% Aufpreis bevorzugt</li>
-                        </ul>
-                        <div className="text-xs mt-2 p-2 bg-amber-100 rounded">
-                          <strong>Diese Verbindung:</strong> {recommendation.explanation.reason}
-                        </div>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div className="flex-1 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-baseline gap-2 mb-2">
-                      <span className="text-4xl font-bold text-amber-700">{recommendedTrip.preis.toFixed(2)}€</span>
-                      <span className="text-lg text-gray-500">+{(recommendedTrip.preis - data.preis).toFixed(2)}€</span>
-                    </div>
-                    {/* Gemeinsame Zeile für Reisedaten */}
-                    <div className="flex flex-wrap items-center gap-2 md:gap-4 text-sm text-gray-600 mb-1">
-                      <span>
-                        {new Date(recommendedTrip.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                        <ArrowRight className="inline h-3 w-3 mx-1" />
-                        {new Date(recommendedTrip.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                      <span>({calculateDuration(recommendedTrip.abfahrtsZeitpunkt, recommendedTrip.ankunftsZeitpunkt)})</span>
-                      <span className="flex items-center gap-1">
-                        <Shuffle className="h-4 w-4 text-gray-500" />
-                        <span className="hidden md:inline">Umstiege:</span>
-                        {recommendedTrip.umstiegsAnzahl || 0}
-                      </span>
-                      {(recommendedTrip.umstiegsAnzahl || 0) === 0 && (
-                        <Badge variant="outline" className="text-green-700 border-green-300 text-xs ml-1">Direktverbindung</Badge>
-                      )}
-                    </div>
-                    {/* Begründung für die KI-Analyse */}
-                    <div className="text-sm text-amber-700 font-medium mb-3">
-                      {recommendation.explanation.reason}
-                    </div>
+                {/* Gruppe 1: Reisende & Ticket */}
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-700">
+                  <div className="flex items-center gap-1">
+                    <User className="w-4 h-4" />
+                    {getAlterLabel(searchParams.alter)}
                   </div>
-                  {startStation && zielStation && (
-                    <Button
-                      onClick={() => {
-                        const bookingLink = createBookingLink(
-                          recommendedTrip.abfahrtsZeitpunkt,
-                          startStation.id,
-                          zielStation.id,
-                          searchParams.klasse || "KLASSE_2",
-                          searchParams.maximaleUmstiege || "0",
-                          searchParams.alter || "ERWACHSENER",
-                          searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG",
-                          searchParams.ermaessigungKlasse || "KLASSENLOS",
-                        )
-                        if (bookingLink) {
-                          window.open(bookingLink, "_blank")
-                        }
-                      }}
-                      className="bg-amber-600 hover:bg-amber-700 w-full mt-auto"
-                    >
-                      <Star className="h-4 w-4 mr-2" />
-                      Empfehlung buchen
-                    </Button>
+                  <div className="flex items-center gap-1">
+                    <Train className="w-4 h-4" />
+                    {searchParams.klasse === "KLASSE_1" ? "1. Klasse" : "2. Klasse"}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Percent className="w-4 h-4" />
+                    {searchParams.ermaessigungArt === "KEINE_ERMAESSIGUNG"
+                      ? "Keine Ermäßigung"
+                      : `${searchParams.ermaessigungArt === "BAHNCARD25" ? "BahnCard 25" : searchParams.ermaessigungArt === "BAHNCARD50" ? "BahnCard 50" : searchParams.ermaessigungArt}, ${searchParams.ermaessigungKlasse === "KLASSE_1" ? "1. Kl." : "2. Kl."}`}
+                  </div>
+                </div>
+                {/* Gruppe 2: Reiseoptionen */}
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-700 mt-2 pt-2 border-t border-blue-100">
+                  {searchParams.abfahrtAb && (
+                    <div className="flex items-center gap-1">
+                      <Clock className="w-4 h-4" />
+                      Abfahrt ab: {searchParams.abfahrtAb} Uhr
+                    </div>
+                  )}
+                  {searchParams.ankunftBis && (
+                    <div className="flex items-center gap-1">
+                      <Clock className="w-4 h-4" />
+                      Ankunft bis: {searchParams.ankunftBis} Uhr
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1">
+                    <Shuffle className="w-4 h-4" />
+                    Max. Umstiege: {searchParams.maximaleUmstiege || "0"}
+                  </div>
+                  {searchParams.umstiegszeit && searchParams.umstiegszeit !== "normal" && (
+                    <div className="flex items-center gap-1">
+                      <Timer className="w-4 h-4" />
+                      Umstiegszeit: {searchParams.umstiegszeit} min
+                    </div>
                   )}
                 </div>
               </div>
-            ) : (
-              <div className="hidden md:flex bg-amber-50 border-2 border-amber-200 p-4 rounded-lg shadow-sm items-center justify-center">
-                <div className="text-center">
-                  <Star className="h-8 w-8 mx-auto mb-2 text-amber-400" />
-                  <div className="font-semibold text-amber-800">Bestpreis ist bereits optimal!</div>
-                  <div className="text-sm mt-1 text-amber-700">Die KI-Analyse bestätigt: Diese Verbindung bietet die beste Balance aus Preis, Zeit und Komfort.<br/>Keine bessere Empfehlung möglich.</div>
-                </div>
-              </div>
-            )}
-          </div>
 
-          {/* Kompakte Preisstatistik über der Tabelle */}
-          {hasMultipleIntervals && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded px-3 py-2 mb-2 text-xs flex flex-wrap gap-4 justify-center">
-              <div className="flex items-center gap-1">
-                <span className="text-gray-600">Günstigste:</span>
-                <span className="font-bold text-green-600">{Math.min(...intervals.map((i: any) => i.preis))}€</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-gray-600">Durchschnitt:</span>
-                <span className="font-bold text-blue-600">{Math.round(intervals.reduce((sum: number, i: any) => sum + i.preis, 0) / intervals.length)}€</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-gray-600">Teuerste:</span>
-                <span className="font-bold text-red-600">{Math.max(...intervals.map((i: any) => i.preis))}€</span>
-              </div>
-            </div>
-          )}
-
-          {/* All Available Connections */}
-          {hasMultipleIntervals && (
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-2 md:gap-0">
-                <h3 className="font-semibold text-blue-800 flex items-center gap-2">
-                  <Train className="h-4 w-4" />
-                  Alle verfügbaren Verbindungen ({intervals.length})
-                </h3>
-                <div className="flex flex-col md:flex-row md:items-center gap-1 mt-2 md:mt-0">
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm text-blue-700">Nur günstigste Fahrt im Bestpreis-Zeitfenster</span>
-                    <Switch
-                      checked={showOnlyCheapest}
-                      onCheckedChange={setShowOnlyCheapest}
-                    />
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 p-0 text-blue-600" aria-label="Info zu Zeitfenstern">
-                          <Info className="h-4 w-4" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="max-w-xs text-sm text-gray-700">
-                        <div className="font-semibold mb-1 text-blue-800">Bestpreis-Zeitfenster</div>
-                        <div>
-                          Die Bahn gruppiert Bestpreis-Verbindungen in folgende Zeitfenster:<br />
-                          0–7 Uhr, 7-10 Uhr, 10–13 Uhr, 13–16 Uhr, 16–19 Uhr, 19–24 Uhr.<br />
-                          Pro Zeitfenster wird jeweils die günstigste Verbindung angezeigt.<br />
-                          Dies entspricht der offiziellen Bestpreis-Suche der Bahn.
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+              {/* Top-Optionen: Bestpreis vs. KI-Empfehlung */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {/* Bestpreis */}
+                <div className="bg-green-50 border-2 border-green-200 p-4 rounded-lg relative flex flex-col justify-between h-full">
+                  <div className="absolute -top-3 left-4 flex gap-2">
+                    <Badge className="bg-green-600 text-white px-3 py-1">
+                      <Euro className="h-3 w-3 mr-1" />
+                      Bestpreis
+                    </Badge>
+                    {recommendation && recommendedTrip && recommendedTrip.preis === data.preis && (
+                      <Badge className="bg-amber-100 text-amber-800 border border-amber-400 px-3 py-1">
+                        <Star className="h-3 w-3 mr-1" />
+                        Empfohlen
+                      </Badge>
+                    )}
                   </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {/* Sortierbare Tabellen-Header */}
-                {hasMultipleIntervals && (
-                  <div className="mb-2">
-                    <div className="flex flex-wrap md:grid md:grid-cols-6 gap-2 md:gap-3 text-xs font-semibold select-none sticky top-0 bg-blue-50 z-10 border-b border-blue-200 w-full">
-                      {[
-                        { key: 'abfahrt', label: 'Abfahrt' },
-                        { key: 'ankunft', label: 'Ankunft' },
-                        { key: 'umstiege', label: 'Umstiege' },
-                        { key: 'dauer', label: 'Reisedauer' },
-                        { key: 'preis', label: 'Preis' },
-                      ].map(col => (
-                        <button
-                          key={col.key}
-                          className={`flex-1 min-w-[90px] text-left flex items-center gap-1 px-2 py-1 rounded transition-colors whitespace-nowrap ${sortKey === col.key ? 'bg-blue-100 text-blue-900' : 'hover:bg-blue-100 text-blue-700'}`}
-                          onClick={() => handleSort(col.key as SortKey)}
-                          title="Sortieren"
-                          type="button"
-                        >
-                          {col.label}
-                          {sortKey === col.key && (
-                            <span className="inline-block">
-                              {sortDir === 'asc' ? (
-                                <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" className="chevron-up"><path fillRule="evenodd" d="M10 6a1 1 0 01.7.3l4 4a1 1 0 01-1.4 1.4L10 8.42l-3.3 3.3a1 1 0 01-1.4-1.42l4-4A1 1 0 0110 6z" clipRule="evenodd" /></svg>
-                              ) : (
-                                <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" className="chevron-down"><path fillRule="evenodd" d="M10 14a1 1 0 01-.7-.3l-4-4a1 1 0 011.4-1.4L10 11.58l3.3-3.3a1 1 0 111.4 1.42l-4 4A1 1 0 0110 14z" clipRule="evenodd" /></svg>
-                              )}
+                  <div className="flex-1 flex flex-col justify-between">
+                    <div>
+                      <div className="text-4xl font-bold text-green-700 mb-2">{data.preis}€</div>
+                      {/* Gemeinsame Zeile für Reisedaten */}
+                      {data.abfahrtsZeitpunkt && data.ankunftsZeitpunkt && (() => {
+                        // Nutze recommendBestPrice für die Anzeige
+                        const bestPriceTrip = intervals.length > 0 ? require('@/lib/recommendation-engine').recommendBestPrice(intervals) : null
+                        return bestPriceTrip ? (
+                          <div className="flex flex-wrap items-center gap-2 md:gap-4 text-sm text-gray-600 mb-3">
+                            <span>
+                              {new Date(bestPriceTrip.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                              <ArrowRight className="inline h-3 w-3 mx-1" />
+                              {new Date(bestPriceTrip.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
                             </span>
-                          )}
-                        </button>
-                      ))}
-                      <div className="hidden md:block" />
+                            <span>({calculateDuration(bestPriceTrip.abfahrtsZeitpunkt, bestPriceTrip.ankunftsZeitpunkt)})</span>
+                            <span className="flex items-center gap-1">
+                              <Shuffle className="h-4 w-4 text-gray-500" />
+                              <span className="hidden md:inline">Umstiege:</span>
+                              {bestPriceTrip.umstiegsAnzahl || 0}
+                            </span>
+                            {(bestPriceTrip.umstiegsAnzahl || 0) === 0 && (
+                              <span className="inline-flex items-center ml-2">
+                                <Badge variant="outline" className="text-green-700 border-green-300 text-xs">
+                                  Direktverbindung
+                                </Badge>
+                              </span>
+                            )}
+                          </div>
+                        ) : null
+                      })()}
                     </div>
-                  </div>
-                )}
-                {/* Verbindungen */}
-                <div className="space-y-3">
-                  {displayedIntervals.map((interval: any, index: number) => {
-                    const isFastest = minDuration !== null && getDurationMinutes(interval.abfahrtsZeitpunkt, interval.ankunftsZeitpunkt) === minDuration;
-                    // Ein Intervall ist "Bestpreis" wenn es entweder den Tagesbestpreis hat ODER als günstigstes im Zeitfenster markiert ist
-                    const isBestPrice = interval.preis === data.preis || interval.isCheapestPerInterval === true;
-                    const isRecommended = recommendedTrip && 
-                      interval.abfahrtsZeitpunkt === recommendedTrip.abfahrtsZeitpunkt && 
-                      interval.ankunftsZeitpunkt === recommendedTrip.ankunftsZeitpunkt &&
-                      interval.preis === recommendedTrip.preis;
-                    const bookingLink =
-                      startStation && zielStation
-                        ? createBookingLink(
-                            interval.abfahrtsZeitpunkt,
+                    {data.abfahrtsZeitpunkt && startStation && zielStation && (
+                      <Button
+                        onClick={() => {
+                          const bookingLink = createBookingLink(
+                            data.abfahrtsZeitpunkt,
+                            startStation.name,
+                            zielStation.name,
                             startStation.id,
                             zielStation.id,
                             searchParams.klasse || "KLASSE_2",
@@ -666,79 +538,414 @@ export function DayDetailsModal({
                             searchParams.alter || "ERWACHSENER",
                             searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG",
                             searchParams.ermaessigungKlasse || "KLASSENLOS",
+                            searchParams.umstiegszeit // NEU
                           )
-                        : null;
+                          if (bookingLink) {
+                            window.open(bookingLink, "_blank")
+                          }
+                        }}
+                        className="bg-green-600 hover:bg-green-700 w-full mt-auto"
+                      >
+                        <Train className="h-4 w-4 mr-2" />
+                        Bestpreis buchen
+                      </Button>
+                    )}
+                  </div>
+                </div>
 
-                    // Style: Nur dicker linker Rand, keine weiteren Borders  
-                    const cardBg = isBestPrice ? 'bg-green-50' : 
-                                  isRecommended ? 'bg-amber-50' : 
-                                  isFastest ? 'bg-purple-50' : 'bg-white';
-                    const leftBorder = isBestPrice ? 'border-l-8 border-l-green-500' : 
-                                      isRecommended ? 'border-l-8 border-l-amber-500' :
-                                      isFastest ? 'border-l-8 border-l-purple-500' : 'border-l-8 border-l-gray-200';
-
-                    return (
-                      <React.Fragment key={index}>
-                        {/* Mobile */}
-                        <div className={`md:hidden rounded-lg shadow-sm p-2 mb-2 relative ${cardBg} ${leftBorder}`}
-                          style={isRecommended || isBestPrice ? { paddingTop: 32 } : {}}>
-                          {/* Prominente Badges oben */}
-                          {(isRecommended || isBestPrice) && (
-                            <div className="absolute top-2 left-2 z-10 flex gap-2">
-                              {isRecommended && (
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <Badge className="bg-amber-100 text-amber-800 border border-amber-400 rounded-full cursor-help flex items-center gap-1 px-2 py-1 font-semibold shadow-sm">
-                                      <Star className="h-3 w-3" />
-                                      Empfohlen
-                                    </Badge>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-64 text-sm">
-                                    <div className="font-semibold mb-2 text-amber-800">🧠 Intelligente Empfehlung</div>
-                                    <div className="space-y-2">
-                                      <div className="text-xs">Basiert auf einer gewichteten Bewertung von:</div>
-                                      <ul className="list-disc list-inside space-y-1 text-xs text-gray-600">
-                                        <li><strong>45%</strong> Preis</li>
-                                        <li><strong>30%</strong> Reisezeit</li>
-                                        <li><strong>25%</strong> Anzahl Umstiege (Komfort)</li>
-                                        <li><strong>Direktverbindung</strong> wird bis zu 40% Aufpreis bevorzugt</li>
-                                      </ul>
-                                      <div className="text-xs mt-2 p-2 bg-amber-100 rounded font-medium">
-                                        {recommendation?.explanation.reason}
-                                      </div>
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              )}
-                              {isBestPrice && (
-                                <Badge className="bg-green-100 text-green-800 border border-green-400 rounded-full flex items-center gap-1 px-2 py-1 font-semibold shadow-sm">
-                                  <Euro className="h-3 w-3" />
-                                  Bestpreis
-                                </Badge>
-                              )}
+                {/* KI-Empfehlung */}
+                {recommendation && recommendedTrip && recommendedTrip.preis !== data.preis ? (
+                  <div className="bg-amber-50 border-2 border-amber-200 p-4 rounded-lg relative flex flex-col justify-between h-full">
+                    <div className="absolute -top-3 left-4">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Badge className="bg-amber-600 text-white px-3 py-1 cursor-help">
+                            <Star className="h-3 w-3 mr-1" />
+                            Empfohlen
+                          </Badge>
+                        </PopoverTrigger>
+                        <PopoverContent className="max-w-sm text-sm">
+                          <div className="font-semibold mb-2 text-amber-800">🧠 Intelligente Empfehlung</div>
+                          <div className="space-y-2">
+                            <div>Unser Algorithmus bewertet alle Verbindungen nach:</div>
+                            <ul className="list-disc list-inside space-y-1 text-xs text-gray-600">
+                              <li><strong>45%</strong> Preis</li>
+                              <li><strong>30%</strong> Reisezeit</li>
+                              <li><strong>25%</strong> Anzahl Umstiege (Komfort)</li>
+                              <li><strong>Direktverbindung</strong> wird bis zu 40% Aufpreis bevorzugt</li>
+                            </ul>
+                            <div className="text-xs mt-2 p-2 bg-amber-100 rounded">
+                              <strong>Diese Verbindung:</strong> {recommendation.explanation.reason}
                             </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="flex-1 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-baseline gap-2 mb-2">
+                          <span className="text-4xl font-bold text-amber-700">{recommendedTrip.preis.toFixed(2)}€</span>
+                          <span className="text-lg text-gray-500">+{(recommendedTrip.preis - data.preis).toFixed(2)}€</span>
+                        </div>
+                        {/* Gemeinsame Zeile für Reisedaten */}
+                        <div className="flex flex-wrap items-center gap-2 md:gap-4 text-sm text-gray-600 mb-1">
+                          <span>
+                            {new Date(recommendedTrip.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                            <ArrowRight className="inline h-3 w-3 mx-1" />
+                            {new Date(recommendedTrip.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                          <span>({calculateDuration(recommendedTrip.abfahrtsZeitpunkt, recommendedTrip.ankunftsZeitpunkt)})</span>
+                          <span className="flex items-center gap-1">
+                            <Shuffle className="h-4 w-4 text-gray-500" />
+                            <span className="hidden md:inline">Umstiege:</span>
+                            {recommendedTrip.umstiegsAnzahl || 0}
+                          </span>
+                          {(recommendedTrip.umstiegsAnzahl || 0) === 0 && (
+                            <Badge variant="outline" className="text-green-700 border-green-300 text-xs ml-1">Direktverbindung</Badge>
                           )}
-                          <div className="flex flex-row items-stretch justify-between gap-2">
-                            {/* Links: Abfahrt/Ankunft */}
-                            <div className="flex flex-col justify-between min-w-[70px] flex-1">
-                              <div>
-                                <span className="text-xs text-gray-500 font-semibold">Abfahrt</span><br />
-                                <span className="font-medium text-sm">{new Date(interval.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</span>
-                              </div>
-                              <div className="mt-2">
-                                <span className="text-xs text-gray-500 font-semibold">Ankunft</span><br />
-                                <span className="font-medium text-sm">{new Date(interval.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</span>
+                        </div>
+                        {/* Begründung für die KI-Analyse */}
+                        <div className="text-sm text-amber-700 font-medium mb-3">
+                          {recommendation.explanation.reason}
+                        </div>
+                      </div>
+                      {startStation && zielStation && (
+                        <Button
+                          onClick={() => {
+                            const bookingLink = createBookingLink(
+                              recommendedTrip.abfahrtsZeitpunkt,
+                              startStation.name,
+                              zielStation.name,
+                              startStation.id,
+                              zielStation.id,
+                              searchParams.klasse || "KLASSE_2",
+                              searchParams.maximaleUmstiege || "0",
+                              searchParams.alter || "ERWACHSENER",
+                              searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG",
+                              searchParams.ermaessigungKlasse || "KLASSENLOS",
+                              searchParams.umstiegszeit // NEU
+                            )
+                            if (bookingLink) {
+                              window.open(bookingLink, "_blank")
+                            }
+                          }}
+                          className="bg-amber-600 hover:bg-amber-700 w-full mt-auto"
+                        >
+                          <Star className="h-4 w-4 mr-2" />
+                          Empfehlung buchen
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="hidden md:flex bg-amber-50 border-2 border-amber-200 p-4 rounded-lg shadow-sm items-center justify-center">
+                    <div className="text-center">
+                      <Star className="h-8 w-8 mx-auto mb-2 text-amber-400" />
+                      <div className="font-semibold text-amber-800">Bestpreis ist bereits optimal!</div>
+                      <div className="text-sm mt-1 text-amber-700">Die KI-Analyse bestätigt: Diese Verbindung bietet die beste Balance aus Preis, Zeit und Komfort.<br/>Keine bessere Empfehlung möglich.</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Kompakte Preisstatistik über der Tabelle */}
+              {hasMultipleIntervals && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded px-3 py-2 mb-2 text-xs flex flex-wrap gap-4 justify-center">
+                  <div className="flex items-center gap-1">
+                    <span className="text-gray-600">Günstigste:</span>
+                    <span className="font-bold text-green-600">{Math.min(...intervals.map((i: any) => i.preis))}€</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-gray-600">Durchschnitt:</span>
+                    <span className="font-bold text-blue-600">{Math.round(intervals.reduce((sum: number, i: any) => sum + i.preis, 0) / intervals.length)}€</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-gray-600">Teuerste:</span>
+                    <span className="font-bold text-red-600">{Math.max(...intervals.map((i: any) => i.preis))}€</span>
+                  </div>
+                </div>
+              )}
+
+              {/* All Available Connections */}
+              {hasMultipleIntervals && (
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-2 md:gap-0">
+                    <h3 className="font-semibold text-blue-800 flex items-center gap-2">
+                      <Train className="h-4 w-4" />
+                      Alle verfügbaren Verbindungen ({intervals.length})
+                    </h3>
+                    <div className="flex flex-col md:flex-row md:items-center gap-1 mt-2 md:mt-0">
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm text-blue-700">Nur günstigste Fahrt im Bestpreis-Zeitfenster</span>
+                        <Switch
+                          checked={showOnlyCheapest}
+                          onCheckedChange={setShowOnlyCheapest}
+                        />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 p-0 text-blue-600" aria-label="Info zu Zeitfenstern">
+                              <Info className="h-4 w-4" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="max-w-xs text-sm text-gray-700">
+                            <div className="font-semibold mb-1 text-blue-800">Bestpreis-Zeitfenster</div>
+                            <div>
+                              Die Bahn gruppiert Bestpreis-Verbindungen in folgende Zeitfenster:<br />
+                              0–7 Uhr, 7-10 Uhr, 10–13 Uhr, 13–16 Uhr, 16–19 Uhr, 19–24 Uhr.<br />
+                              Pro Zeitfenster wird jeweils die günstigste Verbindung angezeigt.<br />
+                              Dies entspricht der offiziellen Bestpreis-Suche der Bahn.
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {/* Sortierbare Tabellen-Header */}
+                    {hasMultipleIntervals && (
+                      <div className="mb-2">
+                        <div className="flex flex-wrap md:grid md:grid-cols-6 gap-2 md:gap-3 text-xs font-semibold select-none sticky top-0 bg-blue-50 z-10 border-b border-blue-200 w-full">
+                          {[
+                            { key: 'abfahrt', label: 'Abfahrt' },
+                            { key: 'ankunft', label: 'Ankunft' },
+                            { key: 'umstiege', label: 'Umstiege' },
+                            { key: 'dauer', label: 'Reisedauer' },
+                            { key: 'preis', label: 'Preis' },
+                          ].map(col => (
+                            <button
+                              key={col.key}
+                              className={`flex-1 min-w-[90px] text-left flex items-center gap-1 px-2 py-1 rounded transition-colors whitespace-nowrap ${sortKey === col.key ? 'bg-blue-100 text-blue-900' : 'hover:bg-blue-100 text-blue-700'}`}
+                              onClick={() => handleSort(col.key as SortKey)}
+                              title="Sortieren"
+                              type="button"
+                            >
+                              {col.label}
+                              {sortKey === col.key && (
+                                <span className="inline-block">
+                                  {sortDir === 'asc' ? (
+                                    <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" className="chevron-up"><path fillRule="evenodd" d="M10 6a1 1 0 01.7.3l4 4a1 1 0 01-1.4 1.4L10 8.42l-3.3 3.3a1 1 0 01-1.4-1.42l4-4A1 1 0 0110 6z" clipRule="evenodd" /></svg>
+                                  ) : (
+                                    <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" className="chevron-down"><path fillRule="evenodd" d="M10 14a1 1 0 01-.7-.3l-4-4a1 1 0 011.4-1.4L10 11.58l3.3-3.3a1 1 0 111.4 1.42l-4 4A1 1 0 0110 14z" clipRule="evenodd" /></svg>
+                                  )}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                          <div className="hidden md:block" />
+                        </div>
+                      </div>
+                    )}
+                    {/* Verbindungen */}
+                    <div className="space-y-3">
+                      {displayedIntervals.map((interval: any, index: number) => {
+                        const isFastest = minDuration !== null && getDurationMinutes(interval.abfahrtsZeitpunkt, interval.ankunftsZeitpunkt) === minDuration;
+                        // Ein Intervall ist "Bestpreis" nur wenn es den absoluten Tagesbestpreis hat
+                        const isBestPrice = interval.preis === data.preis;
+                        // Ein Intervall ist "günstigster im Zeitfenster" wenn es markiert ist
+                        const isCheapestInTimeSlot = interval.isCheapestPerInterval === true;
+                        const isRecommended = recommendedTrip && 
+                          interval.abfahrtsZeitpunkt === recommendedTrip.abfahrtsZeitpunkt && 
+                          interval.ankunftsZeitpunkt === recommendedTrip.ankunftsZeitpunkt &&
+                          interval.preis === recommendedTrip.preis;
+                        const bookingLink =
+                          startStation && zielStation
+                            ? createBookingLink(
+                                interval.abfahrtsZeitpunkt,
+                                startStation.name,
+                                zielStation.name,
+                                startStation.id,
+                                zielStation.id,
+                                searchParams.klasse || "KLASSE_2",
+                                searchParams.maximaleUmstiege || "0",
+                                searchParams.alter || "ERWACHSENER",
+                                searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG",
+                                searchParams.ermaessigungKlasse || "KLASSENLOS",
+                                searchParams.umstiegszeit // NEU
+                              )
+                            : null;
+
+                        // Style: Nur dicker linker Rand, keine weiteren Borders  
+                        const cardBg = isBestPrice ? 'bg-green-50' : 
+                                      isRecommended ? 'bg-amber-50' : 
+                                      isFastest ? 'bg-purple-50' : 'bg-white';
+                        const leftBorder = isBestPrice ? 'border-l-8 border-l-green-500' : 
+                                          isRecommended ? 'border-l-8 border-l-amber-500' :
+                                          isFastest ? 'border-l-8 border-l-purple-500' : 'border-l-8 border-l-gray-200';
+
+                        return (
+                          <React.Fragment key={index}>
+                            {/* Mobile */}
+                            <div className={`md:hidden rounded-lg shadow-sm p-2 mb-2 relative ${cardBg} ${leftBorder}`}
+                              style={isRecommended || isBestPrice ? { paddingTop: 32 } : {}}>
+                              {/* Prominente Badges oben */}
+                              {(isRecommended || isBestPrice) && (
+                                <div className="absolute top-2 left-2 z-10 flex gap-2">
+                                  {isRecommended && (
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <Badge className="bg-amber-100 text-amber-800 border border-amber-400 rounded-full cursor-help flex items-center gap-1 px-2 py-1 font-semibold shadow-sm">
+                                          <Star className="h-3 w-3" />
+                                          Empfohlen
+                                        </Badge>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="w-64 text-sm">
+                                        <div className="font-semibold mb-2 text-amber-800">🧠 Intelligente Empfehlung</div>
+                                        <div className="space-y-2">
+                                          <div className="text-xs">Basiert auf einer gewichteten Bewertung von:</div>
+                                          <ul className="list-disc list-inside space-y-1 text-xs text-gray-600">
+                                            <li><strong>45%</strong> Preis</li>
+                                            <li><strong>30%</strong> Reisezeit</li>
+                                            <li><strong>25%</strong> Anzahl Umstiege (Komfort)</li>
+                                            <li><strong>Direktverbindung</strong> wird bis zu 40% Aufpreis bevorzugt</li>
+                                          </ul>
+                                          <div className="text-xs mt-2 p-2 bg-amber-100 rounded font-medium">
+                                            {recommendation?.explanation.reason}
+                                          </div>
+                                        </div>
+                                      </PopoverContent>
+                                    </Popover>
+                                  )}
+                                  {isBestPrice && (
+                                    <Badge className="bg-green-100 text-green-800 border border-green-400 rounded-full flex items-center gap-1 px-2 py-1 font-semibold shadow-sm">
+                                      <Euro className="h-3 w-3" />
+                                      Bestpreis
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex flex-row items-stretch justify-between gap-2">
+                                {/* Links: Abfahrt/Ankunft */}
+                                <div className="flex flex-col justify-between min-w-[70px] flex-1">
+                                  <div>
+                                    <span className="text-xs text-gray-500 font-semibold">Abfahrt</span><br />
+                                    <span className="font-medium text-sm">{new Date(interval.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</span>
+                                  </div>
+                                  <div className="mt-2">
+                                    <span className="text-xs text-gray-500 font-semibold">Ankunft</span><br />
+                                    <span className="font-medium text-sm">{new Date(interval.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</span>
+                                  </div>
+                                </div>
+                                {/* Mitte: Umstiege/Dauer */}
+                                <div className="flex flex-col justify-between min-w-[70px] flex-1">
+                                  <div>
+                                    <span className="text-xs text-gray-500 font-semibold">Umstiege</span><br />
+                                    <span className="font-medium text-sm">{interval.umstiegsAnzahl || 0}</span>
+                                  </div>
+                                  <div className="mt-2">
+                                    <span className="text-xs text-gray-500 font-semibold">Reisedauer</span><br />
+                                    <span className="font-medium text-sm">{calculateDuration(interval.abfahrtsZeitpunkt, interval.ankunftsZeitpunkt)}</span>
+                                    {isFastest && (
+                                      <div className="mt-0.5">
+                                        <span title="Schnellste Verbindung" className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-semibold">
+                                          <TrendingUp className="h-3 w-3 mr-0.5" />
+                                          Schnellste
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                {/* Rechts: Preis/Buchen */}
+                                <div className="flex flex-col items-end min-w-[90px] flex-shrink-0 justify-between ml-2 relative">
+                                  <div>
+                                    <span className="text-xs text-gray-500 font-semibold">Preis</span><br />
+                                    <span className={`font-bold text-base px-2 py-1 rounded ${getIntervalPriceColor(interval.preis)}`}>{interval.preis}€</span>
+                                  </div>
+                                  <div className="mt-2">
+                                    {bookingLink && (
+                                      <Button
+                                        size="sm"
+                                        variant="default"
+                                        className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 whitespace-nowrap"
+                                        title="Buchen"
+                                        onClick={() => window.open(bookingLink, "_blank")}
+                                      >
+                                        <Train className="h-4 w-4" />
+                                        Buchen
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                            {/* Mitte: Umstiege/Dauer */}
-                            <div className="flex flex-col justify-between min-w-[70px] flex-1">
+                            
+                            {/* Desktop-Grid */}
+                            <div
+                              className={`hidden md:grid grid-cols-6 gap-3 items-center p-3 rounded relative text-sm ${leftBorder} ${cardBg}`}
+                              style={isRecommended || isBestPrice ? { paddingTop: 40 } : {}}>
+                              {/* Prominente Badges oben für Desktop */}
+                              {(isRecommended || isBestPrice) && (
+                                <div className="absolute top-2 left-2 z-10 flex gap-2">
+                                  {isRecommended && (
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <Badge className="bg-amber-100 text-amber-800 border border-amber-400 rounded-full cursor-help flex items-center gap-1 px-2 py-1 font-semibold shadow-sm">
+                                          <Star className="h-3 w-3" />
+                                          Empfohlen
+                                        </Badge>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="w-64 text-sm">
+                                        <div className="font-semibold mb-2 text-amber-800">🧠 Intelligente Empfehlung</div>
+                                        <div className="space-y-2">
+                                          <div className="text-xs">Basiert auf einer gewichteten Bewertung von:</div>
+                                          <ul className="list-disc list-inside space-y-1 text-xs text-gray-600">
+                                            <li><strong>45%</strong> Preis</li>
+                                            <li><strong>30%</strong> Reisezeit</li>
+                                            <li><strong>25%</strong> Anzahl Umstiege (Komfort)</li>
+                                            <li><strong>Direktverbindung</strong> wird bis zu 40% Aufpreis bevorzugt</li>
+                                          </ul>
+                                          <div className="text-xs mt-2 p-2 bg-amber-100 rounded font-medium">
+                                            {recommendation?.explanation.reason}
+                                          </div>
+                                        </div>
+                                      </PopoverContent>
+                                    </Popover>
+                                  )}
+                                  {isBestPrice && (
+                                    <Badge className="bg-green-100 text-green-800 border border-green-400 rounded-full flex items-center gap-1 px-2 py-1 font-semibold shadow-sm">
+                                      <Euro className="h-3 w-3" />
+                                      Bestpreis
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
+                              
+                                                    
                               <div>
-                                <span className="text-xs text-gray-500 font-semibold">Umstiege</span><br />
-                                <span className="font-medium text-sm">{interval.umstiegsAnzahl || 0}</span>
+                                <div className="text-gray-600 mb-1">Abfahrt</div>
+                                <div className="font-medium">
+                                  {new Date(interval.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </div>
+                                <div className="text-xs text-gray-500">{interval.abfahrtsOrt}</div>
                               </div>
-                              <div className="mt-2">
-                                <span className="text-xs text-gray-500 font-semibold">Reisedauer</span><br />
-                                <span className="font-medium text-sm">{calculateDuration(interval.abfahrtsZeitpunkt, interval.ankunftsZeitpunkt)}</span>
+                              <div>
+                                <div className="text-gray-600 mb-1">Ankunft</div>
+                                <div className="font-medium">
+                                  {new Date(interval.ankunftsZeitpunkt).toLocaleTimeString("de-DE", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </div>
+                                <div className="text-xs text-gray-500">{interval.ankunftsOrt}</div>
+                              </div>
+                              <div>
+                                <div className="text-gray-600 mb-1">Umstiege</div>
+                                <div className="font-medium flex items-center gap-1">
+                                  <Shuffle className="h-4 w-4 text-gray-500" />
+                                  {interval.umstiegsAnzahl || 0}
+                                  {(interval.umstiegsAnzahl || 0) === 0 && (
+                                    <span className="text-xs text-green-600 -1">(Direkt)</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-gray-600 mb-1">Reisedauer</div>
+                                <div className="font-medium">
+                                  {calculateDuration(interval.abfahrtsZeitpunkt, interval.ankunftsZeitpunkt)}
+                                </div>
                                 {isFastest && (
                                   <div className="mt-0.5">
                                     <span title="Schnellste Verbindung" className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-semibold">
@@ -748,142 +955,34 @@ export function DayDetailsModal({
                                   </div>
                                 )}
                               </div>
-                            </div>
-                            {/* Rechts: Preis/Buchen */}
-                            <div className="flex flex-col items-end min-w-[90px] flex-shrink-0 justify-between ml-2 relative">
                               <div>
-                                <span className="text-xs text-gray-500 font-semibold">Preis</span><br />
-                                <span className={`font-bold text-base px-2 py-1 rounded ${getIntervalPriceColor(interval.preis)}`}>{interval.preis}€</span>
+                                <div className="text-gray-600 mb-1">Preis</div>
+                                <div className={`font-bold text-lg px-2 py-1 rounded ${getIntervalPriceColor(interval.preis)}`}>{interval.preis}€</div>
                               </div>
-                              <div className="mt-2">
-                                {bookingLink && (
-                                  <Button
-                                    size="sm"
-                                    variant="default"
-                                    className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 whitespace-nowrap"
-                                    title="Buchen"
-                                    onClick={() => window.open(bookingLink, "_blank")}
-                                  >
-                                    <Train className="h-4 w-4" />
-                                    Buchen
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Desktop-Grid */}
-                        <div
-                          className={`hidden md:grid grid-cols-6 gap-3 items-center p-3 rounded relative text-sm ${leftBorder} ${cardBg}`}
-                          style={isRecommended || isBestPrice ? { paddingTop: 40 } : {}}>
-                          {/* Prominente Badges oben für Desktop */}
-                          {(isRecommended || isBestPrice) && (
-                            <div className="absolute top-2 left-2 z-10 flex gap-2">
-                              {isRecommended && (
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <Badge className="bg-amber-100 text-amber-800 border border-amber-400 rounded-full cursor-help flex items-center gap-1 px-2 py-1 font-semibold shadow-sm">
-                                      <Star className="h-3 w-3" />
-                                      Empfohlen
-                                    </Badge>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-64 text-sm">
-                                    <div className="font-semibold mb-2 text-amber-800">🧠 Intelligente Empfehlung</div>
-                                    <div className="space-y-2">
-                                      <div className="text-xs">Basiert auf einer gewichteten Bewertung von:</div>
-                                      <ul className="list-disc list-inside space-y-1 text-xs text-gray-600">
-                                        <li><strong>45%</strong> Preis</li>
-                                        <li><strong>30%</strong> Reisezeit</li>
-                                        <li><strong>25%</strong> Anzahl Umstiege (Komfort)</li>
-                                        <li><strong>Direktverbindung</strong> wird bis zu 40% Aufpreis bevorzugt</li>
-                                      </ul>
-                                      <div className="text-xs mt-2 p-2 bg-amber-100 rounded font-medium">
-                                        {recommendation?.explanation.reason}
-                                      </div>
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              )}
-                              {isBestPrice && (
-                                <Badge className="bg-green-100 text-green-800 border border-green-400 rounded-full flex items-center gap-1 px-2 py-1 font-semibold shadow-sm">
-                                  <Euro className="h-3 w-3" />
-                                  Bestpreis
-                                </Badge>
+                              {/* Buchen-Button */}
+                              {bookingLink && (
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 whitespace-nowrap"
+                                  title="Buchen"
+                                  onClick={() => window.open(bookingLink, "_blank")}
+                                >
+                                  <Train className="h-4 w-4" />
+                                  Buchen
+                                </Button>
                               )}
                             </div>
-                          )}
-                          
-                          <div>
-                            <div className="text-gray-600 mb-1">Abfahrt</div>
-                            <div className="font-medium">
-                              {new Date(interval.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </div>
-                            <div className="text-xs text-gray-500">{interval.abfahrtsOrt}</div>
-                          </div>
-                          <div>
-                            <div className="text-gray-600 mb-1">Ankunft</div>
-                            <div className="font-medium">
-                              {new Date(interval.ankunftsZeitpunkt).toLocaleTimeString("de-DE", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </div>
-                            <div className="text-xs text-gray-500">{interval.ankunftsOrt}</div>
-                          </div>
-                          <div>
-                            <div className="text-gray-600 mb-1">Umstiege</div>
-                            <div className="font-medium flex items-center gap-1">
-                              <Shuffle className="h-4 w-4 text-gray-500" />
-                              {interval.umstiegsAnzahl || 0}
-                              {(interval.umstiegsAnzahl || 0) === 0 && (
-                                <span className="text-xs text-green-600 -1">(Direkt)</span>
-                              )}
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-gray-600 mb-1">Reisedauer</div>
-                            <div className="font-medium">
-                              {calculateDuration(interval.abfahrtsZeitpunkt, interval.ankunftsZeitpunkt)}
-                            </div>
-                            {isFastest && (
-                              <div className="mt-0.5">
-                                <span title="Schnellste Verbindung" className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-semibold">
-                                  <TrendingUp className="h-3 w-3 mr-0.5" />
-                                  Schnellste
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          <div>
-                            <div className="text-gray-600 mb-1">Preis</div>
-                            <div className={`font-bold text-lg px-2 py-1 rounded ${getIntervalPriceColor(interval.preis)}`}>{interval.preis}€</div>
-                          </div>
-                          {/* Buchen-Button */}
-                          {bookingLink && (
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 whitespace-nowrap"
-                              title="Buchen"
-                              onClick={() => window.open(bookingLink, "_blank")}
-                            >
-                              <Train className="h-4 w-4" />
-                              Buchen
-                            </Button>
-                          )}
-                        </div>
-                      </React.Fragment>
-                    )
-                  })}
+                          </React.Fragment>
+                        )
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
-          )}
-        </div>
+          </motion.div>
+        </AnimatePresence>
       </DialogContent>
     </Dialog>
   )

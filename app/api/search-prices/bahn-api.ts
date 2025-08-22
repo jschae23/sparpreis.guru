@@ -1,6 +1,88 @@
 import { globalRateLimiter } from './rate-limiter'
 import { generateCacheKey, getCachedResult, setCachedResult } from './cache'
 
+// Station Cache Interface
+interface StationCacheEntry {
+  data: { id: string; normalizedId: string; name: string }
+  timestamp: number
+  ttl: number
+}
+
+// In-Memory Station Cache
+const stationCache = new Map<string, StationCacheEntry>()
+
+// Cache-Konfiguration für Stationen
+const STATION_CACHE_TTL = 24 * 60 * 60 * 1000 // 24 Stunden in Millisekunden
+const MAX_STATION_CACHE_ENTRIES = 10000
+
+function getStationCacheKey(search: string): string {
+  return `station_${search.toLowerCase().trim()}`
+}
+
+function getCachedStation(search: string): { id: string; normalizedId: string; name: string } | null {
+  const cacheKey = getStationCacheKey(search)
+  const entry = stationCache.get(cacheKey)
+  
+  if (!entry) {
+    return null
+  }
+  
+  const now = Date.now()
+  const age = now - entry.timestamp
+  
+  if (age > entry.ttl) {
+    // Cache ist abgelaufen
+    stationCache.delete(cacheKey)
+    return null
+  }
+  
+  console.log(`🚉 Station cache hit for: ${search}`)
+  return entry.data
+}
+
+function setCachedStation(search: string, data: { id: string; normalizedId: string; name: string }): void {
+  const cacheKey = getStationCacheKey(search)
+  
+  // LRU-Prinzip: Wenn Limit erreicht, entferne ältesten Eintrag
+  if (stationCache.size >= MAX_STATION_CACHE_ENTRIES) {
+    const oldestKey = stationCache.keys().next().value
+    if (typeof oldestKey === 'string') {
+      stationCache.delete(oldestKey)
+    }
+  }
+  
+  stationCache.set(cacheKey, {
+    data,
+    timestamp: Date.now(),
+    ttl: STATION_CACHE_TTL
+  })
+  
+    // Nur alle 100 Station-Caches loggen
+  if (stationCache.size % 100 === 0) {
+    console.log(`💾 Station cache: ${stationCache.size} entries`)
+  }
+}
+
+// Cache-Bereinigung für Stationen (entfernt abgelaufene Einträge)
+function cleanupStationCache(): void {
+  const now = Date.now()
+  let removed = 0
+  
+  for (const [key, entry] of stationCache.entries()) {
+    if (now - entry.timestamp > entry.ttl) {
+      stationCache.delete(key)
+      removed++
+    }
+  }
+  
+  if (removed > 0) {
+    console.log(`🧹 Cleaned up ${removed} expired station cache entries. Cache size: ${stationCache.size}`)
+  }
+}
+
+// Station Cache-Bereinigung alle 2 Stunden
+setInterval(cleanupStationCache, 2 * 60 * 60 * 1000)
+
 // Hilfsfunktion für lokales Datum im Format YYYY-MM-DD
 function formatDateKey(date: Date) {
   const year = date.getFullYear()
@@ -13,11 +95,17 @@ function formatDateKey(date: Date) {
 export async function searchBahnhof(search: string): Promise<{ id: string; normalizedId: string; name: string } | null> {
   if (!search) return null
 
+  // Prüfe Cache zuerst
+  const cachedResult = getCachedStation(search)
+  if (cachedResult) {
+    return cachedResult
+  }
+
   try {
     const encodedSearch = encodeURIComponent(search)
     const url = `https://www.bahn.de/web/api/reiseloesung/orte?suchbegriff=${encodedSearch}&typ=ALL&limit=10`
 
-    console.log(`Searching station: "${search}"`)
+    console.log(`🌐 Station API call: "${search}"`)
 
     const response = await fetch(url, {
       headers: {
@@ -39,16 +127,18 @@ export async function searchBahnhof(search: string): Promise<{ id: string; norma
     // Normalisiere die Station-ID: Entferne den Timestamp-Parameter @p=
     const normalizedId = originalId.replace(/@p=\d+@/g, '@')
 
-    console.log(`Found station: ${station.name}`)
-    console.log(`Original ID: ${originalId}`)
-    console.log(`Normalized ID: ${normalizedId}`)
+    console.log(`✅ Found station: ${station.name}`)
 
-    // Verwende die normalisierte ID für Caching, aber die originale für API-Aufrufe
-    return { 
+    const result = { 
       id: originalId,           // Für API-Aufrufe
       normalizedId: normalizedId, // Für Cache-Keys
       name: station.name 
     }
+
+    // Cache das Ergebnis für 24 Stunden
+    setCachedStation(search, result)
+
+    return result
   } catch (error) {
     console.error("Error in searchBahnhof:", error)
     return null
@@ -154,15 +244,13 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
     nurDeutschlandTicketVerbindungen: Boolean(config.nurDeutschlandTicketVerbindungen === true || config.nurDeutschlandTicketVerbindungen === "true"),
     // abfahrtAb und ankunftBis NICHT im Cache-Key!
+    umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
   })
-
-  console.log(`🔑 Cache key for ${tag} (WITHOUT time filters):`)
-  console.log(`   Full key: ${cacheKey.substring(0, 200)}...`)
 
   // Prüfe Cache
   const cachedResult = getCachedResult(cacheKey)
   if (cachedResult) {
-    console.log(`📦 Cache HIT for ${tag} - applying time filters to cached data`)
+    console.log(`📦 Cache HIT for ${tag}`)
     
     const cachedData = cachedResult[tag]
     if (cachedData && cachedData.allIntervals) {
@@ -238,10 +326,10 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     }
   }
 
-  console.log(`❌ Cache MISS for ${tag} - fetching from API`)
+  console.log(`❌ Cache MISS for ${tag}`)
 
   // Match the EXACT working curl request structure
-  const requestBody = {
+  const requestBody: any = {
     abfahrtsHalt: config.abfahrtsHalt,
     anfrageZeitpunkt: datum,
     ankunftsHalt: config.ankunftsHalt,
@@ -271,6 +359,11 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     deutschlandTicketVorhanden: false,
   }
 
+  // Add minUmstiegszeit only if provided
+  if (config.umstiegszeit && config.umstiegszeit !== "" && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined" && typeof config.umstiegszeit !== 'undefined') {
+    requestBody.minUmstiegszeit = parseInt(config.umstiegszeit)
+  }
+
   try {
     // API-Call über globalen Rate Limiter
     const requestId = `${tag}-${config.startStationNormalizedId}-${config.zielStationNormalizedId}`
@@ -280,7 +373,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         throw new Error(`Session ${sessionId} was cancelled`)
       }
       
-      console.log(`🌐 Executing API call for ${tag}`)
+      console.log(`🌐 API call for ${tag}`)
       // Match the working curl headers exactly
       const response = await fetch("https://www.bahn.de/web/api/angebote/tagesbestpreis", {
         method: "POST",
@@ -466,8 +559,6 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     const bestPrice = Math.min(...timeFilteredIntervals.map(iv => iv.preis))
     const bestInterval = timeFilteredIntervals.find(interval => interval.preis === bestPrice)
     const sortedTimeFilteredIntervals = timeFilteredIntervals.sort((a, b) => a.preis - b.preis)
-
-    console.log(`Best price for ${tag}: ${bestPrice}€`)
 
     const result = {
       [tag]: {

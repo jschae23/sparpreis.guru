@@ -78,8 +78,6 @@ export async function GET(request: NextRequest) {
         
         // Realistische Grenzen: 1 Sekunde bis 2 Minuten
         estimatedTimeRemaining = Math.min(Math.max(estimatedTimeRemaining, 1), 120)
-        
-        console.log(`📊 ETA for ${sessionId}: ${uncachedDays} uncached days, ${totalUsers} users, ${Math.round(avgApiTime)}s avg → ${estimatedTimeRemaining}s`)
       } else if (remainingDays > 0) {
         // Nur gecachte Tage verbleibend - sehr schnell
         estimatedTimeRemaining = Math.min(remainingDays * 0.2, 5)
@@ -120,7 +118,10 @@ export async function POST(request: NextRequest) {
       timestamp: Date.now()
     })
 
-    console.log(`📊 Progress update for session ${sessionId}: Day ${data.currentDay}/${data.totalDays}, Queue: ${data.queueSize || 0}, Active: ${data.activeRequests || 0}`)
+    // Nur wichtige Meilensteine loggen
+    if (data.currentDay === 1 || data.currentDay === data.totalDays || data.currentDay % 10 === 0) {
+      console.log(`📊 Progress: ${data.currentDay}/${data.totalDays} (${Math.round((data.currentDay / data.totalDays) * 100)}%)`)
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

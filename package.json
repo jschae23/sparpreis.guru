@@ -1,6 +1,6 @@
 {
   "name": "sparpreisguru",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "private": true,
   "scripts": {
     "build": "next build",
@@ -48,6 +48,7 @@
     "cmdk": "1.1.1",
     "date-fns": "4.1.0",
     "embla-carousel-react": "8.6.0",
+    "framer-motion": "^12.23.12",
     "geist": "^1.4.2",
     "input-otp": "1.4.2",
     "lucide-react": "^0.539.0",
