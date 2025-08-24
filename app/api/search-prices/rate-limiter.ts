@@ -446,6 +446,41 @@ class GlobalRateLimiter {
 
   // Neue Methoden für Cancel-Session Management
   public cancelSession(sessionId: string, reason: string = 'user_request'): void {
+    // Spezielle Behandlung für abgeschlossene Suchen - kein Cancel-Log
+    if (reason === 'search_completed') {
+      this.cancelledSessions.add(sessionId)
+      
+      // Entferne Session aus Queues ohne Logging (da erfolgreich abgeschlossen)
+      const queue = this.sessionQueues.get(sessionId)
+      if (queue && queue.length > 0) {
+        // Lehne alle verbleibenden Requests ab (falls vorhanden)
+        for (const request of queue) {
+          request.reject(new Error(`Session ${sessionId} was completed`))
+        }
+        
+        // Entferne Session komplett
+        this.sessionQueues.delete(sessionId)
+        this.sessionRoundRobin = this.sessionRoundRobin.filter(id => id !== sessionId)
+        
+        if (this.currentSessionIndex >= this.sessionRoundRobin.length && this.sessionRoundRobin.length > 0) {
+          this.currentSessionIndex = 0
+        }
+      }
+      
+      // Auto-cleanup nach 1 Minute (kürzer für completed sessions)
+      setTimeout(() => {
+        this.cancelledSessions.delete(sessionId)
+      }, 60 * 1000)
+      
+      return
+    }
+    
+    // Prüfe ob Session bereits als completed markiert wurde - dann ignoriere weitere Cancels
+    if (this.cancelledSessions.has(sessionId)) {
+      console.log(`ℹ️ Session ${sessionId} already cancelled/completed - ignoring additional cancel (reason: ${reason})`)
+      return
+    }
+    
     console.log(`🛑 Cancelling session ${sessionId} (reason: ${reason})`)
     
     // Record metrics

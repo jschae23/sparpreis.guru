@@ -118,6 +118,14 @@ export async function POST(request: NextRequest) {
       timestamp: Date.now()
     })
 
+    // Wenn die Suche abgeschlossen ist, markiere Session als beendet für den Rate Limiter
+    if (data.isComplete) {
+      // Session als abgeschlossen markieren, damit sie nicht mehr als aktiv gilt
+      // Verwende die cancel-Funktion mit speziellem Grund für abgeschlossene Suchen
+      globalRateLimiter.cancelSession(sessionId, 'search_completed')
+      console.log(`✅ Session ${sessionId} marked as completed - no longer active for cancellation`)
+    }
+
     // Nur wichtige Meilensteine loggen
     if (data.currentDay === 1 || data.currentDay === data.totalDays || data.currentDay % 10 === 0) {
       console.log(`📊 Progress: ${data.currentDay}/${data.totalDays} (${Math.round((data.currentDay / data.totalDays) * 100)}%)`)

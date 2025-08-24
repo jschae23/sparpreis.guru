@@ -13,7 +13,7 @@ interface StationCacheEntry {
 const stationCache = new Map<string, StationCacheEntry>()
 
 // Cache-Konfiguration für Stationen
-const STATION_CACHE_TTL = 24 * 60 * 60 * 1000 // 24 Stunden in Millisekunden
+const STATION_CACHE_TTL = 72 * 60 * 60 * 1000 // 72 Stunden in Millisekunden
 const MAX_STATION_CACHE_ENTRIES = 10000
 
 function getStationCacheKey(search: string): string {

@@ -1,44 +1,42 @@
 import { NextRequest, NextResponse } from "next/server"
 import { metricsCollector } from "./collector"
+import IPCIDR from 'ip-cidr';
 
-// Security: List of allowed IPs (localhost, docker networks, common monitoring IPs)
-const ALLOWED_IPS = [
-  '127.0.0.1',
-  '::1',
-  '::ffff:127.0.0.1', // IPv6-mapped IPv4 localhost
-  'localhost',
-  // Docker default networks
-  '172.16.0.0/12',  // Docker default bridge
-  '10.0.0.0/8',     // Docker custom networks
-  '192.168.0.0/16', // Local networks
-]
+// Security: List of allowed IPs (from ENV, comma separated)
+const ALLOWED_METRICS_IPS = process.env.ALLOWED_METRICS_IPS
+  ? process.env.ALLOWED_METRICS_IPS.split(',').map(ip => ip.trim()).filter(Boolean)
+  : null;
 
-// Security: API Key from environment
-const METRICS_API_KEY = process.env.METRICS_API_KEY || 'dev-metrics-key-change-in-production'
+// Security: API Key from environment (no fallback!)
+const METRICS_API_KEY = process.env.METRICS_API_KEY;
+
+if (!METRICS_API_KEY) {
+  throw new Error('METRICS_API_KEY environment variable is required!');
+}
 
 function isIPAllowed(ip: string): boolean {
-  if (!ip) return false
+  if (!ip) return false;
+  if (!ALLOWED_METRICS_IPS || ALLOWED_METRICS_IPS.length === 0) return false;
 
   // Normalize IPv6-mapped IPv4 addresses
+  let checkIp = ip;
   if (ip.startsWith('::ffff:')) {
-    const ipv4 = ip.replace('::ffff:', '')
-    if (ALLOWED_IPS.includes(ipv4)) return true
+    checkIp = ip.replace('::ffff:', '');
+    if (ALLOWED_METRICS_IPS.includes(checkIp)) return true;
   }
 
   // Exact matches
-  if (ALLOWED_IPS.includes(ip)) return true
-  
-  // Check CIDR ranges (simplified)
-  for (const allowedRange of ALLOWED_IPS) {
-    if (allowedRange.includes('/')) {
-      // Simplified CIDR check for common ranges
-      if (allowedRange === '172.16.0.0/12' && ip.startsWith('172.')) return true
-      if (allowedRange === '10.0.0.0/8' && ip.startsWith('10.')) return true
-      if (allowedRange === '192.168.0.0/16' && ip.startsWith('192.168.')) return true
+  if (ALLOWED_METRICS_IPS.includes(checkIp)) return true;
+
+  // CIDR support
+  for (const allowed of ALLOWED_METRICS_IPS) {
+    if (allowed.includes('/')) {
+      const cidr = new IPCIDR(allowed);
+      if (cidr.contains(checkIp)) return true;
     }
   }
-  
-  return false
+
+  return false;
 }
 
 function getClientIP(request: NextRequest): string {
@@ -58,17 +56,16 @@ function getClientIP(request: NextRequest): string {
   return '127.0.0.1'
 }
 
-export async function GET(request: NextRequest) {
-  // Logge alle Zugriffe, um Prometheus-Requests zu erkennen
-  console.log(
-    `[METRICS] Incoming request:`,
-    {
-      url: request.url,
-      headers: Object.fromEntries(request.headers.entries()),
-      method: "GET"
-    }
-  )
+// Erfolgreiche Zugriffe pro Minute zählen
+let successfulMetricsRequests = 0;
+setInterval(() => {
+  if (successfulMetricsRequests > 0) {
+    console.log(`📊 Metrics: ${successfulMetricsRequests} erfolgreiche Zugriffe in der letzten Minute`);
+    successfulMetricsRequests = 0;
+  }
+}, 60 * 1000);
 
+export async function GET(request: NextRequest) {
   try {
     // Security Check 1: API Key
     const authHeader = request.headers.get('authorization')
@@ -97,6 +94,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Erfolgreiche Zugriffe zählen (nur bei Erfolg)
+    successfulMetricsRequests++;
+
     // Determine response format
     const accept = request.headers.get('accept')
     const format = new URL(request.url).searchParams.get('format')
@@ -104,8 +104,6 @@ export async function GET(request: NextRequest) {
     const wantsPrometheus = accept?.includes('text/plain') || 
                            format === 'prometheus' || 
                            format === 'prom'
-
-    console.log(`📊 Metrics: Access granted for IP ${clientIP}, format: ${wantsPrometheus ? 'prometheus' : 'json'}`)
 
     if (wantsPrometheus) {
       // Return Prometheus format
