@@ -1,3 +1,5 @@
+import { metricsCollector } from '@/app/api/metrics/collector'
+
 // Cache-Interface
 interface CacheEntry {
   data: TrainResults | null
@@ -121,6 +123,9 @@ export function setCachedResult(cacheKey: string, data: TrainResults | null): vo
       : (totalBytes / (1024 * 1024)).toFixed(2) + ' MB'
     console.log(`� Cache: ${cache.size} entries, ${sizeStr}`)
   }
+
+  // Update metrics after cache update
+  metricsCollector.updateCacheMetrics(0, cache.size) // Station count would need to be passed or tracked separately
 }
 
 // Cache-Bereinigung (entfernt abgelaufene Einträge)
@@ -137,6 +142,8 @@ function cleanupCache(): void {
   
   if (removed > 0) {
     console.log(`🧹 Cleaned up ${removed} expired cache entries. Cache size: ${cache.size}`)
+    // Update metrics after cleanup
+    metricsCollector.updateCacheMetrics(0, cache.size)
   }
 }
 

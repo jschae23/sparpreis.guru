@@ -1,3 +1,5 @@
+import { metricsCollector } from '@/app/api/metrics/collector'
+
 /* Globales Rate Limiting für alle API-Calls
 Die Bahn-API hat strenge Limits, daher ist ein globales Rate Limiting notwendig.
 Kurzzeitig eine hohe Anzahl an Requests möglich, aber danach antwortet die API schnell mit 429-Fehlern (Too Many Requests).
@@ -245,6 +247,7 @@ class GlobalRateLimiter {
 
   private async executeRequestWithRetry(request: QueuedRequest, retryCount = 0) {
     const maxRetries = 3
+    const requestStartTime = Date.now()
     
     // Prüfe Session BEFORE executing request
     if (request.sessionId && this.isSessionCancelledSync(request.sessionId)) {
@@ -287,16 +290,22 @@ class GlobalRateLimiter {
         return
       }
       
+      // Record successful API call metrics
+      const responseTime = Date.now() - requestStartTime
+      metricsCollector.recordBahnApiRequest(responseTime, 200)
+      
       // Erfolgreicher Request - Rate Limit kann langsam reduziert werden
       this.onRequestSuccess()
       request.resolve(result)
       
     } catch (error) {
+      const responseTime = Date.now() - requestStartTime
       const isRateLimitError = error instanceof Error && 
         (error.message.includes('429') || error.message.includes('Too Many Requests'))
       
       if (isRateLimitError) {
         console.log(`🚫 Rate limit hit (429) for request ${request.id}`)
+        metricsCollector.recordBahnApiRequest(responseTime, 429)
         this.onRateLimitHit()
         
         // Retry bei 429-Fehlern - Request geht ZURÜCK in die Session-Queue
@@ -329,6 +338,9 @@ class GlobalRateLimiter {
           }, retryDelay)
           return
         }
+      } else {
+        // Record failed API call
+        metricsCollector.recordBahnApiRequest(responseTime, 500)
       }
       
       // Alle Retries aufgebraucht oder anderer Fehler
@@ -341,11 +353,17 @@ class GlobalRateLimiter {
     this.lastRateLimitTime = Date.now()
     this.successfulRequests = 0
     
+    // Record metrics
+    metricsCollector.recordBahnApiRequest(0, 429) // 0ms response time for rate limit
+    
     // Sanftere Erhöhung: +50% statt Verdopplung, aber nicht über Maximum
     const newInterval = Math.min(this.minInterval * 1.5, this.maxInterval)
     
     console.log(`📈 Rate limit hit! Increasing interval from ${this.minInterval}ms to ${Math.round(newInterval)}ms (hits: ${this.rateLimitHits})`)
     this.minInterval = Math.round(newInterval)
+    
+    // Update metrics
+    metricsCollector.updateRateLimitInterval(this.minInterval)
   }
 
   private onRequestSuccess() {
@@ -358,6 +376,9 @@ class GlobalRateLimiter {
       }
     }
     this.successfulRequests++
+    
+    // Update metrics
+    metricsCollector.updateRateLimitInterval(this.minInterval)
   }
 
   private calculateRetryDelay(retryCount: number): number {
@@ -426,6 +447,10 @@ class GlobalRateLimiter {
   // Neue Methoden für Cancel-Session Management
   public cancelSession(sessionId: string, reason: string = 'user_request'): void {
     console.log(`🛑 Cancelling session ${sessionId} (reason: ${reason})`)
+    
+    // Record metrics
+    metricsCollector.recordSessionCancellation(reason)
+    
     this.cancelledSessions.add(sessionId)
     
     // Sofort alle Requests dieser Session aus den Queues entfernen
@@ -496,7 +521,7 @@ class GlobalRateLimiter {
     const waitingRequests = ownPosition !== null ? ownPosition : 0
     const estimatedWaitTime = hasOwnRequest ? waitingRequests * (this.minInterval / 1000) : 0
     
-    return {
+    const result = {
       queueSize: totalQueueSize,
       activeRequests: this.activeRequests,
       lastApiCall: this.lastApiCallStart,
@@ -509,6 +534,15 @@ class GlobalRateLimiter {
       sessionQueueSize, // Wie viele eigene Requests in der Queue sind
       sessionPosition: ownPosition // Position in der Round-Robin Liste
     }
+    
+    // Update queue metrics
+    metricsCollector.updateQueueMetrics(
+      result.queueSize,
+      result.activeRequests,
+      this.sessionQueues.size
+    )
+    
+    return result
   }
 }
 
