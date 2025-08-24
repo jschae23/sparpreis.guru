@@ -145,53 +145,6 @@ export async function searchBahnhof(search: string): Promise<{ id: string; norma
   }
 }
 
-// Hilfsfunktion für Zeitfilterung
-function filterByTime(intervals: any[], abfahrtAb?: string, ankunftBis?: string) {
-  if (!abfahrtAb && !ankunftBis) return intervals
-  
-  return intervals.filter(interval => {
-    if (!interval.verbindungen?.[0]?.verbindung?.verbindungsAbschnitte) return true
-    
-    const abschnitte = interval.verbindungen[0].verbindung.verbindungsAbschnitte
-    if (!abschnitte.length) return true
-    
-    // Erste Abfahrt und letzte Ankunft
-    const ersteAbfahrt = new Date(abschnitte[0].abfahrtsZeitpunkt)
-    const letzteAnkunft = new Date(abschnitte[abschnitte.length - 1].ankunftsZeitpunkt)
-    
-    // Prüfe Abfahrtszeit
-    if (abfahrtAb) {
-      const abfahrtFilter = new Date(`1970-01-01T${abfahrtAb}:00`)
-      const connectionTime = new Date(`1970-01-01T${ersteAbfahrt.getHours().toString().padStart(2, '0')}:${ersteAbfahrt.getMinutes().toString().padStart(2, '0')}:00`)
-      
-      if (connectionTime < abfahrtFilter) return false
-    }
-    
-    // Prüfe Ankunftszeit (mit Behandlung von Nachtverbindungen)
-    if (ankunftBis) {
-      const ankunftFilter = new Date(`1970-01-01T${ankunftBis}:00`)
-      
-      // Prüfe ob es sich um eine Nachtverbindung handelt (Ankunft am nächsten Tag)
-      const istNachtverbindung = letzteAnkunft.getTime() < ersteAbfahrt.getTime() || 
-                                 (letzteAnkunft.getDate() !== ersteAbfahrt.getDate())
-      
-      let connectionTime: Date
-      
-      if (istNachtverbindung) {
-        // Für Nachtverbindungen: Ankunftszeit am nächsten Tag (+ 24h)
-        connectionTime = new Date(`1970-01-02T${letzteAnkunft.getHours().toString().padStart(2, '0')}:${letzteAnkunft.getMinutes().toString().padStart(2, '0')}:00`)
-      } else {
-        // Normale Verbindung: Ankunftszeit am gleichen Tag
-        connectionTime = new Date(`1970-01-01T${letzteAnkunft.getHours().toString().padStart(2, '0')}:${letzteAnkunft.getMinutes().toString().padStart(2, '0')}:00`)
-      }
-      
-      if (connectionTime > ankunftFilter) return false
-    }
-    
-    return true
-  })
-}
-
 interface IntervalAbschnitt {
   abfahrtsZeitpunkt: string
   ankunftsZeitpunkt: string
@@ -231,7 +184,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   const datum = formatDateKey(dateObj) + "T08:00:00"
   const tag = formatDateKey(dateObj)
 
-  // Cache-Key generieren (OHNE Zeitfilter - diese werden nur bei der Rückgabe angewendet)
+  // Cache-Key generieren
   const cacheKey = generateCacheKey({
     startStationId: config.startStationNormalizedId, // Verwende normalisierte ID
     zielStationId: config.zielStationNormalizedId,   // Verwende normalisierte ID
@@ -474,7 +427,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       }
     }
 
-    // Sammle alle Intervalle ohne Bestpreis-Markierung (wird später in route.ts gemacht)
+    // Sammle alle Intervalle
     const finalAllIntervals: IntervalDetails[] = []
     
     for (const iv of data.intervalle) {

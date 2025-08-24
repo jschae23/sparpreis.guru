@@ -91,24 +91,8 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     { label: "So", value: 0 },
   ]
 
-  // State für ausgewählte Wochentage (Standard: alle true, oder aus URL-Parametern)
-  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>(() => {
-    // Versuche aus übergebenen tage-Parametern die Wochentage zu ermitteln
-    if (searchParams.tage) {
-      try {
-        const existingDates = JSON.parse(searchParams.tage) as string[]
-        const weekdays = new Set<number>()
-        existingDates.forEach(dateStr => {
-          const date = new Date(dateStr)
-          weekdays.add(date.getDay())
-        })
-        return Array.from(weekdays)
-      } catch {
-        // Fallback zu allen Tagen bei Parse-Fehlern
-      }
-    }
-    return [1,2,3,4,5,6,0] // Standard: alle Wochentage
-  })
+  // State für ausgewählte Wochentage (Standard: alle true)
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([1,2,3,4,5,6,0])
 
   // Hilfsfunktion: Alle gewünschten Tage im Zeitraum berechnen (limitiert auf max. 30 Tage)
   const selectedDates = useMemo(() => {
