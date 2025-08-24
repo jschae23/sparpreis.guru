@@ -1,6 +1,7 @@
 import { TrainSearchForm } from "@/components/train-search-form"
 import { TrainResults } from "@/components/train-results"
 import { getAppVersion, getCurrentYear } from "@/lib/app-info"
+import { Github } from "lucide-react"
 
 interface SearchParams {
   start?: string
@@ -57,11 +58,23 @@ export default async function Page({
         <footer className="mt-16 border-t border-gray-200 pt-8">
           <div className="flex flex-col sm:flex-row justify-between items-center text-sm text-gray-500">
             <div>
-              © {currentYear} <span className="font-medium text-gray-600">sparpreis.guru</span> - Alle Rechte vorbehalten
+              © {currentYear} <span className="font-medium text-gray-600">sparpreis.guru</span>
             </div>
-            <div className="mt-2 sm:mt-0">
-              Version {appVersion}
+            <div className="mt-2 sm:mt-0 flex flex-col sm:items-end items-center">
+              <span>Version {appVersion}</span>
+              <a
+                href="https://github.com/XLixl4snSU/sparpreis.guru"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline mt-1 flex items-center"
+              >
+                <Github className="inline w-4 h-4 mr-1" /> GitHub
+              </a>
             </div>
+          </div>
+          <div className="text-xs text-center text-gray-400 mt-4">
+            Sollte die Deutsche Bahn dieses Projekt nicht wünschen, genügt eine kurze E-Mail an <a href="mailto:info@sparpreis.guru" className="underline">info@sparpreis.guru</a>.
+            <br></br>Diese Seite ist rein privater Natur und verfolgt keinerlei kommerzielle Interessen. Es werden keine personenbezogene Daten gespeichert.
           </div>
         </footer>
       </div>

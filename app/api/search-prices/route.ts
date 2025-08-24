@@ -4,6 +4,7 @@ import { searchBahnhof, getBestPrice } from './bahn-api'
 import { updateProgress, updateAverageResponseTimes, getAverageResponseTimes } from './utils'
 import { generateCacheKey, getCachedResult, getCacheSize } from './cache'
 import { recommendBestPrice } from '@/lib/recommendation-engine'
+import { metricsCollector } from '@/app/api/metrics/collector'
 
 // Hilfsfunktion für lokales Datum im Format YYYY-MM-DD
 function formatDateKey(date: Date) {
@@ -35,6 +36,9 @@ interface TrainResults {
 }
 
 export async function POST(request: NextRequest) {
+  // Track search start time for metrics
+  const searchStartTime = Date.now()
+  
   try {
     const body = await request.json()
     const {
@@ -53,6 +57,10 @@ export async function POST(request: NextRequest) {
       ankunftBis,
       umstiegszeit,
     } = body
+
+    // Record user search metrics
+    metricsCollector.recordUserSearch(tage?.length || 0)
+    metricsCollector.recordStreamingConnection()
 
     console.log("\n🚂 Starting bestpreissuche request")
     console.log("📋 Request parameters:")
@@ -131,6 +139,11 @@ export async function POST(request: NextRequest) {
           maxDays = datesToProcess.length
           console.log(`\n🔍 Processing ${datesToProcess.length} specific dates`)
           console.log(`📊 Cache status: ${getCacheSize()} entries`)
+
+          // Update cache metrics
+          const cacheSize = getCacheSize()
+          // Assuming you have a way to get station cache size, otherwise use 0
+          metricsCollector.updateCacheMetrics(0, cacheSize)
 
           // Erstelle Liste aller Tage mit Cache-Status
           const dayStatusList: { date: string; isCached: boolean; cacheKey: string }[] = []
@@ -540,6 +553,10 @@ export async function POST(request: NextRequest) {
 
           // Warte auf alle Requests, aber verarbeite sie sobald sie fertig sind
           await Promise.all(requestPromises.map(processResult))
+
+          // Record search completion metrics
+          const searchDuration = Date.now() - searchStartTime
+          metricsCollector.recordSearchDuration(searchDuration)
 
           // Final Progress-Update
           // Hilfsfunktion: Zähle nur echte Tagesergebnisse (ohne _meta und ohne leere Ergebnisse)

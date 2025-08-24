@@ -27,6 +27,7 @@ interface SearchParams {
   ankunftBis?: string
   tage?: string // JSON-String mit Array der gewünschten Tage
   umstiegszeit?: string
+  wochentage?: string // JSON-String mit Array der gewählten Wochentage
 }
 
 interface TrainSearchFormProps {
@@ -65,7 +66,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
   const [maximaleUmstiege, setMaximaleUmstiege] = useState(
     searchParams.maximaleUmstiege !== undefined
       ? searchParams.maximaleUmstiege
-      : "3"
+      : "5"
   )
   const [reisezeitraumBis, setReisezeitraumBis] = useState(() => {
     if (searchParams.reisezeitraumBis) return searchParams.reisezeitraumBis
@@ -91,8 +92,18 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     { label: "So", value: 0 },
   ]
 
-  // State für ausgewählte Wochentage (Standard: alle true)
-  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([1,2,3,4,5,6,0])
+  // State für ausgewählte Wochentage (Standard: alle true, oder aus URL-Parametern)
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>(() => {
+    if (searchParams.wochentage) {
+      try {
+        const arr = JSON.parse(searchParams.wochentage)
+        if (Array.isArray(arr) && arr.every(v => typeof v === 'number')) {
+          return arr
+        }
+      } catch {}
+    }
+    return [1,2,3,4,5,6,0]
+  })
 
   // Hilfsfunktion: Alle gewünschten Tage im Zeitraum berechnen (limitiert auf max. 30 Tage)
   const selectedDates = useMemo(() => {
@@ -136,7 +147,8 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1
     // Sende die einzelnen Tage als JSON-String
     params.set("tage", JSON.stringify(selectedDates))
-
+    // Speichere die gewählten Wochentage als JSON-String
+    params.set("wochentage", JSON.stringify(selectedWeekdays))
     window.location.href = `/?${params.toString()}`
   }
 
@@ -151,7 +163,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     setSchnelleVerbindungen(true)
     setNurDeutschlandTicket(false)
     setNurDirektverbindungen(false)
-    setMaximaleUmstiege("3")
+    setMaximaleUmstiege("5")
     setAbfahrtAb("")
     setAnkunftBis("")
     setUmstiegszeit("normal")
@@ -202,7 +214,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
   const [prevUmstiege, setPrevUmstiege] = useState<string>(
     searchParams.maximaleUmstiege && searchParams.maximaleUmstiege !== "0"
       ? searchParams.maximaleUmstiege
-      : "3"
+      : "5"
   )
   
   // Umstiegszeit State
