@@ -7,12 +7,8 @@ const ALLOWED_METRICS_IPS = process.env.ALLOWED_METRICS_IPS
   ? process.env.ALLOWED_METRICS_IPS.split(',').map(ip => ip.trim()).filter(Boolean)
   : null;
 
-// Security: API Key from environment (no fallback!)
-const METRICS_API_KEY = process.env.METRICS_API_KEY;
-
-if (!METRICS_API_KEY) {
-  throw new Error('METRICS_API_KEY environment variable is required!');
-}
+// Security: API Key from environment (checked at runtime)
+const getMetricsApiKey = () => process.env.METRICS_API_KEY;
 
 function isIPAllowed(ip: string): boolean {
   if (!ip) return false;
@@ -73,8 +69,18 @@ export async function GET(request: NextRequest) {
     const urlKey = new URL(request.url).searchParams.get('key')
     
     const providedKey = authHeader?.replace('Bearer ', '') || apiKey || urlKey
+    const requiredKey = getMetricsApiKey()
     
-    if (!providedKey || providedKey !== METRICS_API_KEY) {
+    // Wenn kein API Key konfiguriert ist, Endpoint deaktivieren
+    if (!requiredKey) {
+      console.log(`🚫 Metrics: Endpoint disabled - METRICS_API_KEY not configured`)
+      return NextResponse.json(
+        { error: "Metrics endpoint is disabled - API key not configured" }, 
+        { status: 503 }
+      )
+    }
+    
+    if (!providedKey || providedKey !== requiredKey) {
       console.log(`🚫 Metrics: Unauthorized access attempt with key: ${providedKey?.slice(0, 10)}...`)
       return NextResponse.json(
         { error: "Unauthorized - Invalid API key" }, 
@@ -149,8 +155,16 @@ export async function POST(request: NextRequest) {
     const apiKey = request.headers.get('x-api-key')
     
     const providedKey = authHeader?.replace('Bearer ', '') || apiKey
+    const requiredKey = getMetricsApiKey()
     
-    if (!providedKey || providedKey !== METRICS_API_KEY) {
+    if (!requiredKey) {
+      return NextResponse.json(
+        { error: "Metrics endpoint is disabled - API key not configured" }, 
+        { status: 503 }
+      )
+    }
+    
+    if (!providedKey || providedKey !== requiredKey) {
       return NextResponse.json(
         { error: "Unauthorized" }, 
         { status: 401 }
