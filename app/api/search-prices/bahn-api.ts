@@ -1,5 +1,6 @@
 import { globalRateLimiter } from './rate-limiter'
 import { generateCacheKey, getCachedResult, setCachedResult } from './cache'
+import { metricsCollector } from '@/app/api/metrics/collector'
 
 // Station Cache Interface
 interface StationCacheEntry {
@@ -12,7 +13,7 @@ interface StationCacheEntry {
 const stationCache = new Map<string, StationCacheEntry>()
 
 // Cache-Konfiguration für Stationen
-const STATION_CACHE_TTL = 24 * 60 * 60 * 1000 // 24 Stunden in Millisekunden
+const STATION_CACHE_TTL = 72 * 60 * 60 * 1000 // 72 Stunden in Millisekunden
 const MAX_STATION_CACHE_ENTRIES = 10000
 
 function getStationCacheKey(search: string): string {
@@ -24,6 +25,7 @@ function getCachedStation(search: string): { id: string; normalizedId: string; n
   const entry = stationCache.get(cacheKey)
   
   if (!entry) {
+    metricsCollector.recordCacheMiss('station')
     return null
   }
   
@@ -33,10 +35,12 @@ function getCachedStation(search: string): { id: string; normalizedId: string; n
   if (age > entry.ttl) {
     // Cache ist abgelaufen
     stationCache.delete(cacheKey)
+    metricsCollector.recordCacheMiss('station')
     return null
   }
   
   console.log(`🚉 Station cache hit for: ${search}`)
+  metricsCollector.recordCacheHit('station')
   return entry.data
 }
 
@@ -251,6 +255,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   const cachedResult = getCachedResult(cacheKey)
   if (cachedResult) {
     console.log(`📦 Cache HIT for ${tag}`)
+    metricsCollector.recordCacheHit('connection')
     
     const cachedData = cachedResult[tag]
     if (cachedData && cachedData.allIntervals) {
@@ -327,6 +332,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   }
 
   console.log(`❌ Cache MISS for ${tag}`)
+  metricsCollector.recordCacheMiss('connection')
 
   // Match the EXACT working curl request structure
   const requestBody: any = {
