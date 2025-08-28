@@ -16,6 +16,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1) Repo bereitstellen
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2) pnpm + Cache (falls du außerhalb von Docker installierst)
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -35,16 +40,15 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-            
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
+      # 3) Docker Build-Setup
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # 4) Registries Logins
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -58,9 +62,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Generiert automatisch Tags & Labels:
-      # - Branch/PR: <image>:<branch>, <image>:sha-<7>
-      # - SemVer-Tag (v1.2.3): v1.2.3, v1.2, v1 ; "latest" nur auf Default-Branch oder Release
+      # 5) Tags/Labels
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -77,8 +79,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},prefix=v
             type=semver,pattern={{major}},prefix=v
             type=sha,format=long,prefix=sha-
-            
 
+      # 6) Build & Push
       - name: Build and push Docker images
         uses: docker/build-push-action@v6
         with:
@@ -89,4 +91,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          
