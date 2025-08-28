@@ -1,6 +1,6 @@
 # 🚂 sparpreis.guru
 
-Finde die günstigsten Bahntickets mit flexibler Datumsauswahl, Zeitfiltern, Echtzeit-Streaming und direkter Buchung bei der Deutschen Bahn.
+Finde die günstigsten Sparpreis-Bahntickets über einen längeren Zeitraum bei der Deutschen Bahn.
 
 ## Was kann die App?
 
@@ -8,10 +8,6 @@ Finde die günstigsten Bahntickets mit flexibler Datumsauswahl, Zeitfiltern, Ech
   - Reisezeitraum und einzelne Wochentage (Mo–So) frei wählbar
   - Abfahrts- und Ankunftszeit, inkl. Nachtzug-Handling
   - Filter: Klasse (1./2.), BahnCard 25/50, schnelle Verbindungen, Direktverbindungen, max. Umstiege, Deutschland-Ticket
-- Live-Ergebnisse
-  - Ergebnisse streamen in Echtzeit
-  - Fortschrittsanzeige inkl. Restzeit
-  - Suche jederzeit abbrechbar
 - Buchung & Darstellung
   - Direkter DB-Buchungslink mit allen Parametern
   - Interaktiver Monatskalender mit Min/Max/Ø-Preisen

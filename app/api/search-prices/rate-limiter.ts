@@ -24,18 +24,25 @@ class GlobalRateLimiter {
   private lastApiCallStart = 0 // Wann der letzte API-Call GESTARTET wurde
   private minInterval = 1200 // Adaptive: Startet bei 1 Sekunde zwischen API-Call STARTS
   private activeRequests = 0
-  private readonly maxConcurrentRequests = 3 // Bis zu 3 parallele Requests für bessere Performance
+  private readonly maxConcurrentRequests = 5 // Bis zu 3 parallele Requests für bessere Performance
   
   // Interne Cancel-Session Verwaltung
   private cancelledSessions = new Set<string>() // Cancelled Sessions
   
-  // Adaptive Rate Limiting mit DB-API Burst-Logik
-  private readonly baseInterval = 1200 // Basis-Intervall (1,2 Sekunden)
-  private readonly burstInterval = 2000 // Nach Burst-Limit: 2 Sekunden
-  private readonly burstLimitCount = 15 // Burst-Limit: 20 Requests
-  private readonly burstLimitWindow = 30 * 1000 // 30 Sekunden
-  private readonly sustainedInterval = 2500 // Nach Sustained-Limit: 2,5 Sekunden
-  private readonly maxInterval = 10000 // Maximum 10 Sekunden
+  // Konfiguration - konsolidiert für bessere Wartbarkeit
+  private readonly config = {
+    baseInterval: 1200, // Basis-Intervall (1 Sekunde)
+    burstInterval: 2200, // Nach Burst-Limit: min. 2,2 Sekunden
+    burstLimitCount: 15, // Burst-Limit: 15 Requests
+    burstLimitWindow: 30 * 1000, // 30 Sekunden
+    sustainedInterval: Number(process.env.RL_SUSTAINED_INTERVAL_MS ?? 2000), // 2 Sekunden
+    sustainedLimitCount: Number(process.env.RL_SUSTAINED_COUNT ?? 30), // 30 Requests in 60 Sekunden
+    maxInterval: 10000, // Maximum 10 Sekunden
+    maxRetries: 3,
+    cleanupInterval: 10000, // 10 Sekunden
+    sessionCancelTimeout: 5 * 60 * 1000, // 5 Minuten
+    completedSessionTimeout: 60 * 1000 // 1 Minute
+  }
   
   // Request-Tracking für DB-API Limits
   private requestHistory: number[] = [] // Timestamps der letzten Requests
@@ -46,10 +53,10 @@ class GlobalRateLimiter {
   private cleanupTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor() {
-    // Starte regelmäßigen Cleanup abgebrochener Sessions (alle 10 Sekunden im Dev-Modus)
+    // Starte regelmäßigen Cleanup abgebrochener Sessions
     this.cleanupTimer = setInterval(() => {
       this.cleanupCancelledSessions()
-    }, 10000)
+    }, this.config.cleanupInterval)
   }
 
   async addToQueue<T>(requestId: string, apiCall: () => Promise<T>, sessionId?: string): Promise<T> {
@@ -99,8 +106,7 @@ class GlobalRateLimiter {
     const timeSinceLastStart = now - this.lastApiCallStart
     const delay = Math.max(0, this.minInterval - timeSinceLastStart)
 
-    console.log(`⏰ Scheduling next request processing in ${delay}ms (active: ${this.activeRequests}/${this.maxConcurrentRequests}, interval: ${this.minInterval}ms)`)
-    
+    console.log(`⏰ Scheduling next request processing in ${delay}ms (active: ${this.activeRequests}/${this.maxConcurrentRequests}, interval: ${this.minInterval}ms)`)    
     this.processingTimer = setTimeout(() => {
       this.processingTimer = null
       this.processNextRequest()
@@ -160,8 +166,7 @@ class GlobalRateLimiter {
         }
         
         request = sessionQueue.shift()!
-        console.log(`🎯 Round-robin: Selected request from session ${currentSessionId} (${sessionQueue.length} remaining)`)
-      }
+        console.log(`🎯 Round-robin: Selected request from session ${currentSessionId} (${sessionQueue.length} remaining)`)      }
       
       // Gehe zur nächsten Session
       this.currentSessionIndex = (this.currentSessionIndex + 1) % this.sessionRoundRobin.length
@@ -192,14 +197,16 @@ class GlobalRateLimiter {
     this.trackRequest(this.lastApiCallStart)
 
     // Führe Request aus (async, damit wir den nächsten planen können)
-    this.executeRequestWithRetry(request).finally(() => {
-      this.activeRequests--
-      const totalRequestsCompleted = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
-      console.log(`✅ Completed request ${request!.id}. Total queue size: ${totalRequestsCompleted}, Active: ${this.activeRequests}`)
-      
-      // Plane nächsten Request falls Queue nicht leer
-      this.scheduleNextProcessing()
-    })
+    this.executeRequestWithRetry(request)
+      .catch(() => { /* rejection handled via request.reject() */ })
+      .finally(() => {
+        this.activeRequests--
+        const totalRequestsCompleted = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
+        console.log(`✅ Completed request ${request!.id}. Total queue size: ${totalRequestsCompleted}, Active: ${this.activeRequests}`)
+        
+        // Plane nächsten Request falls Queue nicht leer
+        this.scheduleNextProcessing()
+      })
 
     // Plane bereits den nächsten Request (falls vorhanden)
     this.scheduleNextProcessing()
@@ -246,7 +253,7 @@ class GlobalRateLimiter {
   }
 
   private async executeRequestWithRetry(request: QueuedRequest, retryCount = 0) {
-    const maxRetries = 3
+    const maxRetries = this.config.maxRetries
     const requestStartTime = Date.now()
     
     // Prüfe Session BEFORE executing request
@@ -259,7 +266,10 @@ class GlobalRateLimiter {
       // Wrapper um request.execute() mit periodischer Session-Abbruch-Prüfung
       const executeWithCancellation = async () => {
         // Starte den ursprünglichen Request
-        const requestPromise = request.execute()
+        const requestPromise = request.execute().catch((e) => { 
+          // Attach a catch immediately to avoid unhandledRejection logs, then rethrow
+          throw e 
+        })
         
         // Periodenprüfung ob Session abgebrochen wurde (alle 500ms)
         const checkCancellation = () => {
@@ -282,7 +292,52 @@ class GlobalRateLimiter {
         return Promise.race([requestPromise, checkCancellation()])
       }
       
-      const result = await executeWithCancellation()
+      const result: any = await executeWithCancellation()
+
+      // Sentinel-Erkennung: request.execute() kann ein Objekt mit __httpStatus zurückgeben
+      if (result && typeof result === 'object' && '__httpStatus' in result) {
+        const status = Number((result as any).__httpStatus)
+        const msg = (result as any).__errorText || ''
+        const responseTime = Date.now() - requestStartTime
+
+        if (status === 429) {
+          console.log(`🚫 Rate limit sentinel (429) for request ${request.id}`)
+          metricsCollector.recordBahnApiRequest(responseTime, 429)
+          // Sofort auf Max-Intervall springen
+          this.onRateLimitHit(true)
+
+          // Retry-Logik
+          if (retryCount < maxRetries) {
+            const retryDelay = this.calculateRetryDelay(retryCount)
+            console.log(`🔄 Re-queueing request ${request.id} after ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`)
+            setTimeout(() => {
+              if (request.sessionId && this.isSessionCancelledSync(request.sessionId)) {
+                request.reject(new Error(`Session ${request.sessionId} was cancelled`))
+                return
+              }
+              const retryRequest: QueuedRequest = { ...request, timestamp: Date.now() }
+              const effectiveSessionId = request.sessionId || 'default'
+              if (!this.sessionQueues.has(effectiveSessionId)) {
+                this.sessionQueues.set(effectiveSessionId, [])
+                this.sessionRoundRobin.push(effectiveSessionId)
+              }
+              this.sessionQueues.get(effectiveSessionId)!.unshift(retryRequest)
+              const totalRequests = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
+              console.log(`🔄 Request ${request.id} re-queued to FRONT of session ${effectiveSessionId}. Total queue size: ${totalRequests}`)
+              this.scheduleNextProcessing()
+            }, retryDelay)
+            return
+          } else {
+            console.log(`❌ Request ${request.id} failed after ${maxRetries} retries due to rate limiting (sentinel)`)            
+            request.reject(new Error('HTTP 429'))
+            return
+          }
+        }
+
+        // Andere HTTP-Fehler-Sentinels: sauber ablehnen
+        request.reject(new Error(`HTTP ${status}: ${msg}`))
+        return
+      }
       
       // Finale Session-Prüfung vor resolve
       if (request.sessionId && this.isSessionCancelledSync(request.sessionId)) {
@@ -306,7 +361,8 @@ class GlobalRateLimiter {
       if (isRateLimitError) {
         console.log(`🚫 Rate limit hit (429) for request ${request.id}`)
         metricsCollector.recordBahnApiRequest(responseTime, 429)
-        this.onRateLimitHit()
+        // Sofort auf Max-Intervall springen
+        this.onRateLimitHit(true)
         
         // Retry bei 429-Fehlern - Request geht ZURÜCK in die Session-Queue
         if (retryCount < maxRetries) {
@@ -337,6 +393,9 @@ class GlobalRateLimiter {
             this.scheduleNextProcessing()
           }, retryDelay)
           return
+        } else {
+          // Nach allen Retry-Versuchen - Request endgültig fehlgeschlagen (aber NICHT unhandled)
+          console.log(`❌ Request ${request.id} failed after ${maxRetries} retries due to rate limiting`)
         }
       } else {
         // Record failed API call
@@ -348,7 +407,7 @@ class GlobalRateLimiter {
     }
   }
 
-  private onRateLimitHit() {
+  private onRateLimitHit(forceMax: boolean = false) {
     this.rateLimitHits++
     this.lastRateLimitTime = Date.now()
     this.successfulRequests = 0
@@ -356,11 +415,11 @@ class GlobalRateLimiter {
     // Record metrics
     metricsCollector.recordBahnApiRequest(0, 429) // 0ms response time for rate limit
     
-    // Sanftere Erhöhung: +50% statt Verdopplung, aber nicht über Maximum
-    const newInterval = Math.min(this.minInterval * 1.5, this.maxInterval)
+    // Sofort auf Max-Intervall springen, wenn gefordert
+    const target = forceMax ? this.config.maxInterval : Math.min(this.minInterval * 1.5, this.config.maxInterval)
     
-    console.log(`📈 Rate limit hit! Increasing interval from ${this.minInterval}ms to ${Math.round(newInterval)}ms (hits: ${this.rateLimitHits})`)
-    this.minInterval = Math.round(newInterval)
+    console.log(`📈 Rate limit hit! Increasing interval from ${this.minInterval}ms to ${Math.round(target)}ms (hits: ${this.rateLimitHits})`)
+    this.minInterval = Math.round(target)
     
     // Update metrics
     metricsCollector.updateRateLimitInterval(this.minInterval)
@@ -368,8 +427,8 @@ class GlobalRateLimiter {
 
   private onRequestSuccess() {
     // Nach jedem erfolgreichen Request Intervall um 20% reduzieren, wenn über Basiswert
-    if (this.minInterval > this.baseInterval) {
-      const newInterval = Math.max(this.minInterval * 0.8, this.baseInterval)
+    if (this.minInterval > this.config.baseInterval) {
+      const newInterval = Math.max(this.minInterval * 0.8, this.config.baseInterval)
       if (newInterval < this.minInterval) {
         console.log(`📉 Reducing interval from ${this.minInterval}ms to ${Math.round(newInterval)}ms after success`)
         this.minInterval = Math.round(newInterval)
@@ -404,37 +463,59 @@ class GlobalRateLimiter {
     const twoMinutesAgo = now - (2 * 60 * 1000)
     this.requestHistory = this.requestHistory.filter(t => t > twoMinutesAgo)
     
-    // Prüfe Burst-Limit: 20 Requests in letzten 20 Sekunden
-    const burstAgo = now - this.burstLimitWindow
+    // Prüfe Burst-Limit innerhalb des Fensters (z.B. 15 in 30s)
+    const burstAgo = now - this.config.burstLimitWindow
     const requestsInBurst = this.requestHistory.filter(t => t > burstAgo).length
     
-    // Prüfe Sustained-Limit: 40 Requests in letzten 60 Sekunden  
+    // Prüfe Sustained-Limit innerhalb von 60 Sekunden (z.B. 30 in 60s)
     const sixtySecondsAgo = now - (60 * 1000)
     const requestsIn60Seconds = this.requestHistory.filter(t => t > sixtySecondsAgo).length
     
-    let newInterval = this.baseInterval
+    let targetInterval = this.minInterval // Start mit aktuellem Intervall
     let limitReason = ""
     
     // Sustained-Limit hat Priorität (strengeres Limit)
-    if (requestsIn60Seconds >= 40) {
-      newInterval = this.sustainedInterval
-      limitReason = `Sustained limit: ${requestsIn60Seconds}/50 requests in 60s`
-    } else if (requestsInBurst >= this.burstLimitCount) {
-      newInterval = this.burstInterval  
-      limitReason = `Burst limit: ${requestsInBurst}/15 requests in 30s`
+    if (requestsIn60Seconds >= this.config.sustainedLimitCount) {
+      const threshold = this.config.sustainedInterval
+      // Nur erhöhen, niemals senken bei Limits
+      if (threshold > this.minInterval) {
+        targetInterval = threshold
+        limitReason = `Sustained limit: ${requestsIn60Seconds}/${this.config.sustainedLimitCount} requests in 60s`
+      } else {
+        // Bereits über dem Schwellenwert – nichts ändern
+        console.log(`ℹ️ Sustained limit reached, keeping interval at ${this.minInterval}ms (threshold ${threshold}ms)`) 
+        return
+      }
+    } else if (requestsInBurst >= this.config.burstLimitCount) {
+      const threshold = this.config.burstInterval
+      // Nur erhöhen, niemals senken bei Limits
+      if (threshold > this.minInterval) {
+        targetInterval = threshold
+        const windowSec = Math.round(this.config.burstLimitWindow / 1000)
+        limitReason = `Burst limit: ${requestsInBurst}/${this.config.burstLimitCount} requests in ${windowSec}s`
+      } else {
+        // Bereits über dem Schwellenwert – nichts ändern
+        console.log(`ℹ️ Burst limit reached, keeping interval at ${this.minInterval}ms (threshold ${threshold}ms)`) 
+        return
+      }
     } else {
       // Langsam zurück zum Basis-Intervall wenn unter den Limits
-      if (this.minInterval > this.baseInterval) {
-        newInterval = Math.max(this.minInterval * 0.9, this.baseInterval)
+      if (this.minInterval > this.config.baseInterval) {
+        targetInterval = Math.max(this.minInterval * 0.9, this.config.baseInterval)
         limitReason = "Slowly reducing interval"
+      } else {
+        // Kein Update nötig - bereits am Base-Intervall
+        return
       }
     }
     
-    // Update nur wenn sich etwas geändert hat
-    if (newInterval !== this.minInterval) {
-      console.log(`📊 Rate limit update: ${this.minInterval}ms → ${newInterval}ms (${limitReason})`)
-      console.log(`📈 Request stats: ${requestsInBurst} in 20s, ${requestsIn60Seconds} in 60s, total history: ${this.requestHistory.length}`)
-      this.minInterval = Math.round(newInterval)
+    // Update nur wenn sich etwas geändert hat (min. 50ms)
+    if (Math.abs(targetInterval - this.minInterval) > 50) {
+      console.log(`📊 Rate limit update: ${this.minInterval}ms → ${Math.round(targetInterval)}ms (${limitReason})`)
+      console.log(`📈 Request stats: ${requestsInBurst} in ${Math.round(this.config.burstLimitWindow/1000)}s, ${requestsIn60Seconds} in 60s, total history: ${this.requestHistory.length}`)
+      this.minInterval = Math.round(targetInterval)
+      // Update metrics
+      metricsCollector.updateRateLimitInterval(this.minInterval)
     }
   }
 
@@ -470,7 +551,7 @@ class GlobalRateLimiter {
       // Auto-cleanup nach 1 Minute (kürzer für completed sessions)
       setTimeout(() => {
         this.cancelledSessions.delete(sessionId)
-      }, 60 * 1000)
+      }, this.config.completedSessionTimeout)
       
       return
     }

@@ -1,99 +1,10 @@
 import { globalRateLimiter } from './rate-limiter'
-import { generateCacheKey, getCachedResult, setCachedResult } from './cache'
+import { generateCacheKey, getCachedResult, setCachedResult, getCachedStation, setCachedStation } from './cache'
 import { metricsCollector } from '@/app/api/metrics/collector'
+import { formatDateKey } from './utils';
 
-// Station Cache Interface
-interface StationCacheEntry {
-  data: { id: string; normalizedId: string; name: string }
-  timestamp: number
-  ttl: number
-}
 
-// In-Memory Station Cache
-const stationCache = new Map<string, StationCacheEntry>()
 
-// Cache-Konfiguration für Stationen
-const STATION_CACHE_TTL = 72 * 60 * 60 * 1000 // 72 Stunden in Millisekunden
-const MAX_STATION_CACHE_ENTRIES = 10000
-
-function getStationCacheKey(search: string): string {
-  return `station_${search.toLowerCase().trim()}`
-}
-
-function getCachedStation(search: string): { id: string; normalizedId: string; name: string } | null {
-  const cacheKey = getStationCacheKey(search)
-  const entry = stationCache.get(cacheKey)
-  
-  if (!entry) {
-    metricsCollector.recordCacheMiss('station')
-    return null
-  }
-  
-  const now = Date.now()
-  const age = now - entry.timestamp
-  
-  if (age > entry.ttl) {
-    // Cache ist abgelaufen
-    stationCache.delete(cacheKey)
-    metricsCollector.recordCacheMiss('station')
-    return null
-  }
-  
-  console.log(`🚉 Station cache hit for: ${search}`)
-  metricsCollector.recordCacheHit('station')
-  return entry.data
-}
-
-function setCachedStation(search: string, data: { id: string; normalizedId: string; name: string }): void {
-  const cacheKey = getStationCacheKey(search)
-  
-  // LRU-Prinzip: Wenn Limit erreicht, entferne ältesten Eintrag
-  if (stationCache.size >= MAX_STATION_CACHE_ENTRIES) {
-    const oldestKey = stationCache.keys().next().value
-    if (typeof oldestKey === 'string') {
-      stationCache.delete(oldestKey)
-    }
-  }
-  
-  stationCache.set(cacheKey, {
-    data,
-    timestamp: Date.now(),
-    ttl: STATION_CACHE_TTL
-  })
-  
-    // Nur alle 100 Station-Caches loggen
-  if (stationCache.size % 100 === 0) {
-    console.log(`💾 Station cache: ${stationCache.size} entries`)
-  }
-}
-
-// Cache-Bereinigung für Stationen (entfernt abgelaufene Einträge)
-function cleanupStationCache(): void {
-  const now = Date.now()
-  let removed = 0
-  
-  for (const [key, entry] of stationCache.entries()) {
-    if (now - entry.timestamp > entry.ttl) {
-      stationCache.delete(key)
-      removed++
-    }
-  }
-  
-  if (removed > 0) {
-    console.log(`🧹 Cleaned up ${removed} expired station cache entries. Cache size: ${stationCache.size}`)
-  }
-}
-
-// Station Cache-Bereinigung alle 2 Stunden
-setInterval(cleanupStationCache, 2 * 60 * 60 * 1000)
-
-// Hilfsfunktion für lokales Datum im Format YYYY-MM-DD
-function formatDateKey(date: Date) {
-  const year = date.getFullYear()
-  const month = (date.getMonth() + 1).toString().padStart(2, "0")
-  const day = date.getDate().toString().padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
 
 // Station search function
 export async function searchBahnhof(search: string): Promise<{ id: string; normalizedId: string; name: string } | null> {
@@ -149,58 +60,18 @@ export async function searchBahnhof(search: string): Promise<{ id: string; norma
   }
 }
 
-// Hilfsfunktion für Zeitfilterung
-function filterByTime(intervals: any[], abfahrtAb?: string, ankunftBis?: string) {
-  if (!abfahrtAb && !ankunftBis) return intervals
-  
-  return intervals.filter(interval => {
-    if (!interval.verbindungen?.[0]?.verbindung?.verbindungsAbschnitte) return true
-    
-    const abschnitte = interval.verbindungen[0].verbindung.verbindungsAbschnitte
-    if (!abschnitte.length) return true
-    
-    // Erste Abfahrt und letzte Ankunft
-    const ersteAbfahrt = new Date(abschnitte[0].abfahrtsZeitpunkt)
-    const letzteAnkunft = new Date(abschnitte[abschnitte.length - 1].ankunftsZeitpunkt)
-    
-    // Prüfe Abfahrtszeit
-    if (abfahrtAb) {
-      const abfahrtFilter = new Date(`1970-01-01T${abfahrtAb}:00`)
-      const connectionTime = new Date(`1970-01-01T${ersteAbfahrt.getHours().toString().padStart(2, '0')}:${ersteAbfahrt.getMinutes().toString().padStart(2, '0')}:00`)
-      
-      if (connectionTime < abfahrtFilter) return false
-    }
-    
-    // Prüfe Ankunftszeit (mit Behandlung von Nachtverbindungen)
-    if (ankunftBis) {
-      const ankunftFilter = new Date(`1970-01-01T${ankunftBis}:00`)
-      
-      // Prüfe ob es sich um eine Nachtverbindung handelt (Ankunft am nächsten Tag)
-      const istNachtverbindung = letzteAnkunft.getTime() < ersteAbfahrt.getTime() || 
-                                 (letzteAnkunft.getDate() !== ersteAbfahrt.getDate())
-      
-      let connectionTime: Date
-      
-      if (istNachtverbindung) {
-        // Für Nachtverbindungen: Ankunftszeit am nächsten Tag (+ 24h)
-        connectionTime = new Date(`1970-01-02T${letzteAnkunft.getHours().toString().padStart(2, '0')}:${letzteAnkunft.getMinutes().toString().padStart(2, '0')}:00`)
-      } else {
-        // Normale Verbindung: Ankunftszeit am gleichen Tag
-        connectionTime = new Date(`1970-01-01T${letzteAnkunft.getHours().toString().padStart(2, '0')}:${letzteAnkunft.getMinutes().toString().padStart(2, '0')}:00`)
-      }
-      
-      if (connectionTime > ankunftFilter) return false
-    }
-    
-    return true
-  })
-}
-
 interface IntervalAbschnitt {
   abfahrtsZeitpunkt: string
   ankunftsZeitpunkt: string
   abfahrtsOrt: string
   ankunftsOrt: string
+  abfahrtsOrtExtId?: string
+  ankunftsOrtExtId?: string
+  verkehrsmittel?: {
+    produktGattung?: string
+    kategorie?: string
+    name?: string
+  }
 }
 
 interface IntervalDetails {
@@ -235,7 +106,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   const datum = formatDateKey(dateObj) + "T08:00:00"
   const tag = formatDateKey(dateObj)
 
-  // Cache-Key generieren (OHNE Zeitfilter - diese werden nur bei der Rückgabe angewendet)
+  // Cache-Key generieren
   const cacheKey = generateCacheKey({
     startStationId: config.startStationNormalizedId, // Verwende normalisierte ID
     zielStationId: config.zielStationNormalizedId,   // Verwende normalisierte ID
@@ -399,17 +270,38 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         let errorText = ""
         try {
           errorText = await response.text()
-          console.error(`HTTP ${response.status} error:`, errorText)
+          if (response.status === 429) {
+            console.log(`HTTP 429 received for ${requestId}`)
+          } else {
+            console.error(`HTTP ${response.status} error:`, errorText)
+          }
         } catch (e) {
-          console.error("Could not read error response")
+          // keep logs quiet for 429
+          if (response.status !== 429) {
+            console.error("Could not read error response")
+          }
         }
-        throw new Error(`HTTP ${response.status}: ${errorText.slice(0, 100)}`)
+        // Return sentinel instead of throwing to keep logs clean; rate limiter interprets this
+        return { __httpStatus: response.status, __errorText: errorText.slice(0, 100) }
       }
 
       return await response.text()
     }, sessionId) // SessionId übergeben für Abbruch-Prüfung
 
     const responseText = apiCallResult
+
+    // Handle sentinel results quietly (should be retried by rate limiter)
+    if (typeof responseText !== 'string') {
+      const status = (responseText as any)?.__httpStatus
+      const errText = (responseText as any)?.__errorText || ''
+      if (status === 429) {
+        console.log(`ℹ️ HTTP 429 sentinel for ${tag} (will be retried by rate limiter)`) 
+        const result = { [tag]: { preis: 0, info: 'Rate limited, retrying', abfahrtsZeitpunkt: '', ankunftsZeitpunkt: '' } }
+        return { result, wasApiCall: true }
+      }
+      const result = { [tag]: { preis: 0, info: `API Error: HTTP ${status}: ${errText}`, abfahrtsZeitpunkt: '', ankunftsZeitpunkt: '' } }
+      return { result, wasApiCall: true }
+    }
 
     // Check if response contains error message
     if (responseText.includes("Preisauskunft nicht möglich")) {
@@ -451,18 +343,26 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     for (const iv of data.intervalle) {
       if (iv.preis && typeof iv.preis === "object" && "betrag" in iv.preis && Array.isArray(iv.verbindungen)) {
         for (const verbindung of iv.verbindungen) {
-          let newPreis = 0
-          if (verbindung.abPreis && typeof verbindung.abPreis === "object" && "betrag" in verbindung.abPreis) {
-            newPreis = verbindung.abPreis.betrag
-          } else {
-            newPreis = iv.preis.betrag
+          // Skip connections without price information
+          if (!verbindung.abPreis || typeof verbindung.abPreis !== "object" || !("betrag" in verbindung.abPreis)) {
+            continue
           }
+          
+          const newPreis = verbindung.abPreis.betrag
+          
           if (verbindung.verbindung && verbindung.verbindung.verbindungsAbschnitte && verbindung.verbindung.verbindungsAbschnitte.length > 0) {
             const abschnitte = verbindung.verbindung.verbindungsAbschnitte.map((abschnitt: any) => ({
               abfahrtsZeitpunkt: abschnitt.abfahrtsZeitpunkt,
               ankunftsZeitpunkt: abschnitt.ankunftsZeitpunkt,
               abfahrtsOrt: abschnitt.abfahrtsOrt,
-              ankunftsOrt: abschnitt.ankunftsOrt
+              ankunftsOrt: abschnitt.ankunftsOrt,
+              abfahrtsOrtExtId: abschnitt.abfahrtsOrtExtId,
+              ankunftsOrtExtId: abschnitt.ankunftsOrtExtId,
+              verkehrsmittel: abschnitt.verkehrsmittel ? {
+                produktGattung: abschnitt.verkehrsmittel.produktGattung,
+                kategorie: abschnitt.verkehrsmittel.kategorie,
+                name: abschnitt.verkehrsmittel.name
+              } : undefined
             }))
             const info = abschnitte.map((a: IntervalAbschnitt) => `${a.abfahrtsOrt} → ${a.ankunftsOrt}`).join(' | ')
             allIntervalsForCache.push({
@@ -480,24 +380,32 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       }
     }
 
-    // Sammle alle Intervalle ohne Bestpreis-Markierung (wird später in route.ts gemacht)
+    // Sammle alle Intervalle
     const finalAllIntervals: IntervalDetails[] = []
     
     for (const iv of data.intervalle) {
       if (iv.preis && typeof iv.preis === "object" && "betrag" in iv.preis && Array.isArray(iv.verbindungen)) {
         for (const verbindung of iv.verbindungen) {
-          let newPreis = 0
-          if (verbindung.abPreis && typeof verbindung.abPreis === "object" && "betrag" in verbindung.abPreis) {
-            newPreis = verbindung.abPreis.betrag
-          } else {
-            newPreis = iv.preis.betrag
+          // Skip connections without price information
+          if (!verbindung.abPreis || typeof verbindung.abPreis !== "object" || !("betrag" in verbindung.abPreis)) {
+            continue
           }
+          
+          const newPreis = verbindung.abPreis.betrag
+          
           if (verbindung.verbindung && verbindung.verbindung.verbindungsAbschnitte && verbindung.verbindung.verbindungsAbschnitte.length > 0) {
             const abschnitte = verbindung.verbindung.verbindungsAbschnitte.map((abschnitt: any) => ({
               abfahrtsZeitpunkt: abschnitt.abfahrtsZeitpunkt,
               ankunftsZeitpunkt: abschnitt.ankunftsZeitpunkt,
               abfahrtsOrt: abschnitt.abfahrtsOrt,
-              ankunftsOrt: abschnitt.ankunftsOrt
+              ankunftsOrt: abschnitt.ankunftsOrt,
+              abfahrtsOrtExtId: abschnitt.abfahrtsOrtExtId,
+              ankunftsOrtExtId: abschnitt.ankunftsOrtExtId,
+              verkehrsmittel: abschnitt.verkehrsmittel ? {
+                produktGattung: abschnitt.verkehrsmittel.produktGattung,
+                kategorie: abschnitt.verkehrsmittel.kategorie,
+                name: abschnitt.verkehrsmittel.name
+              } : undefined
             }))
             const info = abschnitte.map((a: IntervalAbschnitt) => `${a.abfahrtsOrt} → ${a.ankunftsOrt}`).join(' | ')
             finalAllIntervals.push({
@@ -590,15 +498,21 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           },
         }
         return { result, wasApiCall: true }
-      }    console.error(`❌ API error for ${tag}:`, error instanceof Error ? error.message : error)
-    const result = {
-      [tag]: {
-        preis: 0,
-        info: `API Error: ${error instanceof Error ? error.message : "Unknown"}`,
-        abfahrtsZeitpunkt: "",
-        ankunftsZeitpunkt: "",
-      },
+      }
+      // 429 nur informativ loggen, nicht als Fehler
+      if (error instanceof Error && (error.message.includes('429') || error.message.includes('Too Many Requests'))) {
+        console.log(`ℹ️ API rate limited for ${tag}: ${error.message}`)
+      } else {
+        console.error(`❌ API error for ${tag}:`, error instanceof Error ? error.message : error)
+      }
+      const result = {
+        [tag]: {
+          preis: 0,
+          info: `API Error: ${error instanceof Error ? error.message : "Unknown"}`,
+          abfahrtsZeitpunkt: "",
+          ankunftsZeitpunkt: "",
+        },
+      }
+      return { result, wasApiCall: true }
     }
-    return { result, wasApiCall: true }
-  }
 }

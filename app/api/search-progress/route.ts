@@ -56,28 +56,45 @@ export async function GET(request: NextRequest) {
       const uncachedDays = progressData.uncachedDays || remainingDays
       
       if (uncachedDays > 0) {
-        // Basis: Durchschnittliche API-Zeit pro Request (realistischer: 1-2 Sekunden)
-        const avgApiTime = Math.min((progressData.averageUncachedResponseTime || 1500) / 1000, 3) // Max 3s pro Request
-        const baseTime = uncachedDays * avgApiTime
+        // Durchschnittliche API-Zeit pro Request (Sekunden)
+        const avgApiTimeSec = Math.min((progressData.averageUncachedResponseTime || 1500) / 1000, 3)
         
-        // Rate Limiting: Konservativ 1.2 Sekunden zwischen API-Calls
-        const rateLimitTime = uncachedDays * 1.2
+        // Rate Limiter Parameter berücksichtigen
+        const currentIntervalMs = Math.max(0, queueStatus.currentInterval || 1200)
+        const sustainedIntervalSec = 2 // 30/min => mind. 2s Abstand
+        const burstMax = 15 // bis zu 15 Requests im 1s-Burst
         
-        // Round-Robin Faktor: Moderater bei mehreren Nutzern
+        let scheduleSeconds = 0
+        let remaining = uncachedDays
+        
+        if (currentIntervalMs <= 1000) {
+          // Anfangs-Burst mit 1s Abstand für bis zu 15 Requests
+          const burstCount = Math.min(burstMax, remaining)
+          scheduleSeconds += burstCount * 1
+          remaining -= burstCount
+          
+          if (remaining > 0) {
+            // Danach konservativ mit sustained 2s weiter
+            scheduleSeconds += remaining * sustainedIntervalSec
+          }
+        } else if (currentIntervalMs < sustainedIntervalSec * 1000) {
+          // Intervall < 2s: gehe konservativ von 2s aus
+          scheduleSeconds += remaining * sustainedIntervalSec
+        } else {
+          // Aktuelles Intervall verwenden
+          scheduleSeconds += remaining * (currentIntervalMs / 1000)
+        }
+        
+        // Round-Robin Faktor: bei mehreren aktiven Suchen langsamer
         const totalUsers = Math.max(1, activeSearchCount)
-        const roundRobinFactor = totalUsers > 1 ? Math.min(1 + (totalUsers - 1) * 0.15, 1.5) : 1.0 // Maximal 50% länger
+        const roundRobinFactor = totalUsers > 1 ? Math.min(1 + (totalUsers - 1) * 0.25, 2.0) : 1.0
+        scheduleSeconds *= roundRobinFactor
         
-        // Berücksichtige parallele Verarbeitung (bis zu 3 concurrent requests)
-        const concurrentRequests = Math.min(3, totalUsers)
-        const parallelismBonus = concurrentRequests > 1 ? Math.max(0.6, 1 - (concurrentRequests - 1) * 0.2) : 1.0 // Bis zu 40% schneller
+        // Abschluss-Puffer: durchschnittliche API-Laufzeit nach letztem Start
+        scheduleSeconds += avgApiTimeSec
         
-        // Finale ETA = (Basis + Rate Limit) * Round-Robin Faktor * Parallelismus Bonus
-        estimatedTimeRemaining = Math.round(
-          (baseTime + rateLimitTime) * roundRobinFactor * parallelismBonus
-        )
-        
-        // Realistische Grenzen: 1 Sekunde bis 2 Minuten
-        estimatedTimeRemaining = Math.min(Math.max(estimatedTimeRemaining, 1), 120)
+        // Grenzen setzen (1s bis 2 Minuten)
+        estimatedTimeRemaining = Math.min(Math.max(Math.round(scheduleSeconds), 1), 120)
       } else if (remainingDays > 0) {
         // Nur gecachte Tage verbleibend - sehr schnell
         estimatedTimeRemaining = Math.min(remainingDays * 0.2, 5)
