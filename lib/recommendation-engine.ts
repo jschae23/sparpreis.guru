@@ -187,9 +187,34 @@ export function recommendOne(trips: Trip[], profile: RecommendParams = DEFAULT_P
     const score = profile.alpha * priceNorm + profile.beta * durNorm + profile.gamma * transPen + directBonus
     
     // Autopick für sehr gute Direktverbindungen
-    const autopick = t.direct && 
-                    t.preis <= minPrice * (1 + profile.directMaxExtraPct) && 
-                    t.durationMin <= (1 + profile.directPctTolerance) * minDur
+    const minPriceTrip = paretoFront.find(trip => trip.preis === minPrice)
+    const minPriceIsDirect = minPriceTrip?.direct || false
+    
+    let autopick = false
+    if (t.direct) {
+      if (!minPriceIsDirect) {
+        // Günstigste Verbindung ist nicht direkt -> normale Direktverbindungs-Regeln
+        autopick = t.preis <= minPrice * (1 + profile.directMaxExtraPct) && 
+                   t.durationMin <= (1 + profile.directPctTolerance) * minDur
+      } else {
+        // Günstigste Verbindung ist bereits direkt -> viel strenger bewerten
+        const timeSavedMin = minDur - t.durationMin
+        const priceIncreasePercent = (t.preis - minPrice) / minPrice
+        
+        // Für Direktverbindung vs Direktverbindung: nur bei sehr gutem Zeit/Preis-Verhältnis
+        if (t.preis <= minPrice * 1.10) {
+          // Bis 10% Aufpreis: immer OK
+          autopick = true
+        } else if (timeSavedMin >= 60 && priceIncreasePercent <= 0.20) {
+          // 11-20% Aufpreis: nur wenn mindestens 1 Stunde Zeitersparnis
+          autopick = true
+        } else if (timeSavedMin >= 90 && priceIncreasePercent <= 0.25) {
+          // 21-25% Aufpreis: nur wenn mindestens 1,5 Stunden Zeitersparnis
+          autopick = true
+        }
+        // Sonst: nicht als "optimal" bewerben
+      }
+    }
     
     // Guard gegen teure Nicht-Direkt ohne spürbare Zeiteinsparung
     let guardOk = true

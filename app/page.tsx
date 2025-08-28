@@ -55,12 +55,16 @@ export default async function Page({
           </section>
         
         {/* Footer */}
-        <footer className="mt-16 border-t border-gray-200 pt-8">
-          <div className="flex flex-col sm:flex-row justify-between items-center text-sm text-gray-500">
+        <footer className="mt-8 border-t border-gray-200 pt-8">
+            <div className="text-xs text-center text-gray-400 mt-0">
+            Sollte die Deutsche Bahn dieses Projekt nicht wünschen, genügt eine kurze E-Mail an <a href="mailto:info@sparpreis.guru" className="underline">info@sparpreis.guru</a>.
+            <br></br>Diese Seite ist rein privater Natur und verfolgt keinerlei kommerzielle Interessen. Es werden keine personenbezogene Daten gespeichert.
+          </div>
+          <div className="flex flex-row justify-between items-center text-sm text-gray-500 mt-4" >
             <div>
               © {currentYear} <span className="font-medium text-gray-600">sparpreis.guru</span>
             </div>
-            <div className="mt-2 sm:mt-0 flex flex-col sm:items-end items-center">
+            <div className="mt-2 sm:mt-0 flex flex-row sm:items-end items-center gap-3">
               <span>Version {appVersion}</span>
               <a
                 href="https://github.com/XLixl4snSU/sparpreis.guru"
@@ -71,10 +75,6 @@ export default async function Page({
                 <Github className="inline w-4 h-4 mr-1" /> GitHub
               </a>
             </div>
-          </div>
-          <div className="text-xs text-center text-gray-400 mt-4">
-            Sollte die Deutsche Bahn dieses Projekt nicht wünschen, genügt eine kurze E-Mail an <a href="mailto:info@sparpreis.guru" className="underline">info@sparpreis.guru</a>.
-            <br></br>Diese Seite ist rein privater Natur und verfolgt keinerlei kommerzielle Interessen. Es werden keine personenbezogene Daten gespeichert.
           </div>
         </footer>
       </div>

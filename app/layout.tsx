@@ -5,7 +5,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'sparpreis.guru',
-  description: 'Created with v0',
+  description: 'Mit dem sparpreis.guru die günstigsten Sparpreise der Deutschen Bahn über einen Zeitraum auf einen Blick finden.',
   generator: 'v0.dev',
     icons: {
         icon: '/favicon-32x32.png', // /public path

@@ -153,3 +153,89 @@ setInterval(cleanupCache, 5 * 60 * 1000)
 export function getCacheSize(): number {
   return cache.size
 }
+
+
+// Station Cache Interface
+interface StationCacheEntry {
+  data: { id: string; normalizedId: string; name: string }
+  timestamp: number
+  ttl: number
+}
+
+// In-Memory Station Cache
+const stationCache = new Map<string, StationCacheEntry>()
+
+// Cache-Konfiguration für Stationen
+const STATION_CACHE_TTL = 72 * 60 * 60 * 1000 // 72 Stunden in Millisekunden
+const MAX_STATION_CACHE_ENTRIES = 10000
+
+function getStationCacheKey(search: string): string {
+  return `station_${search.toLowerCase().trim()}`
+}
+
+export function getCachedStation(search: string): { id: string; normalizedId: string; name: string } | null {
+  const cacheKey = getStationCacheKey(search)
+  const entry = stationCache.get(cacheKey)
+  
+  if (!entry) {
+    metricsCollector.recordCacheMiss('station')
+    return null
+  }
+  
+  const now = Date.now()
+  const age = now - entry.timestamp
+  
+  if (age > entry.ttl) {
+    // Cache ist abgelaufen
+    stationCache.delete(cacheKey)
+    metricsCollector.recordCacheMiss('station')
+    return null
+  }
+  
+  console.log(`🚉 Station cache hit for: ${search}`)
+  metricsCollector.recordCacheHit('station')
+  return entry.data
+}
+
+export function setCachedStation(search: string, data: { id: string; normalizedId: string; name: string }): void {
+  const cacheKey = getStationCacheKey(search)
+  
+  // LRU-Prinzip: Wenn Limit erreicht, entferne ältesten Eintrag
+  if (stationCache.size >= MAX_STATION_CACHE_ENTRIES) {
+    const oldestKey = stationCache.keys().next().value
+    if (typeof oldestKey === 'string') {
+      stationCache.delete(oldestKey)
+    }
+  }
+  
+  stationCache.set(cacheKey, {
+    data,
+    timestamp: Date.now(),
+    ttl: STATION_CACHE_TTL
+  })
+  
+    // Nur alle 100 Station-Caches loggen
+  if (stationCache.size % 100 === 0) {
+    console.log(`💾 Station cache: ${stationCache.size} entries`)
+  }
+}
+
+// Cache-Bereinigung für Stationen (entfernt abgelaufene Einträge)
+function cleanupStationCache(): void {
+  const now = Date.now()
+  let removed = 0
+  
+  for (const [key, entry] of stationCache.entries()) {
+    if (now - entry.timestamp > entry.ttl) {
+      stationCache.delete(key)
+      removed++
+    }
+  }
+  
+  if (removed > 0) {
+    console.log(`🧹 Cleaned up ${removed} expired station cache entries. Cache size: ${stationCache.size}`)
+  }
+}
+
+// Station Cache-Bereinigung alle 2 Stunden
+setInterval(cleanupStationCache, 2 * 60 * 60 * 1000)

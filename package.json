@@ -1,6 +1,6 @@
 {
   "name": "sparpreisguru",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "private": true,
   "scripts": {
     "build": "next build",
@@ -47,6 +47,7 @@
     "clsx": "^2.1.1",
     "cmdk": "1.1.1",
     "date-fns": "4.1.0",
+    "db-stations": "^5.0.2",
     "embla-carousel-react": "8.6.0",
     "framer-motion": "^12.23.12",
     "geist": "^1.4.2",
@@ -70,6 +71,7 @@
     "zod": "^4.0.17"
   },
   "devDependencies": {
+    "@types/db-stations": "^4.1.3",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { PriceCalendar } from "./price-calendar"
 import { DayDetailsModal } from "./day-details-modal"
 
@@ -70,6 +70,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const [selectedData, setSelectedData] = useState<PriceData | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [abortController, setAbortController] = useState<AbortController | null>(null)
+  const calendarRef = useRef<HTMLDivElement>(null)
+  const [hasScrolledToCalendar, setHasScrolledToCalendar] = useState(false)
 
   // Generate sessionId when search starts
   const generateSessionId = () => {
@@ -351,10 +353,31 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     }
   }
 
+  const prices = validPriceResults
+    .map(([, r]) => r.preis)
+    .filter((p) => p > 0)
+
+  const minPrice = Math.min(...prices)
+  const maxPrice = Math.max(...prices)
+  const avgPrice = Math.round(prices.reduce((a: number, b: number) => a + b, 0) / prices.length)
+
+  useEffect(() => {
+    // Sobald der Kalender sichtbar ist (auch beim Laden), einmalig scrollen
+    if (!hasScrolledToCalendar && calendarRef.current && (loading || isStreaming || validPriceResults.length > 0)) {
+      calendarRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
+      setHasScrolledToCalendar(true)
+    }
+  }, [loading, isStreaming, hasScrolledToCalendar, validPriceResults.length])
+
   // Show nothing if no search params
   if (!searchParams.start || !searchParams.ziel) {
     return null
   }
+
+  // Reset scroll-Flag, wenn neue Suche gestartet wird
+  useEffect(() => {
+    setHasScrolledToCalendar(false)
+  }, [currentSearchKey])
 
   // Always show calendar when search is active or has results
   if (!loading && !isStreaming && (!validPriceResults || validPriceResults.length === 0)) {
@@ -368,11 +391,6 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     )
   }
 
-  // Find min and max prices for summary
-  const prices = validPriceResults
-      .map(([, r]) => r.preis)
-      .filter((p) => p > 0)
-
   // Only show "no prices" message if search is completely done and no valid prices found
   if (!loading && !isStreaming && prices.length === 0) {
     return (
@@ -383,14 +401,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     )
   }
 
-  const minPrice = Math.min(...prices)
-  const maxPrice = Math.max(...prices)
-  const avgPrice = Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
-
   return (
       <div className="space-y-6">
         {/* Calendar View */}
-        <div>
+        <div ref={calendarRef}>
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             📅 Preiskalender
             <span className="text-sm font-normal text-gray-500">(Klicken zum Buchen)</span>

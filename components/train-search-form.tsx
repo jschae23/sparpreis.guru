@@ -11,6 +11,47 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowLeftRight, Train, User, Percent, Shuffle, ArrowRight, Ticket, Zap, MapPin, Calendar, CalendarCheck, Clock } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
+/**
+ * \u26a0\ufe0f WHY inputs looked huge on mobile (esp. iOS Safari)
+ * - Native <input type="date"|"time"> impose their own minimum height and UI.
+ * - iOS zooms inputs whose font-size < 16px.
+ * - Radix SelectTrigger / shadcn Input had differing default heights.
+ *
+ * FIX STRATEGY
+ * - Use a unified control class ("ctrl"): consistent height (h-11), padding, text-base (>=16px), leading-tight.
+ * - Neutralize native date/time chrome via appearance-none; normalize internal value box height.
+ * - Apply the same height to SelectTrigger.
+ * - Avoid container min-heights that force extra space.
+ */
+
+// 1) Reusable class names for uniform sizing
+const ctrl = "h-11 w-full px-3 text-base leading-tight rounded-md border border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+const ctrlGhost = "bg-gray-100 text-gray-500";
+
+// 2) Global tweaks for date/time controls (Tailwind JIT via arbitrary variants)
+//    Put this <style> once in your app (e.g., here or in globals.css under @layer components)
+const DateTimeStyle = () => (
+  <style jsx global>{`
+    /* Normalize native date/time fields across mobile browsers */
+    input[type="date"], input[type="time"] { 
+      -webkit-appearance: none; appearance: none; 
+      font-size: 16px; /* prevent iOS zoom */
+      line-height: 1.2;
+    }
+    /* Remove extra inner box height in WebKit */
+    input[type="date"]::-webkit-date-and-time-value,
+    input[type="time"]::-webkit-date-and-time-value { 
+      min-height: 0; 
+      height: auto; 
+    }
+    /* Keep picker icon but don't let it inflate the field */
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="time"]::-webkit-clear-button {
+      margin: 0; padding: 0;
+    }
+  `}</style>
+);
+
 interface SearchParams {
   start?: string
   ziel?: string
@@ -25,9 +66,9 @@ interface SearchParams {
   reisezeitraumBis?: string
   abfahrtAb?: string
   ankunftBis?: string
-  tage?: string // JSON-String mit Array der gewünschten Tage
+  tage?: string
   umstiegszeit?: string
-  wochentage?: string // JSON-String mit Array der gewählten Wochentage
+  wochentage?: string
 }
 
 interface TrainSearchFormProps {
@@ -37,7 +78,6 @@ interface TrainSearchFormProps {
 export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
   const [start, setStart] = useState(searchParams.start || "")
   const [ziel, setZiel] = useState(searchParams.ziel || "")
-  // Hilfsfunktion für morgen im Format YYYY-MM-DD
   function getTomorrowISO() {
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
@@ -59,7 +99,6 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
   )
   const [abfahrtAb, setAbfahrtAb] = useState(searchParams.abfahrtAb || "")
   const [ankunftBis, setAnkunftBis] = useState(searchParams.ankunftBis || "")
-  // Direktverbindungen-Checkbox initialisieren, wenn maximaleUmstiege 0 ist
   const [nurDirektverbindungen, setNurDirektverbindungen] = useState(
     searchParams.maximaleUmstiege === "0"
   )
@@ -81,7 +120,6 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     setZiel(temp)
   }
 
-  // Wochentage für Auswahl
   const weekdayLabels = [
     { label: "Mo", value: 1 },
     { label: "Di", value: 2 },
@@ -92,7 +130,6 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     { label: "So", value: 0 },
   ]
 
-  // State für ausgewählte Wochentage (Standard: alle true, oder aus URL-Parametern)
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>(() => {
     if (searchParams.wochentage) {
       try {
@@ -105,7 +142,6 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     return [1,2,3,4,5,6,0]
   })
 
-  // Hilfsfunktion: Alle gewünschten Tage im Zeitraum berechnen (limitiert auf max. 30 Tage)
   const selectedDates = useMemo(() => {
     const dates: string[] = []
     const start = new Date(reisezeitraumAb)
@@ -113,7 +149,6 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       if (selectedWeekdays.includes(d.getDay())) {
         dates.push(d.toISOString().split("T")[0])
-        // Limitiere auf maximal 30 Tage
         if (dates.length >= 30) break
       }
     }
@@ -143,11 +178,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     } else {
       params.set("maximaleUmstiege", maximaleUmstiege)
     }
-    const diffTime = new Date(reisezeitraumBis).getTime() - new Date(reisezeitraumAb).getTime()
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1
-    // Sende die einzelnen Tage als JSON-String
     params.set("tage", JSON.stringify(selectedDates))
-    // Speichere die gewählten Wochentage als JSON-String
     params.set("wochentage", JSON.stringify(selectedWeekdays))
     window.location.href = `/?${params.toString()}`
   }
@@ -167,14 +198,12 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     setAbfahrtAb("")
     setAnkunftBis("")
     setUmstiegszeit("normal")
-    setSelectedWeekdays([1,2,3,4,5,6,0]) // Reset zu allen Wochentagen
-    // URL bereinigen
+    setSelectedWeekdays([1,2,3,4,5,6,0])
     window.history.replaceState({}, document.title, window.location.pathname)
   }
 
   const handleReisezeitraumAbChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setReisezeitraumAb(e.target.value)
-    // Bis-Datum ggf. anpassen falls es vor dem Ab-Datum liegt
     const ab = new Date(e.target.value)
     const bis = new Date(reisezeitraumBis)
     if (bis < ab) {
@@ -182,7 +211,6 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     }
   }
 
-  // Wenn Direktverbindungen aktiviert werden, setze Umstiege auf 0, sonst auf letzten Wert > 0
   const handleDirektverbindungenChange = (checked: boolean) => {
     setNurDirektverbindungen(checked)
     if (checked) {
@@ -193,7 +221,6 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     }
   }
 
-  // Wenn Nutzer das Feld ändert, Checkbox synchronisieren
   const handleMaximaleUmstiegeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setMaximaleUmstiege(value)
@@ -205,23 +232,20 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     }
   }
 
-  // Wenn maximaleUmstiege sich ändert (z.B. durch URL-Params), Checkbox synchronisieren
   React.useEffect(() => {
     setNurDirektverbindungen(maximaleUmstiege === "0")
   }, [maximaleUmstiege])
 
-  // Merke letzten Nutzerwert für Umstiege (außer 0)
   const [prevUmstiege, setPrevUmstiege] = useState<string>(
     searchParams.maximaleUmstiege && searchParams.maximaleUmstiege !== "0"
       ? searchParams.maximaleUmstiege
       : "5"
   )
-  
-  // Umstiegszeit State
   const [umstiegszeit, setUmstiegszeit] = useState(searchParams.umstiegszeit || "normal")
 
   return (
     <div className="bg-gray-50 p-6 rounded-lg">
+      <DateTimeStyle />
       <h2 className="text-xl font-semibold mb-4 text-gray-800">Bestpreissuche</h2>
 
       <form onSubmit={handleSubmit} className="space-y-8">
@@ -243,6 +267,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 value={start}
                 onChange={(e) => setStart(e.target.value)}
                 required
+                className={ctrl}
               />
             </div>
             <div className="flex flex-col items-center">
@@ -270,135 +295,130 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 value={ziel}
                 onChange={(e) => setZiel(e.target.value)}
                 required
+                className={ctrl}
               />
             </div>
           </div>
-          <div className="flex flex-row flex-wrap gap-6 mt-2 items-end">
-            <div className="min-w-[140px] flex-1 flex flex-col justify-end">
-              <Label htmlFor="reisezeitraumAb">
-                <span className="inline-flex items-center gap-1">
-                  <Calendar className="w-4 h-4 text-black" />
-                  Reisezeitraum ab
-                </span>
-              </Label>
-              <Input id="reisezeitraumAb" type="date" value={reisezeitraumAb} onChange={handleReisezeitraumAbChange} className="mt-1 h-10" />
-            </div>
-            <div className="min-w-[140px] flex-1 flex flex-col justify-end">
-              <Label htmlFor="reisezeitraumBis">
-                <span className="inline-flex items-center gap-1">
-                  <CalendarCheck className="w-4 h-4 text-black" />
-                  Reisezeitraum bis
-                </span>
-              </Label>
-              <Input
-                id="reisezeitraumBis"
-                type="date"
-                min={reisezeitraumAb}
-                value={reisezeitraumBis}
-                onChange={e => setReisezeitraumBis(e.target.value)}
-                className="mt-1 h-10"
-              />
-            </div>
-          </div>
-          {/* Zeitfilter - Optional */}
-          <div className="flex flex-row flex-wrap gap-6 mt-4">
-            <div className="min-w-[140px] flex-1 relative">
-              <Label htmlFor="abfahrtAb" className="whitespace-nowrap overflow-hidden text-ellipsis block min-h-[22px]">
-                <span className="inline-flex items-center gap-1">
-                  <Clock className="w-4 h-4 text-black" />
-                  Abfahrt ab (optional)
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button type="button" className="ml-1 cursor-pointer text-blue-600 p-0 bg-transparent border-0 focus:outline-none" tabIndex={0} aria-label="Info zu Zeitfenster">
-                        <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 8v4m0 4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent className="max-w-xs text-sm text-gray-700">
-                      <div className="font-semibold mb-1 text-blue-800">Zeitfenster für Abfahrt/Ankunft</div>
-                      <div>
-                        Hier kannst du ein Zeitfenster für die Ankunft festlegen (z.B. <b>15:00</b> wenn du am Abend noch etwas vorhast).<br/>
-                        <b>Tipp:</b> Um Nachtfahrten zu filtern, setze <b>Abfahrt ab</b> z.B. auf <b>22:00</b> und <b>Ankunft bis</b> auf z.B. <b>07:00</b>.   
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </span>
-              </Label>
-              <div className="relative min-h-[40px]">
-                <Input 
-                  id="abfahrtAb" 
-                  type="time" 
-                  value={abfahrtAb} 
-                  onChange={(e) => setAbfahrtAb(e.target.value)} 
-                  className="mt-1 pr-8 h-10 align-middle" 
+          <div className="flex flex-col gap-4 mt-2">
+            <div className="flex flex-row gap-2 sm:gap-4">
+              <div className="flex-1 min-w-[100px] flex flex-col justify-end">
+                <Label htmlFor="reisezeitraumAb">
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar className="w-4 h-4 text-black" />
+                    Reisezeitraum ab
+                  </span>
+                </Label>
+                <Input id="reisezeitraumAb" type="date" value={reisezeitraumAb} onChange={handleReisezeitraumAbChange} className={ctrl} />
+              </div>
+              <div className="flex-1 min-w-[100px] flex flex-col justify-end">
+                <Label htmlFor="reisezeitraumBis">
+                  <span className="inline-flex items-center gap-1">
+                    <CalendarCheck className="w-4 h-4 text-black" />
+                    Reisezeitraum bis
+                  </span>
+                </Label>
+                <Input
+                  id="reisezeitraumBis"
+                  type="date"
+                  min={reisezeitraumAb}
+                  value={reisezeitraumBis}
+                  onChange={e => setReisezeitraumBis(e.target.value)}
+                  className={ctrl}
                 />
-                <button
-                  type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none flex items-center justify-center"
-                  style={{width: 20, height: 20, lineHeight: 1}}
-                  onClick={() => setAbfahrtAb("")}
-                  tabIndex={-1}
-                  aria-label="Abfahrt ab zurücksetzen"
-                  disabled={!abfahrtAb}
-                >
-                  {abfahrtAb ? (
-                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" style={{display: 'block'}}><path d="M6 6l8 8M6 14L14 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                  ) : (
-                    <span style={{width: 16, height: 16, display: 'inline-block'}}></span>
-                  )}
-                </button>
               </div>
             </div>
-            <div className="min-w-[140px] flex-1 relative">
-              <Label htmlFor="ankunftBis" className="whitespace-nowrap overflow-hidden text-ellipsis block min-h-[22px]">
-                <span className="inline-flex items-center gap-1">
-                  <Clock className="w-4 h-4 text-black" />
-                  Ankunft bis (optional)
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button type="button" className="ml-1 cursor-pointer text-blue-600 p-0 bg-transparent border-0 focus:outline-none" tabIndex={0} aria-label="Info zu Zeitfenster">
-                        <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 8v4m0 4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent className="max-w-xs text-sm text-gray-700">
-                      <div className="font-semibold mb-1 text-blue-800">Zeitfenster für Abfahrt/Ankunft</div>
-                      <div>
-                        Hier kannst du ein Zeitfenster für die Ankunft festlegen (z.B. <b>15:00</b> wenn du am Abend noch etwas vorhast).<br/>
-                        <b>Tipp:</b> Um Nachtfahrten zu filtern, setze <b>Abfahrt ab</b> z.B. auf <b>22:00</b> und <b>Ankunft bis</b> auf z.B. <b>07:00</b>.                    
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </span>
-              </Label>
-              <div className="relative min-h-[40px]">
-                <Input 
-                  id="ankunftBis" 
-                  type="time" 
-                  value={ankunftBis} 
-                  onChange={(e) => setAnkunftBis(e.target.value)} 
-                  className="mt-1 pr-8 h-10 align-middle" 
-                />
-                <button
-                  type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none flex items-center justify-center"
-                  style={{width: 20, height: 20, lineHeight: 1}}
-                  onClick={() => setAnkunftBis("")}
-                  tabIndex={-1}
-                  aria-label="Ankunft bis zurücksetzen"
-                  disabled={!ankunftBis}
-                >
-                  {ankunftBis ? (
-                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" style={{display: 'block'}}><path d="M6 6l8 8M6 14L14 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                  ) : (
-                    <span style={{width: 16, height: 16, display: 'inline-block'}}></span>
+            {/* Zeitfilter - Optional */}
+            <div className="flex flex-row gap-2 sm:gap-4">
+              <div className="flex-1 min-w-[100px]">
+                <Label htmlFor="abfahrtAb" className="block min-h-[22px]">
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="w-4 h-4 text-black" />
+                    <span className="truncate">Abfahrt ab</span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button type="button" className="ml-1 cursor-pointer text-blue-600 p-0 bg-transparent border-0 focus:outline-none flex-shrink-0" tabIndex={0} aria-label="Info zu Zeitfenster">
+                          <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 8v4m0 4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="max-w-xs text-sm text-gray-700">
+                        <div className="font-semibold mb-1 text-blue-800">Zeitfenster für Abfahrt/Ankunft</div>
+                        <div>
+                          Hier kannst du ein Zeitfenster für die Ankunft festlegen (z.B. <b>15:00</b> wenn du am Abend noch etwas vorhast).<br/>
+                          <b>Tipp:</b> Um Nachtfahrten zu filtern, setze <b>Abfahrt ab</b> z.B. auf <b>22:00</b> und <b>Ankunft bis</b> auf z.B. <b>07:00</b>.   
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </span>
+                </Label>
+                <div className="relative">
+                  <Input 
+                    id="abfahrtAb" 
+                    type="time" 
+                    value={abfahrtAb} 
+                    onChange={(e) => setAbfahrtAb(e.target.value)} 
+                    className={ctrl}
+                  />
+                  {abfahrtAb && (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                      onClick={() => setAbfahrtAb("")}
+                      tabIndex={-1}
+                      aria-label="Abfahrt ab zurücksetzen"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" style={{display: 'block'}}><path d="M6 6l8 8M6 14L14 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                    </button>
                   )}
-                </button>
+                </div>
+              </div>
+              <div className="flex-1 min-w-[100px]">
+                <Label htmlFor="ankunftBis" className="block min-h-[22px]">
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="w-4 h-4 text-black" />
+                    <span className="truncate">Ankunft bis</span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button type="button" className="ml-1 cursor-pointer text-blue-600 p-0 bg-transparent border-0 focus:outline-none flex-shrink-0" tabIndex={0} aria-label="Info zu Zeitfenster">
+                          <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 8v4m0 4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="max-w-xs text-gray-700">
+                        <div className="font-semibold mb-1 text-blue-800">Zeitfenster für Abfahrt/Ankunft</div>
+                        <div>
+                          Hier kannst du ein Zeitfenster für die Ankunft festlegen (z.B. <b>15:00</b> wenn du am Abend noch etwas vorhast).<br/>
+                          <b>Tipp:</b> Um Nachtfahrten zu filtern, setze <b>Abfahrt ab</b> z.B. auf <b>22:00</b> und <b>Ankunft bis</b> auf z.B. <b>07:00</b>.                    
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </span>
+                </Label>
+                <div className="relative">
+                  <Input 
+                    id="ankunftBis" 
+                    type="time" 
+                    value={ankunftBis} 
+                    onChange={(e) => setAnkunftBis(e.target.value)} 
+                    className={ctrl}
+                  />
+                  {ankunftBis && (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                      onClick={() => setAnkunftBis("")}
+                      tabIndex={-1}
+                      aria-label="Ankunft bis zurücksetzen"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" style={{display: 'block'}}><path d="M6 6l8 8M6 14L14 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
           {/* Wochentagsauswahl */}
           <div className="mt-4">
             <Label className="text-sm text-gray-700 mb-2 block">Nur diese Wochentage:</Label>
-            <div className="flex flex-row flex-wrap gap-3">
+            <div className="flex flex-row flex-wrap gap-2 sm:gap-3">
               {weekdayLabels.map(wd => (
                 <div key={wd.value} className="flex items-center space-x-2">
                   <Checkbox
@@ -419,7 +439,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
               ))}
             </div>
           </div>
-          {/* Dynamische Info/Warnbox zu den ausgewählten Tagen */}
+          {/* Dynamische Info/Warnbox */}
           <div className={`mt-3 text-sm p-3 rounded flex items-start gap-2 border ${
             selectedDates.length >= 30
               ? 'text-orange-700 bg-orange-50 border-orange-200'
@@ -459,7 +479,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 </span>
               </Label>
               <Select value={alter} onValueChange={setAlter}>
-                <SelectTrigger className="mt-2 w-full">
+                <SelectTrigger className={`mt-2 w-full ${ctrl}`}>
                   <SelectValue placeholder="Alter wählen" />
                 </SelectTrigger>
                 <SelectContent>
@@ -487,7 +507,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                   } catch {}
                 }}
               >
-                <SelectTrigger className="mt-2 w-full">
+                <SelectTrigger className={`mt-2 w-full ${ctrl}`}>
                   <SelectValue placeholder="Ermäßigung wählen" />
                 </SelectTrigger>
                 <SelectContent>
@@ -579,7 +599,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 max="5"
                 value={maximaleUmstiege}
                 onChange={handleMaximaleUmstiegeChange}
-                className={`w-24 ${nurDirektverbindungen ? 'bg-gray-100 text-gray-500' : ''}`}
+                className={`${ctrl} ${nurDirektverbindungen ? ctrlGhost : ''} w-24`}
               />
             </div>
             <div className="flex items-center space-x-2">
@@ -587,7 +607,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 <span className="inline-flex items-center gap-1"><Clock className="w-4 h-4 text-black" />Umstiegszeit</span>
               </Label>
               <Select value={umstiegszeit} onValueChange={setUmstiegszeit} disabled={nurDirektverbindungen}>
-                <SelectTrigger className={`w-32 ${nurDirektverbindungen ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`} disabled={nurDirektverbindungen}>
+                <SelectTrigger className={`w-32 ${ctrl} ${nurDirektverbindungen ? ctrlGhost + ' cursor-not-allowed' : ''}`} disabled={nurDirektverbindungen}>
                   <SelectValue placeholder="Normal" />
                 </SelectTrigger>
                 <SelectContent>
