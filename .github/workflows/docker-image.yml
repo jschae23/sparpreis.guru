@@ -74,6 +74,12 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},prefix=v
             type=semver,pattern={{major}},prefix=v
             type=sha,format=long,prefix=sha-
+            
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build project
+        run: pnpm build
 
       - name: Build and push Docker images
         uses: docker/build-push-action@v6
@@ -86,8 +92,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build project
-        run: pnpm build
