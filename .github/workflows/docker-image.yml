@@ -32,6 +32,9 @@ jobs:
           key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
             
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -75,11 +78,6 @@ jobs:
             type=semver,pattern={{major}},prefix=v
             type=sha,format=long,prefix=sha-
             
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build project
-        run: pnpm build
 
       - name: Build and push Docker images
         uses: docker/build-push-action@v6
