@@ -1,5 +1,6 @@
 import { TrainSearchForm } from "@/components/train-search-form"
 import { TrainResults } from "@/components/train-results"
+import { FAQPopup } from "@/components/faq-popup"
 import { getAppVersion, getCurrentYear } from "@/lib/app-info"
 import { Github } from "lucide-react"
 
@@ -35,13 +36,19 @@ export default async function Page({
   return (
     <div className="min-h-screen bg-white">
       <div className="container mx-auto px-4 py-6 max-w-6xl">
-        <header className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">
-            <a href="/" className="text-gray-600 hover:text-retro-gradient">
-              sparpreis.guru
-            </a>
-          </h1>
-          <p className="text-gray-600 italic">Der Sparpreiskalender!</p>
+        <header className="mb-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-4xl font-bold mb-2">
+                <a href="/" className="text-gray-600 hover:text-retro-gradient">
+                  sparpreis.guru
+                </a>
+              </h1>
+            </div>
+            <div className="flex-shrink-0">
+              <FAQPopup />
+            </div>
+          </div>
         </header>
 
         <section className="mb-8">
@@ -57,7 +64,7 @@ export default async function Page({
         {/* Footer */}
         <footer className="mt-8 border-t border-gray-200 pt-8">
             <div className="text-xs text-center text-gray-400 mt-0">
-            Sollte die Deutsche Bahn dieses Projekt nicht wünschen, genügt eine kurze E-Mail an <a href="mailto:info@sparpreis.guru" className="underline">info@sparpreis.guru</a>.
+            Sollte die Deutsche Bahn dieses Projekt nicht wünschen, genügt eine Info an <a href="mailto:info@sparpreis.guru" className="underline">info@sparpreis.guru</a>.
             <br></br>Diese Seite ist rein privater Natur und verfolgt keinerlei kommerzielle Interessen. Es werden keine personenbezogene Daten gespeichert.
           </div>
           <div className="flex flex-row justify-between items-center text-sm text-gray-500 mt-4" >

@@ -106,7 +106,8 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   const datum = formatDateKey(dateObj) + "T08:00:00"
   const tag = formatDateKey(dateObj)
 
-  // Cache-Key generieren
+
+  // Cache-Key generieren (ohne maximaleUmstiege, da wir alle Verbindungen cachen)
   const cacheKey = generateCacheKey({
     startStationId: config.startStationNormalizedId, // Verwende normalisierte ID
     zielStationId: config.zielStationNormalizedId,   // Verwende normalisierte ID
@@ -115,7 +116,6 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     ermaessigungArt: config.ermaessigungArt || "KEINE_ERMAESSIGUNG",
     ermaessigungKlasse: config.ermaessigungKlasse || "KLASSENLOS",
     klasse: config.klasse,
-    maximaleUmstiege: config.maximaleUmstiege,
     schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
     nurDeutschlandTicketVerbindungen: Boolean(config.nurDeutschlandTicketVerbindungen === true || config.nurDeutschlandTicketVerbindungen === "true"),
     // abfahrtAb und ankunftBis NICHT im Cache-Key!
@@ -155,16 +155,34 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         return abfahrtOk && ankunftOk
       })
       
-      if (filteredIntervals.length === 0) {
+      // Umstiegs-Filterung auf gecachte Daten anwenden
+      const umstiegsFilteredIntervals = filteredIntervals.filter((interval: any) => {
+        // Wenn kein Filter gesetzt ist (undefined, null, "alle"), alle Verbindungen erlauben
+        if (config.maximaleUmstiege === undefined || 
+            config.maximaleUmstiege === null || 
+            config.maximaleUmstiege === "") {
+          return true // Alle Verbindungen
+        }
+        // Nur Direktverbindungen
+        if (config.maximaleUmstiege === 0 || config.maximaleUmstiege === "0") {
+          return interval.umstiegsAnzahl === 0
+        }
+        // Maximal X Umstiege
+        return interval.umstiegsAnzahl <= Number(config.maximaleUmstiege)
+      })
+      
+      console.log(`🔍 Cache: filtered ${filteredIntervals.length} -> ${umstiegsFilteredIntervals.length} intervals`)
+      
+      if (umstiegsFilteredIntervals.length === 0) {
         return {
-          result: { [tag]: { preis: 0, info: "Keine Verbindungen im gewählten Zeitraum!", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "", allIntervals: [] } },
+          result: { [tag]: { preis: 0, info: "Keine Verbindungen im gewählten Zeitraum/mit gewählten Umstiegs-Optionen!", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "", allIntervals: [] } },
           wasApiCall: false
         }
       }
       
       // Finde günstigste Verbindung
-      const minPreis = Math.min(...filteredIntervals.map((iv: any) => iv.preis))
-      const bestInterval = filteredIntervals.find((interval: any) => interval.preis === minPreis)
+      const minPreis = Math.min(...umstiegsFilteredIntervals.map((iv: any) => iv.preis))
+      const bestInterval = umstiegsFilteredIntervals.find((interval: any) => interval.preis === minPreis)
       
       const filteredResult = {
         [tag]: {
@@ -172,7 +190,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           info: bestInterval?.info || "",
           abfahrtsZeitpunkt: bestInterval?.abfahrtsZeitpunkt || "",
           ankunftsZeitpunkt: bestInterval?.ankunftsZeitpunkt || "",
-          allIntervals: filteredIntervals.sort((a: any, b: any) => a.preis - b.preis) as IntervalDetails[]
+          allIntervals: umstiegsFilteredIntervals.sort((a: any, b: any) => a.preis - b.preis) as IntervalDetails[]
         }
       }
       
@@ -212,7 +230,6 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     ankunftsHalt: config.ankunftsHalt,
     ankunftSuche: "ABFAHRT",
     klasse: config.klasse,
-    maxUmstiege: config.maximaleUmstiege,
     produktgattungen: ["ICE", "EC_IC", "IR", "REGIONAL", "SBAHN", "BUS", "SCHIFF", "UBAHN", "TRAM", "ANRUFPFLICHTIG"],
     reisende: [
       {
@@ -231,8 +248,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     sitzplatzOnly: false,
     bikeCarriage: false,
     reservierungsKontingenteVorhanden: false,
-    nurDeutschlandTicketVerbindungen:
-      config.nurDeutschlandTicketVerbindungen === true || config.nurDeutschlandTicketVerbindungen === "true",
+    nurDeutschlandTicketVerbindungen: false,
     deutschlandTicketVorhanden: false,
   }
 
@@ -336,50 +352,6 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
 
     console.log(`Found ${data.intervalle.length} intervals`)
 
-    // Verarbeite ALLE Intervalle für Cache (ohne Zeitfilter)
-    const allIntervalsForCache: IntervalDetails[] = []
-
-    // Process ALL intervals (für Cache)
-    for (const iv of data.intervalle) {
-      if (iv.preis && typeof iv.preis === "object" && "betrag" in iv.preis && Array.isArray(iv.verbindungen)) {
-        for (const verbindung of iv.verbindungen) {
-          // Skip connections without price information
-          if (!verbindung.abPreis || typeof verbindung.abPreis !== "object" || !("betrag" in verbindung.abPreis)) {
-            continue
-          }
-          
-          const newPreis = verbindung.abPreis.betrag
-          
-          if (verbindung.verbindung && verbindung.verbindung.verbindungsAbschnitte && verbindung.verbindung.verbindungsAbschnitte.length > 0) {
-            const abschnitte = verbindung.verbindung.verbindungsAbschnitte.map((abschnitt: any) => ({
-              abfahrtsZeitpunkt: abschnitt.abfahrtsZeitpunkt,
-              ankunftsZeitpunkt: abschnitt.ankunftsZeitpunkt,
-              abfahrtsOrt: abschnitt.abfahrtsOrt,
-              ankunftsOrt: abschnitt.ankunftsOrt,
-              abfahrtsOrtExtId: abschnitt.abfahrtsOrtExtId,
-              ankunftsOrtExtId: abschnitt.ankunftsOrtExtId,
-              verkehrsmittel: abschnitt.verkehrsmittel ? {
-                produktGattung: abschnitt.verkehrsmittel.produktGattung,
-                kategorie: abschnitt.verkehrsmittel.kategorie,
-                name: abschnitt.verkehrsmittel.name
-              } : undefined
-            }))
-            const info = abschnitte.map((a: IntervalAbschnitt) => `${a.abfahrtsOrt} → ${a.ankunftsOrt}`).join(' | ')
-            allIntervalsForCache.push({
-              preis: newPreis,
-              abschnitte,
-              abfahrtsZeitpunkt: abschnitte[0].abfahrtsZeitpunkt,
-              ankunftsZeitpunkt: abschnitte[abschnitte.length-1].ankunftsZeitpunkt,
-              abfahrtsOrt: abschnitte[0].abfahrtsOrt,
-              ankunftsOrt: abschnitte[abschnitte.length-1].ankunftsOrt,
-              info,
-              umstiegsAnzahl: verbindung.verbindung.umstiegsAnzahl || 0,
-            })
-          }
-        }
-      }
-    }
-
     // Sammle alle Intervalle
     const finalAllIntervals: IntervalDetails[] = []
     
@@ -463,16 +435,35 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       return abfahrtOk && ankunftOk
     })
 
-    if (timeFilteredIntervals.length === 0) {
-      console.log("No intervals remaining after time filtering")
-      const result = { [tag]: { preis: 0, info: "Keine Verbindungen im gewählten Zeitraum!", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "", allIntervals: [] } }
+    // Umstiegs-Filterung anwenden
+    const umstiegsFilteredIntervals = timeFilteredIntervals.filter(interval => {
+      // Wenn kein Filter gesetzt ist (undefined, null, "alle"), alle Verbindungen erlauben
+      if (config.maximaleUmstiege === undefined || 
+          config.maximaleUmstiege === null || 
+          config.maximaleUmstiege === "alle" || 
+          config.maximaleUmstiege === "") {
+        return true // Alle Verbindungen
+      }
+      // Nur Direktverbindungen
+      if (config.maximaleUmstiege === 0 || config.maximaleUmstiege === "0") {
+        return interval.umstiegsAnzahl === 0
+      }
+      // Maximal X Umstiege
+      return interval.umstiegsAnzahl <= Number(config.maximaleUmstiege)
+    })
+
+    console.log(`🔍 API: filtered ${timeFilteredIntervals.length} -> ${umstiegsFilteredIntervals.length} intervals`)
+
+    if (umstiegsFilteredIntervals.length === 0) {
+      console.log("No intervals remaining after transfer filtering")
+      const result = { [tag]: { preis: 0, info: "Keine Verbindungen mit den gewählten Umstiegs-Optionen!", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "", allIntervals: [] } }
       return { result, wasApiCall: true }
     }
 
     // Finde günstigste Verbindung für Bestpreis-Anzeige (aber ohne isCheapestPerInterval-Markierung)
-    const bestPrice = Math.min(...timeFilteredIntervals.map(iv => iv.preis))
-    const bestInterval = timeFilteredIntervals.find(interval => interval.preis === bestPrice)
-    const sortedTimeFilteredIntervals = timeFilteredIntervals.sort((a, b) => a.preis - b.preis)
+    const bestPrice = Math.min(...umstiegsFilteredIntervals.map(iv => iv.preis))
+    const bestInterval = umstiegsFilteredIntervals.find(interval => interval.preis === bestPrice)
+    const sortedFilteredIntervals = umstiegsFilteredIntervals.sort((a, b) => a.preis - b.preis)
 
     const result = {
       [tag]: {
@@ -480,7 +471,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         info: bestInterval?.info || "",
         abfahrtsZeitpunkt: bestInterval?.abfahrtsZeitpunkt || "",
         ankunftsZeitpunkt: bestInterval?.ankunftsZeitpunkt || "",
-        allIntervals: sortedTimeFilteredIntervals,
+        allIntervals: sortedFilteredIntervals,
       },
     }
 

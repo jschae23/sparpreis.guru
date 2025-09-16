@@ -215,7 +215,6 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             sessionId: newSessionId,
             start: searchParams.start,
             ziel: searchParams.ziel,
-            // Verwende tage-Array wenn vorhanden (aus URL-Parameter), sonst fallback
             tage: searchParams.tage ? JSON.parse(searchParams.tage) : undefined,
             reisezeitraumAb: searchParams.reisezeitraumAb || new Date().toISOString().split("T")[0],
             reisezeitraumBis: searchParams.reisezeitraumBis,
@@ -225,7 +224,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             klasse: searchParams.klasse || "KLASSE_2",
             schnelleVerbindungen: searchParams.schnelleVerbindungen === "1",
             nurDeutschlandTicketVerbindungen: searchParams.nurDeutschlandTicketVerbindungen === "1",
-            maximaleUmstiege: Number.parseInt(searchParams.maximaleUmstiege || "0"),
+            ...(searchParams.maximaleUmstiege !== undefined && searchParams.maximaleUmstiege !== "" && { maximaleUmstiege: Number.parseInt(searchParams.maximaleUmstiege) }),
             abfahrtAb: searchParams.abfahrtAb,
             ankunftBis: searchParams.ankunftBis,
             umstiegszeit: searchParams.umstiegszeit,
@@ -408,15 +407,6 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             📅 Preiskalender
             <span className="text-sm font-normal text-gray-500">(Klicken zum Buchen)</span>
-            {isStreaming && (
-              <span className="text-sm font-normal text-blue-600 flex items-center gap-1">
-                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Wird geladen...
-              </span>
-            )}
           </h3>
           <PriceCalendar
               results={priceResults}

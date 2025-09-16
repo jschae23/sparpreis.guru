@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       sessionId: providedSessionId,
       start,
       ziel,
-      tage, // Array der gewünschten Tage im Format ["2024-07-01", "2024-07-03", ...]
+      tage,
       alter,
       ermaessigungArt,
       ermaessigungKlasse,
@@ -79,7 +79,8 @@ export async function POST(request: NextRequest) {
     console.log("📋 Request parameters:")
     console.log("  - Route:", start, "→", ziel)
     console.log("  - Days:", tage?.length || 0, "| Time:", abfahrtAb || "any", "-", ankunftBis || "any")
-    console.log("  - Class:", klasse, "| Max transfers:", maximaleUmstiege)
+    console.log("  - Class:", klasse, "| Max transfers:", maximaleUmstiege, "(type:", typeof maximaleUmstiege, ")")
+    console.log("  - RAW maximaleUmstiege from body:", JSON.stringify(body.maximaleUmstiege))
     if (umstiegszeit && umstiegszeit !== "normal") {
       console.log("  - Transfer time:", umstiegszeit, "min")
     }
@@ -169,7 +170,6 @@ export async function POST(request: NextRequest) {
               ermaessigungArt: ermaessigungArt || "KEINE_ERMAESSIGUNG",
               ermaessigungKlasse: ermaessigungKlasse || "KLASSENLOS",
               klasse: klasse || "KLASSE_2",
-              maximaleUmstiege: Number.parseInt(maximaleUmstiege || "0"),
               schnelleVerbindungen: Boolean(schnelleVerbindungen === true || schnelleVerbindungen === "true"),
               nurDeutschlandTicketVerbindungen: Boolean(
                 nurDeutschlandTicketVerbindungen === true || nurDeutschlandTicketVerbindungen === "true",
@@ -234,6 +234,15 @@ export async function POST(request: NextRequest) {
             const currentDate = new Date(currentDateStr)
             const t0 = Date.now()
 
+            // Konvertiere maximaleUmstiege explizit
+            let processedMaxUmstiege: number | string | undefined = undefined
+            if (maximaleUmstiege === "0" || maximaleUmstiege === 0) {
+              processedMaxUmstiege = 0
+            } else if (maximaleUmstiege !== undefined && maximaleUmstiege !== "alle" && maximaleUmstiege !== "" && maximaleUmstiege !== null) {
+              processedMaxUmstiege = Number.parseInt(String(maximaleUmstiege))
+            }
+            // Falls maximaleUmstiege === undefined, null, "alle" oder "", bleibt processedMaxUmstiege = undefined (= alle Verbindungen)
+
             const dayResponse = await getBestPrice({
               abfahrtsHalt: startStation.id,
               ankunftsHalt: zielStation.id,
@@ -245,7 +254,7 @@ export async function POST(request: NextRequest) {
               ermaessigungArt,
               ermaessigungKlasse,
               klasse,
-              maximaleUmstiege: Number.parseInt(maximaleUmstiege || "0"),
+              maximaleUmstiege: processedMaxUmstiege,
               schnelleVerbindungen: schnelleVerbindungen === true || schnelleVerbindungen === "1",
               nurDeutschlandTicketVerbindungen:
                 nurDeutschlandTicketVerbindungen === true || nurDeutschlandTicketVerbindungen === "1",
