@@ -6,9 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue} from "@/components/ui/select"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Checkbox } from "@/components/ui/checkbox"
-import { ArrowLeftRight, Train, User, Percent, Shuffle, ArrowRight, Ticket, Zap, MapPin, Calendar, CalendarCheck, Clock } from "lucide-react"
+import { ArrowLeftRight, Train, User, Percent, Shuffle, ArrowRight, Ticket, Settings, MapPin, Calendar, Baby, Clock, Zap, AlertTriangle, Lightbulb, CheckCircle, Map } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 /**
@@ -94,19 +92,16 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
   const [schnelleVerbindungen, setSchnelleVerbindungen] = useState(
     searchParams.schnelleVerbindungen === undefined || searchParams.schnelleVerbindungen === "1"
   )
-  const [nurDeutschlandTicket, setNurDeutschlandTicket] = useState(
-    searchParams.nurDeutschlandTicketVerbindungen === "1",
-  )
   const [abfahrtAb, setAbfahrtAb] = useState(searchParams.abfahrtAb || "")
   const [ankunftBis, setAnkunftBis] = useState(searchParams.ankunftBis || "")
-  const [nurDirektverbindungen, setNurDirektverbindungen] = useState(
-    searchParams.maximaleUmstiege === "0"
-  )
-  const [maximaleUmstiege, setMaximaleUmstiege] = useState(
-    searchParams.maximaleUmstiege !== undefined
-      ? searchParams.maximaleUmstiege
-      : "5"
-  )
+  
+  const [umstiegsOption, setUmstiegsOption] = useState<string>(() => {
+    if (searchParams.maximaleUmstiege === "0") return "direkt"
+    if (!searchParams.maximaleUmstiege || searchParams.maximaleUmstiege === "alle") return "alle"
+    return searchParams.maximaleUmstiege
+  })
+  
+  const [nurDirektverbindungen, setNurDirektverbindungen] = useState(false) // Wird nicht mehr verwendet, nur für Backward-Compatibility
   const [reisezeitraumBis, setReisezeitraumBis] = useState(() => {
     if (searchParams.reisezeitraumBis) return searchParams.reisezeitraumBis
     const ab = new Date(reisezeitraumAb)
@@ -167,17 +162,22 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     params.set("ermaessigungKlasse", ermaessigungKlasse)
     params.set("klasse", klasse)
     if (schnelleVerbindungen) params.set("schnelleVerbindungen", "1")
-    if (nurDeutschlandTicket) params.set("nurDeutschlandTicketVerbindungen", "1")
     if (abfahrtAb) params.set("abfahrtAb", abfahrtAb)
     if (ankunftBis) params.set("ankunftBis", ankunftBis)
     if (umstiegszeit && umstiegszeit !== "normal") {
       params.set("umstiegszeit", umstiegszeit)
     }
-    if (nurDirektverbindungen) {
+    
+    // Umstiegs-Logik basierend auf umstiegsOption
+    if (umstiegsOption === "direkt") {
       params.set("maximaleUmstiege", "0")
+    } else if (umstiegsOption === "alle") {
+      // Kein maximaleUmstiege Parameter setzen = alle Verbindungen
     } else {
-      params.set("maximaleUmstiege", maximaleUmstiege)
+      // umstiegsOption ist "1", "2", "3", "4", oder "5"
+      params.set("maximaleUmstiege", umstiegsOption)
     }
+    
     params.set("tage", JSON.stringify(selectedDates))
     params.set("wochentage", JSON.stringify(selectedWeekdays))
     window.location.href = `/?${params.toString()}`
@@ -192,9 +192,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     setErmaessigungKlasse("KLASSENLOS")
     setKlasse("KLASSE_2")
     setSchnelleVerbindungen(true)
-    setNurDeutschlandTicket(false)
-    setNurDirektverbindungen(false)
-    setMaximaleUmstiege("5")
+    setUmstiegsOption("alle")
     setAbfahrtAb("")
     setAnkunftBis("")
     setUmstiegszeit("normal")
@@ -211,52 +209,29 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     }
   }
 
-  const handleDirektverbindungenChange = (checked: boolean) => {
-    setNurDirektverbindungen(checked)
-    if (checked) {
-      setPrevUmstiege(maximaleUmstiege !== "0" ? maximaleUmstiege : prevUmstiege)
-      setMaximaleUmstiege("0")
-    } else {
-      setMaximaleUmstiege(prevUmstiege || "3")
-    }
-  }
-
-  const handleMaximaleUmstiegeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value
-    setMaximaleUmstiege(value)
-    if (value === "0") {
-      setNurDirektverbindungen(true)
-    } else {
-      setNurDirektverbindungen(false)
-      setPrevUmstiege(value)
-    }
-  }
-
-  React.useEffect(() => {
-    setNurDirektverbindungen(maximaleUmstiege === "0")
-  }, [maximaleUmstiege])
-
-  const [prevUmstiege, setPrevUmstiege] = useState<string>(
-    searchParams.maximaleUmstiege && searchParams.maximaleUmstiege !== "0"
-      ? searchParams.maximaleUmstiege
-      : "5"
-  )
   const [umstiegszeit, setUmstiegszeit] = useState(searchParams.umstiegszeit || "normal")
 
   return (
-    <div className="bg-gray-50 p-6 rounded-lg">
+    <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-2 sm:p-4 rounded-xl shadow-lg border border-gray-200">
       <DateTimeStyle />
-      <h2 className="text-xl font-semibold mb-4 text-gray-800">Bestpreissuche</h2>
+      <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 text-gray-800 flex items-center gap-2">
+        <Train className="w-5 h-5 text-blue-600" />
+        Bestpreissuche
+      </h2>
 
-      <form onSubmit={handleSubmit} className="space-y-8">
+      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-6">
         {/* Abschnitt 1: Reisedaten */}
-        <div>
-          <h3 className="text-base font-semibold text-gray-700 mb-2">Reisedaten</h3>
-          <div className="grid grid-cols-[1fr_auto_1fr] gap-6 items-end">
-            <div>
-              <Label htmlFor="start">
+        <div className="bg-white p-2 sm:p-4 rounded-lg shadow-sm border border-gray-100">
+          <h3 className="text-md font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
+            <Map className="w-4 h-4 text-blue-600" />
+            Reisedaten
+          </h3>
+          {/* Von/Nach als eigene Zeile, immer nebeneinander */}
+          <div className="flex flex-row gap-2 items-end flex-nowrap mb-3">
+            <div className="flex-1 min-w-0">
+              <Label htmlFor="start" className="text-sm font-medium text-gray-600 mb-2 block">
                 <span className="inline-flex items-center gap-1">
-                  <MapPin className="w-4 h-4 text-black" />
+                  <MapPin className="w-4 h-4 text-blue-500" />
                   Von (Startbahnhof)
                 </span>
               </Label>
@@ -270,21 +245,24 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 className={ctrl}
               />
             </div>
-            <div className="flex flex-col items-center">
+            <div className="flex items-end flex-shrink-0" style={{height: '44px'}}>
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 onClick={switchStations}
-                className="bg-transparent mt-[30px]"
+                className="bg-white hover:bg-gray-50 border-gray-300 h-11 w-11 flex items-center justify-center p-0"
+                tabIndex={-1}
+                aria-label="Bahnhöfe tauschen"
+                style={{height: '44px', width: '44px'}} // fallback for h-11
               >
-                <ArrowLeftRight className="h-4 w-4" />
+                <ArrowLeftRight className="h-5 w-5" />
               </Button>
             </div>
-            <div>
-              <Label htmlFor="ziel">
+            <div className="flex-1 min-w-0">
+              <Label htmlFor="ziel" className="text-sm font-medium text-gray-600 mb-2 block">
                 <span className="inline-flex items-center gap-1">
-                  <MapPin className="w-4 h-4 text-black" />
+                  <MapPin className="w-4 h-4 text-blue-500" />
                   Nach (Zielbahnhof)
                 </span>
               </Label>
@@ -299,24 +277,25 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
               />
             </div>
           </div>
-          <div className="flex flex-col gap-4 mt-2">
-            <div className="flex flex-row gap-2 sm:gap-4">
-              <div className="flex-1 min-w-[100px] flex flex-col justify-end">
-                <Label htmlFor="reisezeitraumAb">
-                  <span className="inline-flex items-center gap-1">
-                    <Calendar className="w-4 h-4 text-black" />
-                    Reisezeitraum ab
-                  </span>
-                </Label>
-                <Input id="reisezeitraumAb" type="date" value={reisezeitraumAb} onChange={handleReisezeitraumAbChange} className={ctrl} />
-              </div>
-              <div className="flex-1 min-w-[100px] flex flex-col justify-end">
-                <Label htmlFor="reisezeitraumBis">
-                  <span className="inline-flex items-center gap-1">
-                    <CalendarCheck className="w-4 h-4 text-black" />
-                    Reisezeitraum bis
-                  </span>
-                </Label>
+
+          {/* Restliche Felder im grid */}
+          <div className="flex flex-col gap-3">
+            <div>
+              <Label className="text-sm font-medium text-gray-600 mb-2 block">
+                <span className="inline-flex items-center gap-1">
+                  <Calendar className="w-4 h-4 text-blue-500" />
+                  Reisezeitraum
+                </span>
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input 
+                  id="reisezeitraumAb" 
+                  type="date" 
+                  value={reisezeitraumAb} 
+                  onChange={handleReisezeitraumAbChange} 
+                  className={ctrl}
+                />
+                <span className="text-gray-500 text-sm">bis</span>
                 <Input
                   id="reisezeitraumBis"
                   type="date"
@@ -328,11 +307,11 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
               </div>
             </div>
             {/* Zeitfilter - Optional */}
-            <div className="flex flex-row gap-2 sm:gap-4">
-              <div className="flex-1 min-w-[100px]">
-                <Label htmlFor="abfahrtAb" className="block min-h-[22px]">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-4">
+              <div>
+                <Label htmlFor="abfahrtAb" className="text-sm font-medium text-gray-600 mb-2 block">
                   <span className="inline-flex items-center gap-1">
-                    <Clock className="w-4 h-4 text-black" />
+                    <Clock className="w-4 h-4 text-blue-500" />
                     <span className="truncate">Abfahrt ab</span>
                     <Popover>
                       <PopoverTrigger asChild>
@@ -371,10 +350,10 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                   )}
                 </div>
               </div>
-              <div className="flex-1 min-w-[100px]">
-                <Label htmlFor="ankunftBis" className="block min-h-[22px]">
+              <div>
+                <Label htmlFor="ankunftBis" className="text-sm font-medium text-gray-600 mb-2 block">
                   <span className="inline-flex items-center gap-1">
-                    <Clock className="w-4 h-4 text-black" />
+                    <Clock className="w-4 h-4 text-blue-500" />
                     <span className="truncate">Ankunft bis</span>
                     <Popover>
                       <PopoverTrigger asChild>
@@ -382,7 +361,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                           <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 8v4m0 4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent className="max-w-xs text-gray-700">
+                      <PopoverContent className="max-w-xs text-sm text-gray-700">
                         <div className="font-semibold mb-1 text-blue-800">Zeitfenster für Abfahrt/Ankunft</div>
                         <div>
                           Hier kannst du ein Zeitfenster für die Ankunft festlegen (z.B. <b>15:00</b> wenn du am Abend noch etwas vorhast).<br/>
@@ -416,70 +395,85 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
             </div>
           </div>
           {/* Wochentagsauswahl */}
-          <div className="mt-4">
-            <Label className="text-sm text-gray-700 mb-2 block">Nur diese Wochentage:</Label>
-            <div className="flex flex-row flex-wrap gap-2 sm:gap-3">
-              {weekdayLabels.map(wd => (
-                <div key={wd.value} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`weekday-${wd.value}`}
-                    checked={selectedWeekdays.includes(wd.value)}
-                    onCheckedChange={(checked) => {
-                      setSelectedWeekdays(prev =>
-                        checked
-                          ? [...prev, wd.value]
-                          : prev.filter(v => v !== wd.value)
-                      )
-                    }}
-                  />
-                  <Label htmlFor={`weekday-${wd.value}`} className="text-sm font-medium">
-                    {wd.label}
-                  </Label>
+          <div className="mt-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex-1">
+                <Label className="text-sm font-medium text-gray-600 mb-2 block">Nur diese Wochentage:</Label>
+                <div className="flex flex-wrap gap-2">
+                  {weekdayLabels.map(wd => (
+                    <button
+                      key={wd.value}
+                      type="button"
+                      className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                        selectedWeekdays.includes(wd.value)
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                      onClick={() => {
+                        setSelectedWeekdays(prev =>
+                          prev.includes(wd.value)
+                            ? prev.filter(v => v !== wd.value)
+                            : [...prev, wd.value]
+                        )
+                      }}
+                    >
+                      {wd.label}
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-          {/* Dynamische Info/Warnbox */}
-          <div className={`mt-3 text-sm p-3 rounded flex items-start gap-2 border ${
-            selectedDates.length >= 30
-              ? 'text-orange-700 bg-orange-50 border-orange-200'
-              : selectedDates.length > 10
-                ? 'text-amber-700 bg-amber-50 border-amber-200'
-                : 'text-green-700 bg-green-50 border-green-200'
-          }`}>
-            <span className="mt-0.5 flex-shrink-0 text-xl select-none">
-              {selectedDates.length >= 30 ? '⚠️' : selectedDates.length > 10 ? '💡' : '✅'}
-            </span>
-            <div>
-              <span className="font-medium">
-                {selectedDates.length} von max. 30 möglichen Tagen werden abgefragt
-                {selectedDates.length >= 30 && " (Maximum erreicht)"}
-              </span>
-              {selectedDates.length >= 30 && (
-                <p className="mt-2 font-medium">Es werden nur die ersten 30 Tage abgefragt. Für eine vollständige Suche verkürze bitte den Zeitraum oder wähle weniger Wochentage aus.</p>
-              )}
-              {selectedDates.length > 10 && selectedDates.length < 30 && (
-                <p className="mt-2 font-medium">Je weniger Tage Du abfragst, desto schneller erhältst du Ergebnisse. Wähle nur den Zeitraum, den du wirklich benötigst.</p>
-              )}
-              {selectedDates.length > 0 && selectedDates.length <= 10 && (
-                <p className="mt-2 font-medium">Optimale Auswahl – die Abfrage wird besonders schnell durchgeführt!</p>
-              )}
+              </div>
+              
+              {/* Kompakte Info-Box neben den Wochentagen */}
+              <div className={`flex-shrink-0 text-xs p-2 rounded-lg border ${
+                selectedDates.length >= 30
+                  ? 'text-orange-800 bg-orange-50 border-orange-200'
+                  : selectedDates.length > 10
+                    ? 'text-amber-800 bg-amber-50 border-amber-200'
+                    : 'text-green-800 bg-green-50 border-green-200'
+              }`}>
+                <div className="flex items-center gap-1 mb-1">
+                  <div className="flex-shrink-0">
+                    {selectedDates.length >= 30 ? (
+                      <AlertTriangle className="w-3 h-3 text-orange-600" />
+                    ) : selectedDates.length > 10 ? (
+                      <Lightbulb className="w-3 h-3 text-amber-600" />
+                    ) : (
+                      <CheckCircle className="w-3 h-3 text-green-600" />
+                    )}
+                  </div>
+                  <div className="font-semibold text-gray-900">
+                    {selectedDates.length >= 30 ? 'Maximum' : selectedDates.length > 10 ? 'Hinweis' : 'Optimal'} ({selectedDates.length} von max. 30 Tagen)
+                  </div>
+                </div>
+                <div className="text-gray-700 leading-tight">
+                  {selectedDates.length >= 30 ? (
+                    'Es werden nur die ersten 30 Tage gesucht.'
+                  ) : selectedDates.length > 10 ? (
+                    'Je weniger Tage, desto schneller die Suche.'
+                  ) : (
+                    'Optimale Auswahl für schnelle Ergebnisse!'
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="border-t border-gray-200 pt-6">
-          <h3 className="text-base font-semibold text-gray-700 mb-2">Reisende & Ermäßigung</h3>
-          <div className="flex flex-row gap-4 flex-wrap md:flex-nowrap">
-            <div className="flex-1 min-w-0">
-              <Label>
+        <div className="bg-white p-2 sm:p-4 rounded-lg shadow-sm border border-gray-100">
+          <h3 className="text-md font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
+            <User className="w-4 h-4 text-blue-600" />
+            Reisende & Ermäßigung
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-sm font-medium text-gray-600 mb-1 block">
                 <span className="inline-flex items-center gap-1">
-                  <User className="w-4 h-4 text-black" />
+                  <Baby className="w-4 h-4 text-blue-500" />
                   Alter
                 </span>
               </Label>
               <Select value={alter} onValueChange={setAlter}>
-                <SelectTrigger className={`mt-2 w-full ${ctrl}`}>
+                <SelectTrigger className={ctrl}>
                   <SelectValue placeholder="Alter wählen" />
                 </SelectTrigger>
                 <SelectContent>
@@ -490,10 +484,10 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 min-w-0">
-              <Label>
+            <div>
+              <Label className="text-sm font-medium text-gray-600 mb-1 block">
                 <span className="inline-flex items-center gap-1">
-                  <Percent className="w-4 h-4 text-black" />
+                  <Percent className="w-4 h-4 text-blue-500" />
                   Ermäßigung
                 </span>
               </Label>
@@ -507,7 +501,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                   } catch {}
                 }}
               >
-                <SelectTrigger className={`mt-2 w-full ${ctrl}`}>
+                <SelectTrigger className={ctrl}>
                   <SelectValue placeholder="Ermäßigung wählen" />
                 </SelectTrigger>
                 <SelectContent>
@@ -530,107 +524,174 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
               </Select>
             </div>
           </div>
-          <div className="mt-4">
-            <Label>
+          <div className="mt-3">
+            <Label className="text-sm font-medium text-gray-600 mb-2 block">
               <span className="inline-flex items-center gap-1">
-                <Train className="w-4 h-4 text-black" />
+                <Train className="w-4 h-4 text-blue-500" />
                 Klasse
               </span>
             </Label>
-            <RadioGroup value={klasse} onValueChange={setKlasse} className="flex gap-6 mt-2">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="KLASSE_1" id="klasse1" />
-                <Label htmlFor="klasse1">1. Klasse</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="KLASSE_2" id="klasse2" />
-                <Label htmlFor="klasse2">2. Klasse</Label>
-              </div>
-            </RadioGroup>
-          </div>
-        </div>
-
-        <div className="border-t border-gray-200 pt-6">
-          <h3 className="text-base font-semibold text-gray-700 mb-2">Optionen</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="schnelle"
-                checked={schnelleVerbindungen}
-                onCheckedChange={checked => setSchnelleVerbindungen(checked === true)}
-              />
-              <Label htmlFor="schnelle">
-                <Zap className="w-4 h-4 mr-1 inline-block text-black" />
-                Schnellste Verbindungen bevorzugen
-              </Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="deutschland"
-                checked={nurDeutschlandTicket}
-                onCheckedChange={checked => setNurDeutschlandTicket(checked === true)}
-              />
-              <Label htmlFor="deutschland">
-                <Ticket className="w-4 h-4 mr-1 inline-block text-black" />
-                Nur Deutschland-Ticket-Verbindungen
-              </Label>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center mt-4 w-full">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="direktverbindungen"
-                checked={nurDirektverbindungen}
-                onCheckedChange={checked => handleDirektverbindungenChange(checked === true)}
-              />
-              <Label htmlFor="direktverbindungen">
-                <ArrowRight className="w-4 h-4 mr-1 inline-block text-black" />
-                Nur Direktverbindungen
-              </Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="umstiege" className="mb-0">
-                <span className="inline-flex items-center gap-1"><Shuffle className="w-4 h-4 text-black" />Maximale Umstiege</span>
-              </Label>
-              <Input
-                id="umstiege"
-                type="number"
-                min="0"
-                max="5"
-                value={maximaleUmstiege}
-                onChange={handleMaximaleUmstiegeChange}
-                className={`${ctrl} ${nurDirektverbindungen ? ctrlGhost : ''} w-24`}
-              />
-            </div>
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="umstiegszeit" className="mb-0">
-                <span className="inline-flex items-center gap-1"><Clock className="w-4 h-4 text-black" />Umstiegszeit</span>
-              </Label>
-              <Select value={umstiegszeit} onValueChange={setUmstiegszeit} disabled={nurDirektverbindungen}>
-                <SelectTrigger className={`w-32 ${ctrl} ${nurDirektverbindungen ? ctrlGhost + ' cursor-not-allowed' : ''}`} disabled={nurDirektverbindungen}>
-                  <SelectValue placeholder="Normal" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="10">10 Minuten</SelectItem>
-                  <SelectItem value="15">15 Minuten</SelectItem>
-                  <SelectItem value="20">20 Minuten</SelectItem>
-                  <SelectItem value="25">25 Minuten</SelectItem>
-                  <SelectItem value="30">30 Minuten</SelectItem>
-                  <SelectItem value="35">35 Minuten</SelectItem>
-                  <SelectItem value="40">40 Minuten</SelectItem>
-                  <SelectItem value="45">45 Minuten</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all border-2 ${
+                  klasse === "KLASSE_1"
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                }`}
+                onClick={() => setKlasse("KLASSE_1")}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <Train className="w-4 h-4" />
+                  1. Klasse
+                </div>
+              </button>
+              <button
+                type="button"
+                className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all border-2 ${
+                  klasse === "KLASSE_2"
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                }`}
+                onClick={() => setKlasse("KLASSE_2")}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <Train className="w-4 h-4" />
+                  2. Klasse
+                </div>
+              </button>
             </div>
           </div>
         </div>
 
-        <div className="flex gap-4">
-          <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
+        <div className="bg-white p-2 sm:p-4 rounded-lg shadow-sm border border-gray-100">
+          <h3 className="text-md font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
+            <Settings className="w-4 h-4 text-blue-600" />
+            Optionen
+          </h3>
+          <div className="space-y-3">
+            {/* Schnellste Verbindungen und Direktverbindungen nebeneinander */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-sm font-medium text-gray-600 mb-2 block">
+                  <span className="inline-flex items-center gap-1">
+                    <Zap className="w-4 h-4 text-blue-500" />
+                    Schnellste Verbindungen bevorzugen
+                  </span>
+                </Label>
+                <button
+                  type="button"
+                  className={`w-full px-4 py-3 rounded-lg text-sm font-medium transition-all border-2 ${
+                    schnelleVerbindungen
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                  onClick={() => setSchnelleVerbindungen(!schnelleVerbindungen)}
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <Zap className="w-4 h-4" />
+                    {schnelleVerbindungen ? 'Aktiviert' : 'Deaktiviert'}
+                  </div>
+                </button>
+              </div>
+              
+              <div>
+                <Label className="text-sm font-medium text-gray-600 mb-2 block">
+                  <span className="inline-flex items-center gap-1">
+                    <ArrowRight className="w-4 h-4 text-blue-500" />
+                    Nur Direktverbindungen
+                  </span>
+                </Label>
+                <button
+                  type="button"
+                  className={`w-full px-4 py-3 rounded-lg text-sm font-medium transition-all border-2 ${
+                    umstiegsOption === "direkt"
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                  onClick={() => setUmstiegsOption(umstiegsOption === "direkt" ? "alle" : "direkt")}
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <ArrowRight className="w-4 h-4" />
+                    {umstiegsOption === "direkt" ? 'Aktiviert' : 'Deaktiviert'}
+                  </div>
+                </button>
+              </div>
+            </div>
+            
+            {/* Maximale Umstiege und Mindest-Umstiegszeit nebeneinander */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+              <div className="flex flex-col h-full">
+                <Label htmlFor="maxUmstiege" className="text-sm font-medium text-gray-600 mb-2 block min-h-[22px]">
+                  <span className="inline-flex items-center gap-1">
+                    <Shuffle className="w-4 h-4 text-blue-500" />
+                    Maximale Umstiege
+                  </span>
+                </Label>
+                <div className="flex-1 flex flex-col">
+                  <Input
+                    id="maxUmstiege"
+                    type="number"
+                    min="0"
+                    max="10"
+                    placeholder="Unbegrenzt"
+                    value={umstiegsOption === "direkt" ? "0" : (umstiegsOption === "alle" ? "" : umstiegsOption)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === "" || value === "unbegrenzt") {
+                        setUmstiegsOption("alle");
+                      } else if (value === "0") {
+                        setUmstiegsOption("direkt");
+                      } else {
+                        setUmstiegsOption(value);
+                      }
+                    }}
+                    disabled={umstiegsOption === "direkt"}
+                    className={`${ctrl} ${umstiegsOption === "direkt" ? "opacity-50 cursor-not-allowed" : ""}`}
+                  />
+                </div>
+              </div>
+              
+              <div className="flex flex-col h-full">
+                <Label htmlFor="umstiegszeit" className="text-sm font-medium text-gray-600 mb-2 block min-h-[22px]">
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="w-4 h-4 text-blue-500" />
+                    Mindest-Umstiegszeit
+                  </span>
+                </Label>
+                <div className="flex-1 flex flex-col">
+                  <Select 
+                    value={umstiegszeit} 
+                    onValueChange={setUmstiegszeit}
+                    disabled={umstiegsOption === "direkt"}
+                  >
+                    <SelectTrigger className={`${ctrl} ${umstiegsOption === "direkt" ? "opacity-50 cursor-not-allowed" : ""}`}>
+                      <SelectValue placeholder="Normal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="10">10 Minuten</SelectItem>
+                      <SelectItem value="15">15 Minuten</SelectItem>
+                      <SelectItem value="20">20 Minuten</SelectItem>
+                      <SelectItem value="25">25 Minuten</SelectItem>
+                      <SelectItem value="30">30 Minuten</SelectItem>
+                      <SelectItem value="35">35 Minuten</SelectItem>
+                      <SelectItem value="40">40 Minuten</SelectItem>
+                      <SelectItem value="45">45 Minuten</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-lg shadow-sm">
+            <Ticket className="w-4 h-4 mr-2" />
             Bestpreise suchen
           </Button>
-          <Button type="button" variant="outline" onClick={handleReset}>
+          <Button type="button" variant="outline" onClick={handleReset} className="border-gray-300 hover:bg-gray-50 px-6 py-3 rounded-lg">
             Zurücksetzen
           </Button>
         </div>

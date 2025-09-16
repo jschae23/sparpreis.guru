@@ -50,7 +50,6 @@ export function generateCacheKey(params: {
   ermaessigungArt: string
   ermaessigungKlasse: string
   klasse: string
-  maximaleUmstiege: number
   schnelleVerbindungen: boolean
   nurDeutschlandTicketVerbindungen: boolean
   abfahrtAb?: string
@@ -66,7 +65,6 @@ export function generateCacheKey(params: {
     ermaessigungArt: params.ermaessigungArt,
     ermaessigungKlasse: params.ermaessigungKlasse,
     klasse: params.klasse,
-    maximaleUmstiege: params.maximaleUmstiege,
     schnelleVerbindungen: params.schnelleVerbindungen,
     nurDeutschlandTicketVerbindungen: params.nurDeutschlandTicketVerbindungen,
     // Nur definierte optionale Parameter hinzufügen

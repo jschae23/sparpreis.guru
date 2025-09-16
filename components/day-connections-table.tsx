@@ -461,7 +461,7 @@ export function ConnectionsTable({
                     startStation.id,
                     zielStation.id,
                     searchParams.klasse || "KLASSE_2",
-                    searchParams.maximaleUmstiege || "0",
+                    searchParams.maximaleUmstiege || "",
                     searchParams.alter || "ERWACHSENER",
                     searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG",
                     searchParams.ermaessigungKlasse || "KLASSENLOS",

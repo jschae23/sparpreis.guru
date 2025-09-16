@@ -373,27 +373,29 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
             <span className="text-blue-600">{startStation.name} → {zielStation.name}</span>
           )}
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm text-gray-600">
-          <span>Vergangene Zeit: {formatTime(elapsed)}</span>
-          {isStreaming && estimatedTimeRemaining > 0 && (
-            <span className="text-blue-600">noch ca. {formatTime(estimatedTimeRemaining)}</span>
-          )}
-          {!isStreaming && (
-            <span className="text-green-600">✓ Abgeschlossen</span>
-          )}
+        <div className="flex flex-row items-center justify-between text-sm text-gray-600">
+          <div className="flex items-center gap-2">
+            <span>Vergangene Zeit: {formatTime(elapsed)}</span>
+            {isStreaming && estimatedTimeRemaining > 0 && (
+              <span className="text-blue-600">noch ca. {formatTime(estimatedTimeRemaining)}</span>
+            )}
+            {!isStreaming && (
+              <span className="text-green-600">✓ Abgeschlossen</span>
+            )}
+            {userCancelled && isStreaming && (
+              <span className="text-orange-600">🛑 Wird abgebrochen...</span>
+            )}
+          </div>
           {isStreaming && onCancelSearch && (
             <button
               onClick={() => {
                 setUserCancelled(true)
                 onCancelSearch()
               }}
-              className="px-3 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors"
+              className="px-3 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors ml-2"
             >
               🛑 Abbrechen
             </button>
-          )}
-          {userCancelled && isStreaming && (
-            <span className="text-orange-600">🛑 Wird abgebrochen... (sammle letzte Ergebnisse)</span>
           )}
         </div>
       </div>
@@ -521,7 +523,7 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
                 <div
                   key={dateKey}
                   className={`
-                    relative min-h-[90px] sm:min-h-[100px] p-2 sm:p-3 border rounded-lg transition-all hover:shadow-sm flex flex-col justify-between
+                    relative min-h-[90px] sm:min-h-[100px] p-1 sm:p-3 border rounded-lg transition-all hover:shadow-sm flex flex-col justify-between
                     ${!isCurrentMonth ? "opacity-30" : ""}
                     ${isToday ? "ring-2 ring-blue-500" : ""}
                     ${hasPrice ? getPriceBg(priceData.preis) : 
@@ -592,8 +594,9 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
                   {/* Pending indicator for days being searched */}
                   {isPendingDay && (
                     <div className="flex flex-col items-center justify-center h-full text-blue-600">
-                      <div className="text-[9px] sm:text-xs font-medium text-center max-w-[48px] truncate whitespace-nowrap">
-                        Wird geladen...
+                      <div className="text-[9px] sm:text-xs font-medium text-center max-w-full sm:max-w-none truncate whitespace-pre-line">
+                        <span className="block sm:hidden">Wird<br/>geladen...</span>
+                        <span className="hidden sm:inline">Wird geladen...</span>
                       </div>
                     </div>
                   )}

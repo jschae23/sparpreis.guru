@@ -4,15 +4,11 @@ import React, { useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
 import { MapPin, ArrowRight, Euro, Calendar, Train, TrendingUp, GraduationCap, User, Percent, Shuffle, Clock, Filter, Info, Star, ChevronLeft, ChevronRight, Timer } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { recommendOne } from "@/lib/recommendation-engine"
 import { AnimatePresence, motion } from "framer-motion"
 import {
-  getPersonCode,
-  getDiscountCode,
-  getRParam,
   createBookingLink,
   getAlterLabel,
   calculateDuration,
@@ -249,7 +245,8 @@ export function DayDetailsModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto sm:px-4 px-4"
+      <DialogContent 
+        className="max-w-6xl max-h-[90vh] w-[96vw] sm:w-auto overflow-y-auto sm:px-4 px-3 sm:m-0 rounded-lg shadow-lg border bg-white"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
@@ -391,12 +388,12 @@ export function DayDetailsModal({
                   )}
                   <div className="flex items-center gap-1">
                     <Shuffle className="w-4 h-4" />
-                    Max. Umstiege: {searchParams.maximaleUmstiege || "0"}
+                    max. Umstiege: {searchParams.maximaleUmstiege || "Unbegrenzt"}
                   </div>
                   {searchParams.umstiegszeit && searchParams.umstiegszeit !== "normal" && (
                     <div className="flex items-center gap-1">
                       <Timer className="w-4 h-4" />
-                      Umstiegszeit: {searchParams.umstiegszeit} min
+                      min. Umstiegszeit: {searchParams.umstiegszeit} min
                     </div>
                   )}
                 </div>

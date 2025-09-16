@@ -22,33 +22,30 @@ class GlobalRateLimiter {
   private sessionRoundRobin: string[] = [] // Round-Robin Liste der Sessions
   private currentSessionIndex = 0 // Aktueller Index im Round-Robin
   private lastApiCallStart = 0 // Wann der letzte API-Call GESTARTET wurde
-  private minInterval = 1200 // Adaptive: Startet bei 1 Sekunde zwischen API-Call STARTS
+  private minInterval = 1000 // Adaptive: Startet bei 1.2 Sekunden zwischen API-Call STARTS
   private activeRequests = 0
-  private readonly maxConcurrentRequests = 5 // Bis zu 3 parallele Requests für bessere Performance
+  private readonly maxConcurrentRequests = 3 // Max 3 parallele Requests für bessere Performance
   
   // Interne Cancel-Session Verwaltung
   private cancelledSessions = new Set<string>() // Cancelled Sessions
   
   // Konfiguration - konsolidiert für bessere Wartbarkeit
   private readonly config = {
-    baseInterval: 1200, // Basis-Intervall (1 Sekunde)
-    burstInterval: 2200, // Nach Burst-Limit: min. 2,2 Sekunden
-    burstLimitCount: 15, // Burst-Limit: 15 Requests
-    burstLimitWindow: 30 * 1000, // 30 Sekunden
+    baseInterval: 1000, // Basis-Intervall (1 Sekunde)
+    burstInterval: 2000, // Nach Burst-Limit: min. 2 Sekunden
+    burstLimitCount: 15, // Burst-Limit: 15 Requests (korrigiert von Kommentar)
+    burstLimitWindow: 30 * 1000, // 30 Sekunden (reduziert für bessere Performance)
     sustainedInterval: Number(process.env.RL_SUSTAINED_INTERVAL_MS ?? 2000), // 2 Sekunden
-    sustainedLimitCount: Number(process.env.RL_SUSTAINED_COUNT ?? 30), // 30 Requests in 60 Sekunden
-    maxInterval: 10000, // Maximum 10 Sekunden
+    sustainedLimitCount: Number(process.env.RL_SUSTAINED_COUNT ?? 25), // 25 Requests in 60 Sekunden (reduziert)
+    maxInterval: 6000, // Maximum 8 Sekunden (reduziert von 10s)
     maxRetries: 3,
-    cleanupInterval: 10000, // 10 Sekunden
-    sessionCancelTimeout: 5 * 60 * 1000, // 5 Minuten
-    completedSessionTimeout: 60 * 1000 // 1 Minute
+    cleanupInterval: 15000, // 15 Sekunden (erhöht für weniger CPU-Last)
+    sessionCancelTimeout: 3 * 60 * 1000, // 3 Minuten (reduziert)
+    completedSessionTimeout: 30 * 1000 // 30 Sekunden (reduziert)
   }
   
   // Request-Tracking für DB-API Limits
   private requestHistory: number[] = [] // Timestamps der letzten Requests
-  private rateLimitHits = 0 // Anzahl 429-Fehler
-  private lastRateLimitTime = 0
-  private successfulRequests = 0 // Erfolgreiche Anfragen seit letztem 429
   private processingTimer: ReturnType<typeof setTimeout> | null = null
   private cleanupTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -408,17 +405,13 @@ class GlobalRateLimiter {
   }
 
   private onRateLimitHit(forceMax: boolean = false) {
-    this.rateLimitHits++
-    this.lastRateLimitTime = Date.now()
-    this.successfulRequests = 0
-    
     // Record metrics
     metricsCollector.recordBahnApiRequest(0, 429) // 0ms response time for rate limit
     
     // Sofort auf Max-Intervall springen, wenn gefordert
     const target = forceMax ? this.config.maxInterval : Math.min(this.minInterval * 1.5, this.config.maxInterval)
     
-    console.log(`📈 Rate limit hit! Increasing interval from ${this.minInterval}ms to ${Math.round(target)}ms (hits: ${this.rateLimitHits})`)
+    console.log(`📈 Rate limit hit! Increasing interval from ${this.minInterval}ms to ${Math.round(target)}ms`)
     this.minInterval = Math.round(target)
     
     // Update metrics
@@ -434,7 +427,6 @@ class GlobalRateLimiter {
         this.minInterval = Math.round(newInterval)
       }
     }
-    this.successfulRequests++
     
     // Update metrics
     metricsCollector.updateRateLimitInterval(this.minInterval)
@@ -447,7 +439,6 @@ class GlobalRateLimiter {
 
   // Neue Methode: Request-Tracking für intelligente Rate-Limits
   private trackRequest(timestamp: number) {
-    // Füge Request zur Historie hinzu
     this.requestHistory.push(timestamp)
     
     // Behalte nur Requests der letzten 2 Minuten
@@ -519,13 +510,10 @@ class GlobalRateLimiter {
     }
   }
 
-  // Prüfe ob Session abgebrochen wurde
-  private async isSessionCancelled(sessionId: string): Promise<boolean> {
-    // Verwende internen cancelled sessions cache
+  // Prüfe ob Session abgebrochen wurde (synchrone Version bevorzugen)
+  public isSessionCancelledSync(sessionId: string): boolean {
     return this.cancelledSessions.has(sessionId)
   }
-
-  // Neue Methoden für Cancel-Session Management
   public cancelSession(sessionId: string, reason: string = 'user_request'): void {
     // Spezielle Behandlung für abgeschlossene Suchen - kein Cancel-Log
     if (reason === 'search_completed') {
@@ -595,11 +583,7 @@ class GlobalRateLimiter {
     setTimeout(() => {
       this.cancelledSessions.delete(sessionId)
       console.log(`🧹 Auto-cleaned cancelled session ${sessionId}`)
-    }, 5 * 60 * 1000)
-  }
-
-  public isSessionCancelledSync(sessionId: string): boolean {
-    return this.cancelledSessions.has(sessionId)
+    }, this.config.sessionCancelTimeout)
   }
 
   getQueueStatus(sessionId?: string) {
