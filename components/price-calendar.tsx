@@ -252,6 +252,9 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
     totalUsers?: number
   }>({})
 
+  // Ref to control polling state
+  const pollingRef = React.useRef<boolean>(false)
+
   // Popup bei Tab-Wechsel/-Schließen während Suche
   const [showAbortModal, setShowAbortModal] = useState(false)
   const [cancelNotificationSent, setCancelNotificationSent] = useState(false)
@@ -317,9 +320,16 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
 
   
   useEffect(() => {
-    if (!sessionId || !isStreaming) return
+    if (!sessionId || !isStreaming) {
+      pollingRef.current = false
+      return
+    }
+
+    pollingRef.current = true
 
     const pollProgress = async () => {
+      if (!pollingRef.current) return
+
       try {
         const response = await fetch(`/api/search-progress?sessionId=${sessionId}`)
         if (response.ok) {
@@ -333,21 +343,34 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
       } catch (error) {
         console.warn('Could not fetch progress data:', error)
       }
+
+      // Schedule next poll only if still polling
+      if (pollingRef.current) {
+        setTimeout(pollProgress, 1000)
+      }
     }
 
-    // Initial poll
+    // Start initial poll
     pollProgress()
 
-    const interval = setInterval(pollProgress, 1000)
-
-    return () => clearInterval(interval)
+    return () => {
+      pollingRef.current = false
+    }
   }, [sessionId, isStreaming, startTime])
 
   const totalDays = expectedDateRange.length > 0 ? expectedDateRange.length : (expectedDays || (searchParams?.dayLimit ? parseInt(searchParams.dayLimit) : resultDates.length))
   const completedDays = Object.values(results).filter(r => r && r.preis !== undefined).length
+  const isCompleteNow = totalDays > 0 && completedDays >= totalDays
   const progressPercentage = totalDays > 0 ? Math.round((completedDays / totalDays) * 100) : 0
-  const displayProgress = !isStreaming ? 100 : progressPercentage
-  
+  const displayProgress = (!isStreaming || isCompleteNow) ? 100 : progressPercentage
+
+  // Stoppe Polling sofort, wenn alle Tage fertig sind (auch wenn isStreaming noch true ist)
+  useEffect(() => {
+    if (isStreaming && isCompleteNow) {
+      pollingRef.current = false
+    }
+  }, [isStreaming, isCompleteNow])
+
   // Verwende echte ETA von Progress-API oder realistischen Fallback
   const estimatedTimeRemaining = isStreaming ? (
     progressData.estimatedTimeRemaining || 
@@ -376,17 +399,17 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
         <div className="flex flex-row items-center justify-between text-sm text-gray-600">
           <div className="flex items-center gap-2">
             <span>Vergangene Zeit: {formatTime(elapsed)}</span>
-            {isStreaming && estimatedTimeRemaining > 0 && (
+            {isStreaming && !isCompleteNow && estimatedTimeRemaining > 0 && (
               <span className="text-blue-600">noch ca. {formatTime(estimatedTimeRemaining)}</span>
             )}
-            {!isStreaming && (
+            {(!isStreaming || isCompleteNow) && (
               <span className="text-green-600">✓ Abgeschlossen</span>
             )}
-            {userCancelled && isStreaming && (
+            {userCancelled && isStreaming && !isCompleteNow && (
               <span className="text-orange-600">🛑 Wird abgebrochen...</span>
             )}
           </div>
-          {isStreaming && onCancelSearch && (
+          {isStreaming && !isCompleteNow && onCancelSearch && (
             <button
               onClick={() => {
                 setUserCancelled(true)
@@ -404,11 +427,11 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
       <div className="px-2 pt-0">
         <div className="flex justify-between text-xs text-gray-600 mb-1">
           <span>Tag {completedDays} von {totalDays}</span>
-          <span>{progressPercentage}%</span>
+          <span>{displayProgress}%</span>
         </div>
         <div className="w-full h-2 bg-blue-100 rounded">
           <div
-            className={`h-2 rounded transition-all ${!isStreaming ? 'bg-green-500' : 'bg-blue-500'}`}
+            className={`h-2 rounded transition-all ${(!isStreaming || isCompleteNow) ? 'bg-green-500' : 'bg-blue-500'}`}
             style={{width: `${displayProgress}%`}}
           />
         </div>

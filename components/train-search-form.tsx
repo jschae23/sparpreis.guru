@@ -293,6 +293,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                   type="date" 
                   value={reisezeitraumAb} 
                   onChange={handleReisezeitraumAbChange} 
+                  min={getTomorrowISO()} // Verhindert Eingabe von Daten in der Vergangenheit
                   className={ctrl}
                 />
                 <span className="text-gray-500 text-sm">bis</span>

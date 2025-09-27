@@ -112,8 +112,15 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         let isStreamClosed = false
-        let cancelLoggedForSession = false  // Verhindere mehrfache Cancel-Logs pro Session
-        
+        let cancelLoggedForSession = false
+        let completeSent = false
+
+        // Diese Variablen müssen im gesamten Scope sichtbar sein!
+        let datesToProcess: string[] = []
+        let maxDays = 0
+        let metaData: any = undefined
+        const results: TrainResults = {}
+
         // Helper function to safely enqueue data
         const safeEnqueue = (data: Uint8Array) => {
           if (!isStreamClosed) {
@@ -145,10 +152,58 @@ export async function POST(request: NextRequest) {
           }
         }
         
+        // Helper to send final complete (idempotent)
+        const sendFinalComplete = async () => {
+          if (completeSent) return
+          completeSent = true
+
+          // Record search completion metrics
+          const searchDuration = Date.now() - searchStartTime
+          metricsCollector.recordSearchDuration(searchDuration)
+
+          // Hilfsfunktion: Zähle nur echte Tagesergebnisse
+          function countProcessedDays(resultsObj: TrainResults) {
+            return Object.entries(resultsObj).filter(
+              ([key, val]) => key !== '_meta' && val && (val.preis > 0 || (val.preis === 0 && val.info && val.info !== 'Search cancelled'))
+            ).length
+          }
+
+          const processedDays = countProcessedDays(results)
+          const finalQueueStatus = globalRateLimiter.getQueueStatus()
+          const finalAvgTimes = getAverageResponseTimes()
+          await updateProgress(
+            sessionId,
+            processedDays,
+            maxDays,
+            datesToProcess[maxDays - 1] || "",
+            true,
+            0,
+            0,
+            finalAvgTimes.uncached,
+            finalAvgTimes.cached,
+            finalQueueStatus.queueSize,
+            finalQueueStatus.activeRequests
+          )
+
+          const resultsWithStations = {
+            ...results,
+            _meta: metaData,
+          }
+
+          const completeResult = {
+            type: 'complete',
+            results: resultsWithStations,
+            processedDays,
+            plannedDays: maxDays
+          }
+
+          if (safeEnqueue(encoder.encode(JSON.stringify(completeResult) + '\n'))) {
+            safeClose()
+          }
+        }
+
         try {
           // Verwende tage-Array wenn vorhanden, sonst fallback zu altem System
-          let datesToProcess: string[] = []
-          let maxDays = 0
           datesToProcess = tage.slice(0, 30) // Limitiere auf max 30 Tage
           maxDays = datesToProcess.length
           console.log(`\n🔍 Processing ${datesToProcess.length} specific dates`)
@@ -186,7 +241,7 @@ export async function POST(request: NextRequest) {
           const avgTimes = getAverageResponseTimes()
 
           // Meta-Daten für Frontend
-          const metaData = {
+          metaData = {
             startStation: startStation,
             zielStation: zielStation,
             searchParams: {
@@ -200,8 +255,6 @@ export async function POST(request: NextRequest) {
             },
             sessionId,
           }
-
-          const results: TrainResults = {}
 
           // Initialer Progress-Update - zeigt sofort die Queue-Size an
           const queueStatus = globalRateLimiter.getQueueStatus()
@@ -517,6 +570,11 @@ export async function POST(request: NextRequest) {
                 )
               }
 
+              // Wenn letzter Tag verarbeitet wurde, sofort Abschluss senden
+              if (!completeSent && completedRequests >= maxDays && !globalRateLimiter.isSessionCancelledSync(sessionId)) {
+                await sendFinalComplete()
+              }
+
               return true
             } catch (error) {
               completedRequests++
@@ -538,57 +596,11 @@ export async function POST(request: NextRequest) {
           // Warte auf alle Requests, aber verarbeite sie sobald sie fertig sind
           await Promise.all(requestPromises.map(processResult))
 
-          // Record search completion metrics
-          const searchDuration = Date.now() - searchStartTime
-          metricsCollector.recordSearchDuration(searchDuration)
-
-          // Final Progress-Update
-          // Hilfsfunktion: Zähle nur echte Tagesergebnisse (ohne _meta und ohne leere Ergebnisse)
-          function countProcessedDays(resultsObj: TrainResults) {
-            return Object.entries(resultsObj).filter(
-              ([key, val]) => key !== '_meta' && val && (val.preis > 0 || (val.preis === 0 && val.info && val.info !== 'Search cancelled'))
-            ).length
+          // Falls aus irgendeinem Grund noch nicht gesendet, jetzt senden
+          if (!completeSent && !globalRateLimiter.isSessionCancelledSync(sessionId)) {
+            await sendFinalComplete()
           }
 
-          // Final Progress-Update
-          const finalQueueStatus = globalRateLimiter.getQueueStatus()
-          const finalAvgTimes = getAverageResponseTimes()
-          const processedDays = countProcessedDays(results)
-          await updateProgress(
-            sessionId, 
-            processedDays, // Tatsächlich verarbeitete Tage
-            maxDays, 
-            datesToProcess[maxDays - 1] || "",
-            true,
-            0,
-            0,
-            finalAvgTimes.uncached,
-            finalAvgTimes.cached,
-            finalQueueStatus.queueSize,
-            finalQueueStatus.activeRequests
-          )
-
-          console.log(`\n✅ Bestpreissuche completed: ${processedDays} days processed (of ${maxDays} planned)`)
-
-          // Add station info for booking links
-          const resultsWithStations = {
-            ...results,
-            _meta: metaData,
-          }
-
-          // Stream vollständige Ergebnisse am Ende
-          const completeResult = {
-            type: 'complete',
-            results: resultsWithStations,
-            processedDays,
-            plannedDays: maxDays
-          }
-          
-          // Nur senden wenn Stream noch aktiv ist
-          if (safeEnqueue(encoder.encode(JSON.stringify(completeResult) + '\n'))) {
-            safeClose()
-          }
-          
         } catch (error) {
           console.error("Error in streaming bestpreissuche:", error)
           const errorResult = {

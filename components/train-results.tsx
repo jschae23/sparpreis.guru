@@ -73,6 +73,18 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const calendarRef = useRef<HTMLDivElement>(null)
   const [hasScrolledToCalendar, setHasScrolledToCalendar] = useState(false)
 
+  // Anzahl erwarteter Tage aus den Suchparametern berechnen (falls vorhanden)
+  const expectedDays = (() => {
+    try {
+      return searchParams.tage ? (JSON.parse(searchParams.tage) as string[]).length : undefined
+    } catch {
+      return undefined
+    }
+  })()
+
+  // Track der bereits eingetroffenen dayResults
+  const processedDaysRef = useRef<Set<string>>(new Set())
+
   // Generate sessionId when search starts
   const generateSessionId = () => {
     if (typeof window !== 'undefined' && window.crypto && window.crypto.randomUUID) {
@@ -195,6 +207,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       setLoading(true)
       setPriceResults({})
       setIsStreaming(true)
+      processedDaysRef.current = new Set() // Reset für neue Suche
       
       // Generiere sessionId sofort im Frontend
       const newSessionId = generateSessionId()
@@ -246,14 +259,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           try {
             while (true) {
               const { done, value } = await reader.read()
-              
               if (done) break
-              
               buffer += decoder.decode(value, { stream: true })
-              
-              // Versuche JSON-Objekte aus dem Buffer zu extrahieren
               const lines = buffer.split('\n')
-              buffer = lines.pop() || "" // Letzter Teil könnte unvollständig sein
+              buffer = lines.pop() || ""
               
               for (const line of lines) {
                 if (line.trim()) {
@@ -267,6 +276,12 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                         [data.date]: data.result,
                         _meta: data.meta || prev._meta
                       }))
+                      // Client-seitig als abgeschlossen markieren, wenn letzter Tag eingetroffen ist
+                      processedDaysRef.current.add(data.date)
+                      if (expectedDays && processedDaysRef.current.size >= expectedDays) {
+                        setIsStreaming(false)
+                        setTimeout(() => setSessionId(null), 500)
+                      }
                     } else if (data.type === 'complete') {
                       // Vollständige Ergebnisse bei Abschluss
                       setPriceResults(data.results)
@@ -275,12 +290,15 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                       setSessionId(null)
                       return
                     }
-                  } catch (parseError) {
+                  } catch {
                     console.warn("Could not parse streaming response line:", line)
                   }
                 }
               }
             }
+            // Set status to completed after streaming ends
+            setLoading(false)
+            setIsStreaming(false)
           } finally {
             reader.releaseLock()
           }
@@ -300,7 +318,11 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           setPriceResults(data)
         }
         
-        setSelectedDay(null)
+        // Cleanup nach 1 Sekunde um sicherzustellen dass alle Backend-Operationen abgeschlossen sind
+        setTimeout(() => {
+          setSessionId(null)
+        }, 1000)
+        setAbortController(null)
       } catch (err) {
          // Check if error was due to abort
         if (err instanceof Error && err.name === 'AbortError') {
@@ -422,6 +444,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
               onCancelSearch={cancelSearch}
               selectedDay={selectedDay || undefined}
               onNavigateDay={handleNavigateDay}
+              expectedDays={expectedDays}
           />
         </div>
 
