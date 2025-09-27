@@ -246,7 +246,7 @@ export function DayDetailsModal({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent 
-        className="max-w-6xl max-h-[90vh] w-[96vw] sm:w-auto overflow-y-auto sm:px-4 px-3 sm:m-0 rounded-lg shadow-lg border bg-white"
+        className="max-w-6xl max-h-[95vh] overflow-y-auto sm:px-4 px-3 sm:m-0 rounded-lg shadow-lg border bg-white"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
