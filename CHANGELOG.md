@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.0.5](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.0.4...v1.0.5) (2026-01-29)
+
+
+### Bug Fixes
+
+* next CVE ([0fb751e](https://github.com/XLixl4snSU/sparpreis.guru/commit/0fb751e3bc2a94485722374b36ebc19140da0308))
+
+## [1.0.4](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.0.3...v1.0.4) (2026-01-10)
+
+
+### Bug Fixes
+
+* session completion ([f66df53](https://github.com/XLixl4snSU/sparpreis.guru/commit/f66df53c539a2468dee53253dfff866346b2108a))
+* time filter and connection ID logic ([#22](https://github.com/XLixl4snSU/sparpreis.guru/issues/22)) ([cc3a1a9](https://github.com/XLixl4snSU/sparpreis.guru/commit/cc3a1a94edd22121edc62d7311dd306f84c98bda))
+
+## [1.0.3](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.0.2...v1.0.3) (2026-01-06)
+
+
+### Bug Fixes
+
+* re-rendering of PriceHistoryChart when new results come in ([c7b2475](https://github.com/XLixl4snSU/sparpreis.guru/commit/c7b2475c0e338dde74a84226892ccf7e4c066467))
+* Wrong train names for regional trains ([ea67a10](https://github.com/XLixl4snSU/sparpreis.guru/commit/ea67a10b502865037d369b01815ce1b31fe708d2))
+
 ## [1.0.2](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.0.1...v1.0.2) (2026-01-02)
 
 
