@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.6](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.0.5...v1.0.6) (2026-02-15)
+
+
+### Bug Fixes
+
+* cache metrics, debug endpoint & footer ([74fa463](https://github.com/XLixl4snSU/sparpreis.guru/commit/74fa4631bb07432f52877b56905bd8f874e98f5c))
+* Switch release-please release-type to node ([1f08b2d](https://github.com/XLixl4snSU/sparpreis.guru/commit/1f08b2db699f163909f9f1c1dfd636382ad018f1))
+
 ## [1.0.5](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.0.4...v1.0.5) (2026-01-29)
 
 
