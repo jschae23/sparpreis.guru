@@ -37,6 +37,8 @@ class MetricsCollector {
     this.counters.set('bahn_api_rate_limits_total', 0)
     this.counters.set('user_search_requests_total', 0)
     this.counters.set('days_searched_total', 0)
+    this.counters.set('days_cached_total', 0)
+    this.counters.set('days_uncached_total', 0)
     this.counters.set('cache_hits_total', 0)
     this.counters.set('cache_misses_total', 0)
     this.counters.set('station_cache_hits_total', 0)
@@ -129,9 +131,11 @@ class MetricsCollector {
     }
   }
 
-  recordUserSearch(daysSearched: number) {
+  recordUserSearch(daysSearched: number, cachedDays: number = 0, uncachedDays: number = 0) {
     this.incrementCounter('user_search_requests_total')
     this.incrementCounter('days_searched_total', daysSearched)
+    this.incrementCounter('days_cached_total', cachedDays)
+    this.incrementCounter('days_uncached_total', uncachedDays)
   }
 
   recordCacheHit(type: 'connection' | 'station' = 'connection') {

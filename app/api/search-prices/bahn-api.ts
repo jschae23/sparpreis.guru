@@ -377,6 +377,8 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   try {
     // API-Call über globalen Rate Limiter
     const requestId = `${tag}-${config.startStationNormalizedId}-${config.zielStationNormalizedId}`
+    const apiCallStartTime = Date.now()
+    
     const apiCallResult = await globalRateLimiter.addToQueue(requestId, async () => {
       // Prüfe Session-Abbruch direkt vor API-Call
       if (sessionId && globalRateLimiter.isSessionCancelledSync(sessionId)) {
@@ -414,12 +416,20 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
             console.error("Could not read error response")
           }
         }
+        // Record failed API request
+        const apiDuration = Date.now() - apiCallStartTime
+        metricsCollector.recordBahnApiRequest(apiDuration, response.status)
+        
         // Return sentinel instead of throwing to keep logs clean; rate limiter interprets this
         return { __httpStatus: response.status, __errorText: errorText.slice(0, 100) }
       }
 
+      // Record successful API request
+      const apiDuration = Date.now() - apiCallStartTime
+      metricsCollector.recordBahnApiRequest(apiDuration, response.status)
+
       return await response.text()
-    }, sessionId) // SessionId übergeben für Abbruch-Prüfung
+    }, sessionId)
 
     const responseText = apiCallResult
 
