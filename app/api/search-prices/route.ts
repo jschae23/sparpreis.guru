@@ -72,13 +72,20 @@ export async function POST(request: NextRequest) {
       umstiegszeit,
     } = body
 
-    // Record user search metrics
+    // Calculate dates first
     const calculatedDates = calculateDatesFromWeekdays(
       reisezeitraumAb,
       reisezeitraumBis,
       wochentage || [1, 2, 3, 4, 5, 6, 0]
     )
-    metricsCollector.recordUserSearch(calculatedDates.length)
+
+    // Calculate cached vs uncached days before recording metrics
+    let cachedDaysCount = 0
+    let uncachedDaysCount = 0
+    
+    // We'll update this later in the stream processing
+    // For now, record with placeholders
+    metricsCollector.recordUserSearch(calculatedDates.length, 0, 0)
     metricsCollector.recordStreamingConnection()
 
     console.log("\n🚂 Starting bestpreissuche request")
@@ -237,13 +244,19 @@ export async function POST(request: NextRequest) {
               schnelleVerbindungen: Boolean(schnelleVerbindungen === true || schnelleVerbindungen === "true"),
               umstiegszeit: (umstiegszeit && umstiegszeit !== "normal" && umstiegszeit !== "undefined") ? umstiegszeit : undefined,
             })
-            const isCached = !!getCachedResult(cacheKey)
+            const isCached = !!getCachedResult(cacheKey).data
             dayStatusList.push({ date: dateStr, isCached, cacheKey })
           }
 
           // Gesamtanzahl der gecached und ungecachten Tage für die gesamte Suche
           let totalUncachedDays = dayStatusList.filter((d) => !d.isCached).length
           let totalCachedDays = dayStatusList.filter((d) => d.isCached).length
+
+          // Update metrics with actual cached/uncached counts
+          metricsCollector.incrementCounter('days_cached_total', totalCachedDays)
+          metricsCollector.incrementCounter('days_uncached_total', totalUncachedDays)
+
+          // Get average response times
           const avgTimes = getAverageResponseTimes()
 
           // Meta-Daten für Frontend

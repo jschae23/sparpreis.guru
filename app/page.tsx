@@ -80,6 +80,18 @@ export default async function Page({
   const currentYear = getCurrentYear()
   const appVersion = getAppVersion()
 
+  // Footer anzeigen, wenn Domain sparpreis.guru ODER ENV SHOW_FOOTER gesetzt ist
+  let showFooter = false
+  if (typeof window === "undefined") {
+    // Server Side: Prüfe ENV
+    showFooter = !!process.env.SHOW_FOOTER
+  } else {
+    // Client Side: Prüfe Hostname ODER ENV (falls z.B. via next/config oder window.__env)
+    showFooter =
+      window.location.hostname === "sparpreis.guru" ||
+      (typeof process !== "undefined" && !!process.env.SHOW_FOOTER)
+  }
+
   return (
     <div className="min-h-screen bg-white">
       <div className="container mx-auto px-4 py-6 max-w-6xl">
@@ -109,28 +121,52 @@ export default async function Page({
           </section>
         
         {/* Footer */}
-        <footer className="mt-8 border-t border-gray-200 pt-8">
+        {showFooter && (
+          <footer className="mt-8 border-t border-gray-200 pt-8">
             <div className="text-xs text-center text-gray-400 mt-0">
-            Sollte die Deutsche Bahn dieses Projekt nicht wünschen, genügt eine Info an <a href="mailto:info@sparpreis.guru" className="underline">info@sparpreis.guru</a>.
-            <br></br>Diese Seite ist rein privater Natur und verfolgt keinerlei kommerzielle Interessen. Es werden keine personenbezogene Daten gespeichert.
-          </div>
-          <div className="flex flex-row justify-between items-center text-sm text-gray-500 mt-4" >
-            <div>
-              © {currentYear} <span className="font-medium text-gray-600">sparpreis.guru</span>
-            </div>
-            <div className="mt-2 sm:mt-0 flex flex-row sm:items-end items-center gap-3">
-              <span>Version {appVersion}</span>
-              <a
-                href="https://github.com/XLixl4snSU/sparpreis.guru"
+              <p>
+                Dieses Deployment dient ausschließlich als technische Demonstration des Projekts{" "}
+              <a href="https://github.com/XLixl4snSU/sparpreis.guru"
+                className="underline"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:underline mt-1 flex items-center"
-              >
-                <Github className="inline w-4 h-4 mr-1" /> GitHub
+              >sparpreis.guru</a>
+              </p>
+
+              <p>
+                Die Anwendung visualisiert Abfrageergebnisse und speichert keine personenbezogenen Daten.
+                Es werden keine kommerziellen Zwecke verfolgt.
+              </p>
+
+              <p>
+                Bei Einwänden (z. B. von Rechteinhabern oder Plattformbetreibern) wird das
+                Deployment auf Hinweis hin umgehend deaktiviert.
+                Kontakt:
+                {" "}
+              <a href="mailto:info@sparpreis.guru" className="underline">
+                info@sparpreis.guru
               </a>
+              .
+              </p>
             </div>
-          </div>
-        </footer>
+            <div className="flex flex-row justify-between items-center text-sm text-gray-500 mt-4" >
+              <div>
+                © {currentYear} <span className="font-medium text-gray-600">sparpreis.guru</span>
+              </div>
+              <div className="mt-2 sm:mt-0 flex flex-row sm:items-end items-center gap-3">
+                <span>Version {appVersion}</span>
+                <a
+                  href="https://github.com/XLixl4snSU/sparpreis.guru"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline mt-1 flex items-center"
+                >
+                  <Github className="inline w-4 h-4 mr-1" /> GitHub
+                </a>
+              </div>
+            </div>
+          </footer>
+        )}
       </div>
     </div>
   )

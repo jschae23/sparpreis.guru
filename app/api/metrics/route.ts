@@ -111,6 +111,20 @@ export async function GET(request: NextRequest) {
                            format === 'prometheus' || 
                            format === 'prom'
 
+    // DEBUG: Output pretty JSON if format=debug
+    if (format === 'debug') {
+      const debugMetrics = JSON.stringify(metricsCollector.getMetricsJSON(), null, 2)
+      return new Response(debugMetrics, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      })
+    }
+
     if (wantsPrometheus) {
       // Return Prometheus format
       const prometheusMetrics = metricsCollector.exportPrometheusMetrics()
