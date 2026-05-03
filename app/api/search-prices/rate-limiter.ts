@@ -1,4 +1,7 @@
 import { metricsCollector } from '@/app/api/metrics/collector'
+import { logDebug, logInfo, logWarn } from '@/lib/shared/logger'
+
+const LOG_SCOPE = "bahn-api.rate-limiter"
 
 /* Globales Rate Limiting für alle API-Calls
 Die Bahn-API hat strenge Limits, daher ist ein globales Rate Limiting notwendig.
@@ -74,14 +77,19 @@ class GlobalRateLimiter {
       if (!this.sessionQueues.has(effectiveSessionId)) {
         this.sessionQueues.set(effectiveSessionId, [])
         this.sessionRoundRobin.push(effectiveSessionId)
-        console.log(`🆕 New session ${effectiveSessionId} added to round-robin`)
+        logDebug(LOG_SCOPE, "Session added to round-robin queue", { sessionId: effectiveSessionId })
       }
       
       // Füge Request zur Session-Queue hinzu
       this.sessionQueues.get(effectiveSessionId)!.push(queuedRequest)
       
       const totalRequests = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
-      console.log(`🎯 Added request ${requestId} to session ${effectiveSessionId}. Total queue size: ${totalRequests}, Sessions: ${this.sessionQueues.size}`)
+      logDebug(LOG_SCOPE, "Request queued", {
+        requestId,
+        sessionId: effectiveSessionId,
+        queueSize: totalRequests,
+        activeSessions: this.sessionQueues.size,
+      })
       
       // Starte Verarbeitung falls noch nicht aktiv
       this.scheduleNextProcessing()
@@ -103,7 +111,12 @@ class GlobalRateLimiter {
     const timeSinceLastStart = now - this.lastApiCallStart
     const delay = Math.max(0, this.minInterval - timeSinceLastStart)
 
-    console.log(`⏰ Scheduling next request processing in ${delay}ms (active: ${this.activeRequests}/${this.maxConcurrentRequests}, interval: ${this.minInterval}ms)`)    
+    logDebug(LOG_SCOPE, "Next request processing scheduled", {
+      delayMs: delay,
+      activeRequests: this.activeRequests,
+      maxConcurrentRequests: this.maxConcurrentRequests,
+      intervalMs: this.minInterval,
+    })
     this.processingTimer = setTimeout(() => {
       this.processingTimer = null
       this.processNextRequest()
@@ -163,7 +176,11 @@ class GlobalRateLimiter {
         }
         
         request = sessionQueue.shift()!
-        console.log(`🎯 Round-robin: Selected request from session ${currentSessionId} (${sessionQueue.length} remaining)`)      }
+        logDebug(LOG_SCOPE, "Round-robin request selected", {
+          sessionId: currentSessionId,
+          remainingSessionRequests: sessionQueue.length,
+        })
+      }
       
       // Gehe zur nächsten Session
       this.currentSessionIndex = (this.currentSessionIndex + 1) % this.sessionRoundRobin.length
@@ -171,7 +188,7 @@ class GlobalRateLimiter {
     }
     
     if (!request) {
-      console.log(`⚠️ No requests found after ${attempts} attempts`)
+      logWarn(LOG_SCOPE, "No queued request found during round-robin selection", { attempts })
       return
     }
     
@@ -184,7 +201,11 @@ class GlobalRateLimiter {
     }
     
     const totalRequestsAfter = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
-    console.log(`🚀 Starting API request ${request.id}. Total queue size: ${totalRequestsAfter}, Active: ${this.activeRequests}`)
+    logDebug(LOG_SCOPE, "API request started from queue", {
+      requestId: request.id,
+      queueSize: totalRequestsAfter,
+      activeRequests: this.activeRequests,
+    })
     
     // Setze Zeitstempel und erhöhe aktive Requests
     this.lastApiCallStart = Date.now()
@@ -199,7 +220,11 @@ class GlobalRateLimiter {
       .finally(() => {
         this.activeRequests--
         const totalRequestsCompleted = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
-        console.log(`✅ Completed request ${request!.id}. Total queue size: ${totalRequestsCompleted}, Active: ${this.activeRequests}`)
+        logDebug(LOG_SCOPE, "API request completed", {
+          requestId: request!.id,
+          queueSize: totalRequestsCompleted,
+          activeRequests: this.activeRequests,
+        })
         
         // Plane nächsten Request falls Queue nicht leer
         this.scheduleNextProcessing()
@@ -240,18 +265,22 @@ class GlobalRateLimiter {
           this.currentSessionIndex = 0
         }
         
-        console.log(`🧹 Cleaned up cancelled session ${sessionId} (${requestCount} requests rejected)`)
+        logDebug(LOG_SCOPE, "Cancelled session removed from queue", {
+          sessionId,
+          rejectedRequests: requestCount,
+        })
       }
     }
     
     if (sessionsToRemove.length > 0) {
-      console.log(`🧹 Total cleanup: ${sessionsToRemove.length} cancelled sessions removed from queue`)
+      logDebug(LOG_SCOPE, "Cancelled sessions cleanup completed", {
+        removedSessions: sessionsToRemove.length,
+      })
     }
   }
 
   private async executeRequestWithRetry(request: QueuedRequest, retryCount = 0) {
     const maxRetries = this.config.maxRetries
-    const requestStartTime = Date.now()
     
     // Prüfe Session BEFORE executing request
     if (request.sessionId && this.isSessionCancelledSync(request.sessionId)) {
@@ -295,18 +324,24 @@ class GlobalRateLimiter {
       if (result && typeof result === 'object' && '__httpStatus' in result) {
         const status = Number((result as any).__httpStatus)
         const msg = (result as any).__errorText || ''
-        const responseTime = Date.now() - requestStartTime
 
         if (status === 429) {
-          console.log(`🚫 Rate limit sentinel (429) for request ${request.id}`)
-          metricsCollector.recordBahnApiRequest(responseTime, 429)
+          logWarn(LOG_SCOPE, "Rate limit response received", {
+            requestId: request.id,
+            status,
+          })
           // Sofort auf Max-Intervall springen
           this.onRateLimitHit(true)
 
           // Retry-Logik
           if (retryCount < maxRetries) {
             const retryDelay = this.calculateRetryDelay(retryCount)
-            console.log(`🔄 Re-queueing request ${request.id} after ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`)
+            logInfo(LOG_SCOPE, "Request re-queued after rate limit response", {
+              requestId: request.id,
+              retryDelayMs: retryDelay,
+              retryAttempt: retryCount + 1,
+              maxRetries,
+            })
             setTimeout(() => {
               if (request.sessionId && this.isSessionCancelledSync(request.sessionId)) {
                 request.reject(new Error(`Session ${request.sessionId} was cancelled`))
@@ -320,12 +355,19 @@ class GlobalRateLimiter {
               }
               this.sessionQueues.get(effectiveSessionId)!.unshift(retryRequest)
               const totalRequests = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
-              console.log(`🔄 Request ${request.id} re-queued to FRONT of session ${effectiveSessionId}. Total queue size: ${totalRequests}`)
+              logDebug(LOG_SCOPE, "Rate-limited request reinserted at front of session queue", {
+                requestId: request.id,
+                sessionId: effectiveSessionId,
+                queueSize: totalRequests,
+              })
               this.scheduleNextProcessing()
             }, retryDelay)
             return
           } else {
-            console.log(`❌ Request ${request.id} failed after ${maxRetries} retries due to rate limiting (sentinel)`)            
+            logWarn(LOG_SCOPE, "Request failed after rate limit retries", {
+              requestId: request.id,
+              maxRetries,
+            })
             request.reject(new Error('HTTP 429'))
             return
           }
@@ -342,29 +384,30 @@ class GlobalRateLimiter {
         return
       }
       
-      // Record successful API call metrics
-      const responseTime = Date.now() - requestStartTime
-      metricsCollector.recordBahnApiRequest(responseTime, 200)
-      
       // Erfolgreicher Request - Rate Limit kann langsam reduziert werden
       this.onRequestSuccess()
       request.resolve(result)
       
     } catch (error) {
-      const responseTime = Date.now() - requestStartTime
       const isRateLimitError = error instanceof Error && 
         (error.message.includes('429') || error.message.includes('Too Many Requests'))
       
       if (isRateLimitError) {
-        console.log(`🚫 Rate limit hit (429) for request ${request.id}`)
-        metricsCollector.recordBahnApiRequest(responseTime, 429)
+        logWarn(LOG_SCOPE, "Rate limit error received", {
+          requestId: request.id,
+        })
         // Sofort auf Max-Intervall springen
         this.onRateLimitHit(true)
         
         // Retry bei 429-Fehlern - Request geht ZURÜCK in die Session-Queue
         if (retryCount < maxRetries) {
           const retryDelay = this.calculateRetryDelay(retryCount)
-          console.log(`🔄 Re-queueing request ${request.id} after ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`)
+          logInfo(LOG_SCOPE, "Request re-queued after rate limit error", {
+            requestId: request.id,
+            retryDelayMs: retryDelay,
+            retryAttempt: retryCount + 1,
+            maxRetries,
+          })
           
           setTimeout(() => {
             // Prüfe Session nochmal vor Re-Queue
@@ -386,17 +429,21 @@ class GlobalRateLimiter {
             // GANZ VORNE einreihen (unshift)
             this.sessionQueues.get(effectiveSessionId)!.unshift(retryRequest)
             const totalRequests = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
-            console.log(`🔄 Request ${request.id} re-queued to FRONT of session ${effectiveSessionId}. Total queue size: ${totalRequests}`)
+            logDebug(LOG_SCOPE, "Rate-limited request reinserted at front of session queue", {
+              requestId: request.id,
+              sessionId: effectiveSessionId,
+              queueSize: totalRequests,
+            })
             this.scheduleNextProcessing()
           }, retryDelay)
           return
         } else {
           // Nach allen Retry-Versuchen - Request endgültig fehlgeschlagen (aber NICHT unhandled)
-          console.log(`❌ Request ${request.id} failed after ${maxRetries} retries due to rate limiting`)
+          logWarn(LOG_SCOPE, "Request failed after rate limit retries", {
+            requestId: request.id,
+            maxRetries,
+          })
         }
-      } else {
-        // Record failed API call
-        metricsCollector.recordBahnApiRequest(responseTime, 500)
       }
       
       // Alle Retries aufgebraucht oder anderer Fehler
@@ -405,13 +452,13 @@ class GlobalRateLimiter {
   }
 
   private onRateLimitHit(forceMax: boolean = false) {
-    // Record metrics
-    metricsCollector.recordBahnApiRequest(0, 429) // 0ms response time for rate limit
-    
     // Sofort auf Max-Intervall springen, wenn gefordert
     const target = forceMax ? this.config.maxInterval : Math.min(this.minInterval * 1.5, this.config.maxInterval)
     
-    console.log(`📈 Rate limit hit! Increasing interval from ${this.minInterval}ms to ${Math.round(target)}ms`)
+    logWarn(LOG_SCOPE, "Rate limit interval increased", {
+      previousIntervalMs: this.minInterval,
+      nextIntervalMs: Math.round(target),
+    })
     this.minInterval = Math.round(target)
     
     // Update metrics
@@ -423,7 +470,10 @@ class GlobalRateLimiter {
     if (this.minInterval > this.config.baseInterval) {
       const newInterval = Math.max(this.minInterval * 0.8, this.config.baseInterval)
       if (newInterval < this.minInterval) {
-        console.log(`📉 Reducing interval from ${this.minInterval}ms to ${Math.round(newInterval)}ms after success`)
+        logDebug(LOG_SCOPE, "Rate limit interval reduced after successful request", {
+          previousIntervalMs: this.minInterval,
+          nextIntervalMs: Math.round(newInterval),
+        })
         this.minInterval = Math.round(newInterval)
       }
     }
@@ -474,7 +524,11 @@ class GlobalRateLimiter {
         limitReason = `Sustained limit: ${requestsIn60Seconds}/${this.config.sustainedLimitCount} requests in 60s`
       } else {
         // Bereits über dem Schwellenwert – nichts ändern
-        console.log(`ℹ️ Sustained limit reached, keeping interval at ${this.minInterval}ms (threshold ${threshold}ms)`) 
+        logDebug(LOG_SCOPE, "Sustained limit reached; keeping current interval", {
+          intervalMs: this.minInterval,
+          thresholdMs: threshold,
+          requestsIn60Seconds,
+        })
         return
       }
     } else if (requestsInBurst >= this.config.burstLimitCount) {
@@ -486,7 +540,11 @@ class GlobalRateLimiter {
         limitReason = `Burst limit: ${requestsInBurst}/${this.config.burstLimitCount} requests in ${windowSec}s`
       } else {
         // Bereits über dem Schwellenwert – nichts ändern
-        console.log(`ℹ️ Burst limit reached, keeping interval at ${this.minInterval}ms (threshold ${threshold}ms)`) 
+        logDebug(LOG_SCOPE, "Burst limit reached; keeping current interval", {
+          intervalMs: this.minInterval,
+          thresholdMs: threshold,
+          requestsInBurst,
+        })
         return
       }
     } else {
@@ -502,8 +560,15 @@ class GlobalRateLimiter {
     
     // Update nur wenn sich etwas geändert hat (min. 50ms)
     if (Math.abs(targetInterval - this.minInterval) > 50) {
-      console.log(`📊 Rate limit update: ${this.minInterval}ms → ${Math.round(targetInterval)}ms (${limitReason})`)
-      console.log(`📈 Request stats: ${requestsInBurst} in ${Math.round(this.config.burstLimitWindow/1000)}s, ${requestsIn60Seconds} in 60s, total history: ${this.requestHistory.length}`)
+      logInfo(LOG_SCOPE, "Rate limit interval adjusted", {
+        previousIntervalMs: this.minInterval,
+        nextIntervalMs: Math.round(targetInterval),
+        reason: limitReason,
+        requestsInBurstWindow: requestsInBurst,
+        burstWindowSeconds: Math.round(this.config.burstLimitWindow / 1000),
+        requestsIn60Seconds,
+        trackedRequests: this.requestHistory.length,
+      })
       this.minInterval = Math.round(targetInterval)
       // Update metrics
       metricsCollector.updateRateLimitInterval(this.minInterval)
@@ -546,11 +611,18 @@ class GlobalRateLimiter {
     
     // Prüfe ob Session bereits als completed markiert wurde - dann ignoriere weitere Cancels
     if (this.cancelledSessions.has(sessionId)) {
-      console.log(`ℹ️ Session ${sessionId} already cancelled/completed - ignoring additional cancel (reason: ${reason})`)
+      logDebug(LOG_SCOPE, "Duplicate session cancellation ignored", {
+        sessionId,
+        reason,
+      })
       return
     }
     
-    console.log(`🛑 Cancelling session ${sessionId} (reason: ${reason})`)
+    const logCancellation = reason === "user_request" ? logInfo : logDebug
+    logCancellation(LOG_SCOPE, "🛑 Session cancellation requested", {
+      sessionId,
+      reason,
+    })
     
     // Record metrics
     metricsCollector.recordSessionCancellation(reason)
@@ -576,13 +648,16 @@ class GlobalRateLimiter {
         this.currentSessionIndex = 0
       }
       
-      console.log(`🧹 Immediately cancelled ${requestCount} requests for session ${sessionId}`)
+      logDebug(LOG_SCOPE, "Pending requests cancelled for session", {
+        sessionId,
+        cancelledRequests: requestCount,
+      })
     }
     
     // Auto-cleanup nach 5 Minuten (nur für das cancelled-Set)
     setTimeout(() => {
       this.cancelledSessions.delete(sessionId)
-      console.log(`🧹 Auto-cleaned cancelled session ${sessionId}`)
+      logDebug(LOG_SCOPE, "Cancelled session marker cleaned up", { sessionId })
     }, this.config.sessionCancelTimeout)
   }
 

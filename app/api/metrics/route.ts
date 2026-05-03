@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { metricsCollector } from "./collector"
 import IPCIDR from 'ip-cidr';
+import { logError, logInfo, logWarn } from "@/lib/shared/logger";
+
+const LOG_SCOPE = "metrics"
 
 // Security: List of allowed IPs (from ENV, comma separated)
 const ALLOWED_METRICS_IPS = process.env.ALLOWED_METRICS_IPS
@@ -56,7 +59,9 @@ function getClientIP(request: NextRequest): string {
 let successfulMetricsRequests = 0;
 setInterval(() => {
   if (successfulMetricsRequests > 0) {
-    console.log(`📊 Metrics: ${successfulMetricsRequests} erfolgreiche Zugriffe in der letzten Minute`);
+    logInfo(LOG_SCOPE, "Metrics endpoint access summary", {
+      successfulRequestsLastMinute: successfulMetricsRequests,
+    });
     successfulMetricsRequests = 0;
   }
 }, 60 * 1000);
@@ -73,7 +78,7 @@ export async function GET(request: NextRequest) {
     
     // Wenn kein API Key konfiguriert ist, Endpoint deaktivieren
     if (!requiredKey) {
-      console.log(`🚫 Metrics: Endpoint disabled - METRICS_API_KEY not configured`)
+      logWarn(LOG_SCOPE, "Metrics endpoint disabled because METRICS_API_KEY is not configured")
       return NextResponse.json(
         { error: "Metrics endpoint is disabled - API key not configured" }, 
         { status: 503 }
@@ -81,7 +86,9 @@ export async function GET(request: NextRequest) {
     }
     
     if (!providedKey || providedKey !== requiredKey) {
-      console.log(`🚫 Metrics: Unauthorized access attempt with key: ${providedKey?.slice(0, 10)}...`)
+      logWarn(LOG_SCOPE, "Unauthorized metrics access attempt", {
+        providedKeyPrefix: providedKey ? `${providedKey.slice(0, 10)}...` : "missing",
+      })
       return NextResponse.json(
         { error: "Unauthorized - Invalid API key" }, 
         { status: 401 }
@@ -93,7 +100,9 @@ export async function GET(request: NextRequest) {
     const isDevelopment = process.env.NODE_ENV === 'development'
     
     if (!isDevelopment && !isIPAllowed(clientIP)) {
-      console.log(`🚫 Metrics: Access denied for IP: ${clientIP}`)
+      logWarn(LOG_SCOPE, "Metrics access denied for client IP", {
+        clientIP,
+      })
       return NextResponse.json(
         { error: "Forbidden - IP not allowed" }, 
         { status: 403 }
@@ -153,7 +162,7 @@ export async function GET(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error("❌ Error in metrics endpoint:", error)
+    logError(LOG_SCOPE, "Metrics GET endpoint failed", error)
     return NextResponse.json(
       { error: "Internal server error" }, 
       { status: 500 }
@@ -214,7 +223,7 @@ export async function POST(request: NextRequest) {
     )
 
   } catch (error) {
-    console.error("❌ Error in metrics POST endpoint:", error)
+    logError(LOG_SCOPE, "Metrics POST endpoint failed", error)
     return NextResponse.json(
       { error: "Internal server error" }, 
       { status: 500 }
