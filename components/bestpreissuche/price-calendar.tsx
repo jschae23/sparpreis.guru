@@ -4,6 +4,9 @@ import React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
+import { logWarn } from "@/lib/shared/logger"
+
+const LOG_SCOPE = "bestpreissuche.price-calendar"
 
 interface IntervalData {
   preis: number
@@ -120,7 +123,12 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
         
         return expectedDates.sort()
       } catch (error) {
-        console.warn('Could not calculate expected dates from weekdays:', error)
+        logWarn(LOG_SCOPE, "Could not calculate expected dates from weekdays", {
+          fromDate: searchParams?.reisezeitraumAb,
+          toDate: searchParams?.reisezeitraumBis,
+          weekdays: searchParams?.wochentage,
+          error: error instanceof Error ? error.message : error,
+        })
       }
     }
     
@@ -352,7 +360,10 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
           })
         }
       } catch (error) {
-        console.warn('Could not fetch progress data:', error)
+        logWarn(LOG_SCOPE, "Could not fetch search progress data", {
+          sessionId,
+          error: error instanceof Error ? error.message : error,
+        })
       }
 
       // Schedule next poll only if still polling

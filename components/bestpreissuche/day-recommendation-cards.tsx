@@ -3,7 +3,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Euro, Star, Train, ArrowRight, Shuffle } from "lucide-react"
-import { VehicleTypesSummary } from "@/components/vehicle-types-summary"
+import { recommendBestPrice } from "@/lib/train-search/recommendation-engine"
+import { VehicleTypesSummary } from "./vehicle-types-summary"
 
 export function RecommendationCards({
   data,
@@ -37,7 +38,7 @@ export function RecommendationCards({
             <div className="flex items-center gap-2 mb-2">
               <div className="text-4xl font-bold text-green-700">{data.preis}€</div>
               {intervals && intervals.length > 0 && (() => {
-                const bestPriceTrip = require("@/lib/recommendation-engine").recommendBestPrice(intervals)
+                const bestPriceTrip = recommendBestPrice(intervals)
                 return bestPriceTrip ? (
                   <div className="ml-2"><VehicleTypesSummary interval={bestPriceTrip} /></div>
                 ) : null
@@ -46,7 +47,7 @@ export function RecommendationCards({
             {/* Gemeinsame Zeile für Reisedaten */}
             {data.abfahrtsZeitpunkt && data.ankunftsZeitpunkt && (() => {
               // Nutze recommendBestPrice für die Anzeige
-              const bestPriceTrip = intervals.length > 0 ? require("@/lib/recommendation-engine").recommendBestPrice(intervals) : null
+              const bestPriceTrip = intervals.length > 0 ? recommendBestPrice(intervals) : null
               return bestPriceTrip ? (
                 <div className="flex flex-wrap items-center gap-2 md:gap-4 text-sm text-gray-600 mb-3">
                   <span>
