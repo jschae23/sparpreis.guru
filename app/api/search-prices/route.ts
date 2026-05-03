@@ -2,12 +2,20 @@ import { type NextRequest, NextResponse } from "next/server"
 import { globalRateLimiter } from './rate-limiter'
 import { searchBahnhof, getBestPrice } from './bahn-api'
 import { updateProgress, updateAverageResponseTimes, getAverageResponseTimes, passesTimeFilter } from './utils'
-import { generateCacheKey, getCachedResult, getCacheSize, type PriceHistoryEntry } from './cache'
-import { recommendBestPrice } from '@/lib/recommendation-engine'
+import { generateCacheKey, getCachedResult, getCacheSize, getStationSearchCacheSize, type PriceHistoryEntry } from './cache'
+import { recommendBestPrice } from '@/lib/train-search/recommendation-engine'
 import { metricsCollector } from '@/app/api/metrics/collector'
+import { logDebug, logError, logInfo } from '@/lib/shared/logger'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const LOG_SCOPE = "bestpreissuche.request"
+
+function formatTimeWindow(abfahrtAb?: string, ankunftBis?: string): string {
+  if (!abfahrtAb && !ankunftBis) return "beliebig"
+  return `${abfahrtAb || "beliebig"}-${ankunftBis || "beliebig"}`
+}
 
 interface TrainResult {
   preis: number
@@ -79,16 +87,21 @@ export async function POST(request: NextRequest) {
       wochentage || [1, 2, 3, 4, 5, 6, 0]
     )
 
-    // Calculate cached vs uncached days before recording metrics
-    let cachedDaysCount = 0
-    let uncachedDaysCount = 0
-    
-    // We'll update this later in the stream processing
-    // For now, record with placeholders
-    metricsCollector.recordUserSearch(calculatedDates.length, 0, 0)
+    // Count the search immediately; cache split is known after station resolution.
+    metricsCollector.recordUserSearch(calculatedDates.length)
     metricsCollector.recordStreamingConnection()
 
-    console.log("\n🚂 Starting bestpreissuche request")
+    logDebug(LOG_SCOPE, "📥 Bestpreissuche request received", {
+      requestedStart: start,
+      requestedDestination: ziel,
+      fromDate: reisezeitraumAb,
+      toDate: reisezeitraumBis,
+      plannedDays: calculatedDates.length,
+      weekdays: wochentage,
+      timeWindow: formatTimeWindow(abfahrtAb, ankunftBis),
+      maxTransfers: maximaleUmstiege ?? "alle",
+      travelClass: klasse,
+    })
     // Search for stations
     const startStation = await searchBahnhof(start)
     const zielStation = await searchBahnhof(ziel)
@@ -100,24 +113,23 @@ export async function POST(request: NextRequest) {
         { status: 404 },
       )
     }
-    console.log("📋 Request parameters:")
-    console.log(`  - Startbahnhof: ${startStation.name} (ID: ${startStation.normalizedId})`)
-    console.log(`  - Zielbahnhof: ${zielStation.name} (ID: ${zielStation.normalizedId})`)
-    console.log("  - Weekdays:", wochentage)
-    console.log("  - Days:", calculatedDates.length, "| Time:", abfahrtAb || "any", "-", ankunftBis || "any")
-    console.log("  - Class:", klasse, "| Max transfers:", maximaleUmstiege, "(type:", typeof maximaleUmstiege, ")")
-    console.log("  - RAW maximaleUmstiege from body:", JSON.stringify(body.maximaleUmstiege))
-    if (umstiegszeit && umstiegszeit !== "normal") {
-      console.log("  - Transfer time:", umstiegszeit, "min")
-    }
-
     if (!start || !ziel) {
       return NextResponse.json({ error: "Start and destination required" }, { status: 400 })
     }
 
     // Verwende die übergebene sessionId oder generiere eine neue
     const sessionId = providedSessionId || crypto.randomUUID()
-    console.log(`📱 Session ID: ${sessionId}`)
+    logInfo(LOG_SCOPE, "🚂 Bestpreissuche gestartet", {
+      sessionId,
+      route: `${startStation.name} -> ${zielStation.name}`,
+      fromDate: reisezeitraumAb,
+      toDate: reisezeitraumBis,
+      plannedDays: calculatedDates.length,
+      timeWindow: formatTimeWindow(abfahrtAb, ankunftBis),
+      maxTransfers: maximaleUmstiege ?? "alle",
+      travelClass: klasse || "KLASSE_2",
+      transferTimeMinutes: umstiegszeit && umstiegszeit !== "normal" ? umstiegszeit : undefined,
+    })
 
     // Streaming Response Setup
     const encoder = new TextEncoder()
@@ -141,7 +153,7 @@ export async function POST(request: NextRequest) {
               return true
             } catch (error) {
               if (!cancelLoggedForSession) {
-                console.log(`ℹ️ User disconnected - search stopped gracefully (session: ${sessionId})`)
+                logDebug(LOG_SCOPE, "Client disconnected; stopping Bestpreissuche stream", { sessionId })
                 cancelLoggedForSession = true
               }
               isStreamClosed = true
@@ -158,7 +170,7 @@ export async function POST(request: NextRequest) {
               controller.close()
               isStreamClosed = true
             } catch (error) {
-              console.log(`ℹ️ Stream was already closed by user`)
+              logDebug(LOG_SCOPE, "Bestpreissuche stream was already closed", { sessionId })
               isStreamClosed = true
             }
           }
@@ -172,6 +184,7 @@ export async function POST(request: NextRequest) {
           // Record search completion metrics
           const searchDuration = Date.now() - searchStartTime
           metricsCollector.recordSearchDuration(searchDuration)
+          metricsCollector.recordUserSearchCompletion()
 
           // Hilfsfunktion: Zähle nur echte Tagesergebnisse
           function countProcessedDays(resultsObj: TrainResults) {
@@ -181,6 +194,14 @@ export async function POST(request: NextRequest) {
           }
 
           const processedDays = countProcessedDays(results)
+          const resultEntries = Object.entries(results).filter(([key]) => key !== "_meta")
+          const successfulDays = resultEntries.filter(([, val]) => val?.preis > 0).length
+          const cheapestPrice = Math.min(
+            ...resultEntries
+              .map(([, val]) => val?.preis ?? 0)
+              .filter((price) => price > 0)
+          )
+          const cheapestDate = resultEntries.find(([, val]) => val?.preis === cheapestPrice)?.[0]
           const finalQueueStatus = globalRateLimiter.getQueueStatus()
           const finalAvgTimes = getAverageResponseTimes()
           await updateProgress(
@@ -209,6 +230,17 @@ export async function POST(request: NextRequest) {
             plannedDays: maxDays
           }
 
+          logInfo(LOG_SCOPE, "✅ Bestpreissuche abgeschlossen", {
+            sessionId,
+            route: `${startStation.name} -> ${zielStation.name}`,
+            processedDays,
+            plannedDays: maxDays,
+            successfulDays,
+            cheapestPrice: Number.isFinite(cheapestPrice) ? cheapestPrice : undefined,
+            cheapestDate,
+            durationMs: searchDuration,
+          })
+
           if (safeEnqueue(encoder.encode(JSON.stringify(completeResult) + '\n'))) {
             safeClose()
           }
@@ -222,13 +254,18 @@ export async function POST(request: NextRequest) {
             wochentage || [1, 2, 3, 4, 5, 6, 0]
           ).slice(0, 30) // Limit to max 30 days
           maxDays = datesToProcess.length
-          console.log(`\n🔍 Processing ${datesToProcess.length} specific dates`)
-          console.log(`📊 Cache status: ${getCacheSize()} entries`)
+          logDebug(LOG_SCOPE, "📅 Bestpreissuche date processing started", {
+            sessionId,
+            plannedDays: datesToProcess.length,
+            firstTravelDate: datesToProcess[0],
+            lastTravelDate: datesToProcess[datesToProcess.length - 1],
+            connectionCacheEntries: getCacheSize(),
+          })
 
           // Update cache metrics
           const cacheSize = getCacheSize()
           // Assuming you have a way to get station cache size, otherwise use 0
-          metricsCollector.updateCacheMetrics(0, cacheSize)
+          metricsCollector.updateCacheMetrics(getStationSearchCacheSize(), cacheSize)
 
           // Erstelle Liste aller Tage mit Cache-Status
           const dayStatusList: { date: string; isCached: boolean; cacheKey: string }[] = []
@@ -244,7 +281,8 @@ export async function POST(request: NextRequest) {
               schnelleVerbindungen: Boolean(schnelleVerbindungen === true || schnelleVerbindungen === "true"),
               umstiegszeit: (umstiegszeit && umstiegszeit !== "normal" && umstiegszeit !== "undefined") ? umstiegszeit : undefined,
             })
-            const isCached = !!getCachedResult(cacheKey).data
+            const cacheState = getCachedResult(cacheKey)
+            const isCached = !!cacheState.data && !cacheState.needsRefresh
             dayStatusList.push({ date: dateStr, isCached, cacheKey })
           }
 
@@ -296,7 +334,7 @@ export async function POST(request: NextRequest) {
             // Prüfe Session-Abbruch VOR jedem Request
             if (globalRateLimiter.isSessionCancelledSync(sessionId)) {
               if (!cancelLoggedForSession) {
-                console.log(`🛑 Session ${sessionId} cancelled by user - stopping search`)
+                logDebug(LOG_SCOPE, "Bestpreissuche session cancelled; stopping remaining dates", { sessionId })
                 cancelLoggedForSession = true
               }
               return { currentDateStr, dayResponse: { result: null }, dayCount }
@@ -364,7 +402,12 @@ export async function POST(request: NextRequest) {
                   // WICHTIG: Aktualisiere allIntervals VOR der Bestpreis-Berechnung
                   priceData.allIntervals = filteredIntervals
                   
-                  console.log(`🔍 Time filter: ${priceData.allIntervals.length} intervals after time filtering for ${dateKey}`)
+                  logDebug(LOG_SCOPE, "Applied additional time filter to day result", {
+                    sessionId,
+                    travelDate: dateKey,
+                    afterTimeFilter: priceData.allIntervals.length,
+                    timeWindow: formatTimeWindow(abfahrtAb, ankunftBis),
+                  })
                   
                   if (filteredIntervals.length === 0) {
                     priceData.preis = 0
@@ -480,7 +523,13 @@ export async function POST(request: NextRequest) {
                   
                   // Final count
                   const markedCount = priceData.allIntervals.filter(i => i.isCheapestPerInterval === true).length
-                  console.log(`🏁 Final result for ${dateKey}: ${markedCount} intervals marked as cheapest out of ${priceData.allIntervals.length} total`)
+                  logDebug(LOG_SCOPE, "🏁 Bestpreissuche day result prepared", {
+                    sessionId,
+                    travelDate: dateKey,
+                    totalIntervals: priceData.allIntervals.length,
+                    cheapestSlotMarkers: markedCount,
+                    bestPrice: priceData.preis,
+                  })
                 }
               }
             }
@@ -502,7 +551,6 @@ export async function POST(request: NextRequest) {
 
               if (dayResponse.result) {
                 Object.assign(results, dayResponse.result)
-                //console.log(`Day ${currentDateStr} result:`, Object.values(dayResponse.result)[0])
                 
                 // Stream einzelnes Tagesergebnis nur wenn Session noch aktiv
                 if (!globalRateLimiter.isSessionCancelledSync(sessionId)) {
@@ -551,13 +599,13 @@ export async function POST(request: NextRequest) {
               // Behandle cancelled sessions nicht als Fehler
               if (error instanceof Error && error.message.includes('was cancelled')) {
                 if (!cancelLoggedForSession) {
-                  console.log(`ℹ️ Search was cancelled by user (session: ${sessionId})`)
+                  logDebug(LOG_SCOPE, "Bestpreissuche processing cancelled", { sessionId })
                   cancelLoggedForSession = true
                 }
                 return true
               }
               
-              console.error(`❌ Error processing request:`, error)
+              logError(LOG_SCOPE, "Error while processing Bestpreissuche day request", error, { sessionId })
               return true
             }
           }
@@ -571,7 +619,8 @@ export async function POST(request: NextRequest) {
           }
 
         } catch (error) {
-          console.error("Error in streaming bestpreissuche:", error)
+          metricsCollector.recordUserSearchError()
+          logError(LOG_SCOPE, "Bestpreissuche streaming failed", error, { sessionId })
           const errorResult = {
             type: 'error',
             error: "Internal server error",
@@ -590,7 +639,8 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error("Error in bestpreissuche API:", error)
+    metricsCollector.recordUserSearchError()
+    logError(LOG_SCOPE, "Bestpreissuche API request failed", error)
     return NextResponse.json(
       {
         error: "Internal server error",

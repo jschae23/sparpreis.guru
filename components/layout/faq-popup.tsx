@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { HelpCircle, X } from "lucide-react"
+import { HelpCircle } from "lucide-react"
 
 export function FAQPopup() {
   const [isOpen, setIsOpen] = useState(false)
@@ -11,15 +11,23 @@ export function FAQPopup() {
   const faqs = [
     {
       question: "Was ist sparpreis.guru?",
-      answer: "Der sparpreis.guru demonstriert die technische Machbarkeit, die Preise aus der Sparpreissuche der Deutschen Bahn automatisiert abzufragen, zu filtern und in einem Kalender übersichtlich darzustellen, um die günstigsten Reisetage zu finden."
+      answer: "sparpreis.guru hilft dabei, günstige Bahnverbindungen schneller zu finden. Die Bestpreissuche vergleicht Preise über mehrere Reisetage hinweg, der Urlaubsfinder vergleicht viele mögliche Reiseziele für einen gewählten Zeitraum."
+    },
+    {
+      question: "Was ist der Urlaubsfinder?",
+      answer: "Der Urlaubsfinder sucht von deinem Startbahnhof aus gleichzeitig nach günstigen Zielen. Du wählst mögliche Städte aus, legst Hin- und optional Rückfahrt fest und bekommst die günstigsten erreichbaren Ziele sortiert nach Gesamtpreis angezeigt."
+    },
+    {
+      question: "Was zeigen Karte und Ergebnisdetails im Urlaubsfinder?",
+      answer: "Die Karte zeigt gefundene Ziele räumlich an. In den Details siehst du Hin- und Rückfahrt, Preisanteile, Umstiege und den Routenverlauf. Die Buchungslinks führen zur Bahn-Suche mit den passenden Parametern."
     },
     {
       question: "Warum werden nur maximal 30 Tage abgefragt?",
-      answer: "Unnötige Anfragen an die API der Bahn sollen vermieden werden. 30 Tage sollte für die meisten Anwendugsfälle ausreichen."
+      answer: "Unnötige Anfragen an die Bahn-API sollen vermieden werden. In der Bestpreissuche werden deshalb maximal 30 Reisetage betrachtet. Im Urlaubsfinder wird zusätzlich bei sehr vielen ausgewählten Zielen vor dem Start nachgefragt."
     },
     {
       question: "Wie aktuell sind die Preise?",
-      answer: "Die Preise werden in Regel in Echtzeit von der Deutschen Bahn abgerufen. Ergebnisse werden allerdings für 60 Minuten zwischengespeichert, um unnötige Mehrfachanfragen zu vermeiden."
+      answer: "Die Preise werden in der Regel live von der Deutschen Bahn abgerufen. Ergebnisse werden für 60 Minuten zwischengespeichert, um unnötige Mehrfachanfragen zu vermeiden."
     },
     {
       question: "Wie funktioniert die Preishistorie?",
@@ -27,7 +35,7 @@ export function FAQPopup() {
     },
     {
       question: "Was passiert mit meinen Daten?",
-      answer: "Es werden keine personenbezogene Daten gespeichert. Ausschließlich die Suchparameter werden gespeichert und verarbeitet."
+      answer: "Es werden keine personenbezogenen Daten gespeichert. Such- und Preisabfragen werden technisch verarbeitet und zwischengespeichert. Bei der Bahnhofssuche werden außerdem aggregierte Klickzahlen gespeichert, damit häufig gewählte passende Bahnhöfe künftig weiter oben erscheinen."
     }
   ]
 

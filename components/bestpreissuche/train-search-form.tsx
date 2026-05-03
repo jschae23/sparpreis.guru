@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue} from "@/components/ui/select"
-import { ArrowLeftRight, Train, User, Percent, Shuffle, ArrowRight, Ticket, Settings, MapPin, Calendar, Baby, Clock, Zap, AlertTriangle, Lightbulb, CheckCircle, Map } from "lucide-react"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { ArrowLeftRight, Train, User, Percent, Shuffle, ArrowRight, Ticket, Settings, MapPin, Calendar, Baby, Clock, Zap, AlertTriangle, Lightbulb, CheckCircle, Map, X } from "lucide-react"
+import { logError } from "@/lib/shared/logger"
+
+const LOG_SCOPE = "bestpreissuche.search-form"
 
 /**
  * \u26a0\ufe0f WHY inputs looked huge on mobile (esp. iOS Safari)
@@ -23,7 +25,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
  */
 
 // 1) Reusable class names for uniform sizing
-const ctrl = "h-11 w-full px-3 text-base leading-tight rounded-md border border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+const ctrl = "h-11 w-full min-w-0 max-w-full box-border px-3 text-base leading-tight rounded-md border border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+const dateTimeCtrl =
+  `${ctrl} px-2 text-[16px] appearance-none [-webkit-appearance:none] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left [&::-webkit-date-and-time-value]:p-0`
 const ctrlGhost = "bg-gray-100 text-gray-500";
 
 // 2) Global tweaks for date/time controls (Tailwind JIT via arbitrary variants)
@@ -282,7 +286,10 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
         }
       }
     } catch (error) {
-      console.error('Error fetching station suggestions:', error)
+      logError(LOG_SCOPE, "Could not fetch station suggestions", error, {
+        query,
+        field: type,
+      })
       const errorMsg = error instanceof Error ? error.message : 'Fehler beim Laden der Bahnhöfe'
       if (type === 'start') {
         setStartError(errorMsg)
@@ -324,19 +331,35 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
       fetchStationSuggestions(value, 'ziel')
     }, 300)
   }, [fetchStationSuggestions])
+
+  const recordStationSelection = useCallback((query: string, suggestion: StationSuggestion) => {
+    const trimmedQuery = query.trim()
+    if (trimmedQuery.length < 2) {
+      return
+    }
+
+    void fetch('/api/station-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q: trimmedQuery, station: suggestion }),
+      keepalive: true,
+    }).catch(() => {})
+  }, [])
   
   // Handle suggestion selection
   const selectStartSuggestion = useCallback((suggestion: StationSuggestion) => {
+    recordStationSelection(start, suggestion)
     setStart(suggestion.name)
     setStartId(suggestion.extId)
     setShowStartSuggestions(false)
-  }, [])
+  }, [recordStationSelection, start])
   
   const selectZielSuggestion = useCallback((suggestion: StationSuggestion) => {
+    recordStationSelection(ziel, suggestion)
     setZiel(suggestion.name)
     setZielId(suggestion.extId)
     setShowZielSuggestions(false)
-  }, [])
+  }, [recordStationSelection, ziel])
   
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -381,7 +404,10 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
           }
         }
       } catch (error) {
-        console.error(`Error resolving station ID ${id}:`, error)
+        logError(LOG_SCOPE, "Could not resolve station ID", error, {
+          stationId: id,
+          field: type,
+        })
         // Fallback: show the ID if resolution fails
         if (type === 'start') {
           setStart(id)
@@ -498,7 +524,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
         Bestpreissuche
       </h2>
 
-      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
         <div className="bg-white p-2 sm:p-4 rounded-lg shadow-sm border border-gray-100">
           <h3 className="text-md font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
             <Map className="w-4 h-4 text-blue-600" />
@@ -631,14 +657,14 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                   Reisezeitraum
                 </span>
               </Label>
-              <div className="flex items-center gap-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
                 <Input 
                   id="reisezeitraumAb" 
                   type="date" 
                   value={reisezeitraumAb} 
                   onChange={handleReisezeitraumAbChange} 
                   min={getTomorrowISO()} // Verhindert Eingabe von Daten in der Vergangenheit
-                  className={ctrl}
+                  className={dateTimeCtrl}
                 />
                 <span className="text-gray-500 text-sm">bis</span>
                 <Input
@@ -647,92 +673,54 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                   min={reisezeitraumAb}
                   value={reisezeitraumBis}
                   onChange={e => setReisezeitraumBis(e.target.value)}
-                  className={ctrl}
+                  className={dateTimeCtrl}
                 />
               </div>
             </div>
             {/* Zeitfilter - Optional */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-4">
-              <div>
-                <Label htmlFor="abfahrtAb" className="text-sm font-medium text-gray-600 mb-2 block">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-4 h-4 text-blue-500" />
-                    <span className="truncate">Abfahrt ab</span>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button type="button" className="ml-1 cursor-pointer text-blue-600 p-0 bg-transparent border-0 focus:outline-none flex-shrink-0" tabIndex={0} aria-label="Info zu Zeitfenster">
-                          <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 8v4m0 4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="max-w-xs text-sm text-gray-700">
-                        <div className="font-semibold mb-1 text-blue-800">Zeitfenster für Abfahrt/Ankunft</div>
-                        <div>
-                          Hier kannst du ein Zeitfenster für die Ankunft festlegen (z.B. <b>15:00</b> wenn du am Abend noch etwas vorhast).<br/>
-                          <b>Tipp:</b> Um Nachtfahrten zu filtern, setze <b>Abfahrt ab</b> z.B. auf <b>22:00</b> und <b>Ankunft bis</b> auf z.B. <b>07:00</b>.   
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </span>
-                </Label>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="min-w-0">
+                <Label htmlFor="abfahrtAb" className="text-xs font-medium text-gray-600 mb-1 block">Abfahrt ab</Label>
                 <div className="relative">
                   <Input 
                     id="abfahrtAb" 
                     type="time" 
                     value={abfahrtAb} 
                     onChange={(e) => setAbfahrtAb(e.target.value)} 
-                    className={ctrl}
+                    className={dateTimeCtrl}
                   />
                   {abfahrtAb && (
                     <button
                       type="button"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
                       onClick={() => setAbfahrtAb("")}
                       tabIndex={-1}
                       aria-label="Abfahrt ab zurücksetzen"
                     >
-                      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" style={{display: 'block'}}><path d="M6 6l8 8M6 14L14 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
               </div>
-              <div>
-                <Label htmlFor="ankunftBis" className="text-sm font-medium text-gray-600 mb-2 block">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-4 h-4 text-blue-500" />
-                    <span className="truncate">Ankunft bis</span>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button type="button" className="ml-1 cursor-pointer text-blue-600 p-0 bg-transparent border-0 focus:outline-none flex-shrink-0" tabIndex={0} aria-label="Info zu Zeitfenster">
-                          <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 8v4m0 4h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="max-w-xs text-sm text-gray-700">
-                        <div className="font-semibold mb-1 text-blue-800">Zeitfenster für Abfahrt/Ankunft</div>
-                        <div>
-                          Hier kannst du ein Zeitfenster für die Ankunft festlegen (z.B. <b>15:00</b> wenn du am Abend noch etwas vorhast).<br/>
-                          <b>Tipp:</b> Um Nachtfahrten zu filtern, setze <b>Abfahrt ab</b> z.B. auf <b>22:00</b> und <b>Ankunft bis</b> auf z.B. <b>07:00</b>.                    
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </span>
-                </Label>
+              <div className="min-w-0">
+                <Label htmlFor="ankunftBis" className="text-xs font-medium text-gray-600 mb-1 block">Ankunft bis</Label>
                 <div className="relative">
                   <Input 
                     id="ankunftBis" 
                     type="time" 
                     value={ankunftBis} 
                     onChange={(e) => setAnkunftBis(e.target.value)} 
-                    className={ctrl}
+                    className={dateTimeCtrl}
                   />
                   {ankunftBis && (
                     <button
                       type="button"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
                       onClick={() => setAnkunftBis("")}
                       tabIndex={-1}
                       aria-label="Ankunft bis zurücksetzen"
                     >
-                      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" style={{display: 'block'}}><path d="M6 6l8 8M6 14L14 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
@@ -1032,11 +1020,11 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3">
-          <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-lg shadow-sm">
+          <Button type="submit" className="w-full sm:flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-lg shadow-sm">
             <Ticket className="w-4 h-4 mr-2" />
             Bestpreise suchen
           </Button>
-          <Button type="button" variant="outline" onClick={handleReset} className="border-gray-300 hover:bg-gray-50 px-6 py-3 rounded-lg">
+          <Button type="button" variant="outline" onClick={handleReset} className="w-full sm:w-auto border-gray-300 hover:bg-gray-50 px-6 py-3 rounded-lg">
             Zurücksetzen
           </Button>
         </div>

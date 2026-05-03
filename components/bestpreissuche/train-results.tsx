@@ -3,6 +3,9 @@
 import { useState, useEffect, useRef } from "react"
 import { PriceCalendar } from "./price-calendar"
 import { DayDetailsModal } from "./day-details-modal"
+import { logError, logInfo, logWarn } from "@/lib/shared/logger"
+
+const LOG_SCOPE = "bestpreissuche.client"
 
 interface SearchParams {
   start?: string
@@ -142,7 +145,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
   // Funktion zum Abbrechen der Suche
   const cancelSearch = async () => {
-    console.log("🛑 User requested search cancellation")
+    logInfo(LOG_SCOPE, "User requested search cancellation", { sessionId })
     
     // Backend ZUERST über Abbruch informieren (bevor AbortController)
     if (sessionId) {
@@ -152,9 +155,12 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId, reason: 'user_request' })
         })
-        console.log("✅ Backend notified about cancellation")
+        logInfo(LOG_SCOPE, "Backend notified about search cancellation", { sessionId })
       } catch (error) {
-        console.warn("⚠️ Could not notify backend about cancellation:", error)
+        logWarn(LOG_SCOPE, "Could not notify backend about search cancellation", {
+          sessionId,
+          error: error instanceof Error ? error.message : error,
+        })
       }
     }
     
@@ -183,7 +189,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             body: JSON.stringify({ sessionId, reason: 'page_unload' })
           })
         } catch (error) {
-          console.warn("Could not notify backend about page unload")
+          logWarn(LOG_SCOPE, "Could not notify backend about page unload", {
+            sessionId,
+            error: error instanceof Error ? error.message : error,
+          })
         }
       }
     }
@@ -198,7 +207,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             body: JSON.stringify({ sessionId, reason: 'page_hidden' })
           })
         } catch (error) {
-          console.warn("Could not notify backend about page visibility change")
+          logWarn(LOG_SCOPE, "Could not notify backend about page visibility change", {
+            sessionId,
+            error: error instanceof Error ? error.message : error,
+          })
         }
       }
     }
@@ -347,7 +359,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                       return
                     }
                   } catch {
-                    console.warn("Could not parse streaming response line:", line)
+                    logWarn(LOG_SCOPE, "Could not parse Bestpreissuche streaming response line", {
+                      sessionId: newSessionId,
+                      line,
+                    })
                   }
                 }
               }
@@ -367,7 +382,11 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
               setPriceResults(finalData)
               setSessionCompleted(true)
             } catch (e) {
-              console.warn("Could not parse final buffer:", buffer)
+              logWarn(LOG_SCOPE, "Could not parse Bestpreissuche final streaming buffer", {
+                sessionId: newSessionId,
+                buffer,
+                error: e instanceof Error ? e.message : e,
+              })
             }
           }
         } else {
@@ -385,9 +404,9 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       } catch (err) {
          // Check if error was due to abort
         if (err instanceof Error && err.name === 'AbortError') {
-          console.log("🛑 Request was aborted by user")
+          logInfo(LOG_SCOPE, "Bestpreissuche request aborted by user", { sessionId: newSessionId })
         } else {
-          console.error("Error in bestpreissuche:", err)
+          logError(LOG_SCOPE, "Bestpreissuche client request failed", err, { sessionId: newSessionId })
         }
       } finally {
         setLoading(false)

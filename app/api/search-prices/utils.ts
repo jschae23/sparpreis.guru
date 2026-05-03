@@ -1,3 +1,7 @@
+import { logError } from "@/lib/shared/logger"
+
+const LOG_SCOPE = "bestpreissuche.progress"
+
 // Durchschnittswerte für Response-Zeiten (ms) - global für alle Sessions
 let averageUncachedResponseTime = 2000 // Startwert 2s
 let averageCachedResponseTime = 100 // Startwert 0.1s
@@ -38,7 +42,13 @@ export async function updateProgress(
       }),
     })
   } catch (error) {
-    console.error("Error updating progress:", error)
+    logError(LOG_SCOPE, "Could not send progress update", error, {
+      sessionId,
+      currentDay,
+      totalDays,
+      currentDate,
+      isComplete,
+    })
   }
 }
 

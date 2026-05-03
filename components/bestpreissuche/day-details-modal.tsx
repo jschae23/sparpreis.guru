@@ -7,17 +7,20 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { MapPin, ArrowRight, Euro, Calendar, Train, TrendingUp, GraduationCap, User, Percent, Shuffle, Clock, Filter, Info, Star, ChevronLeft, ChevronRight, Timer } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { recommendOne } from "@/lib/recommendation-engine"
+import { recommendOne } from "@/lib/train-search/recommendation-engine"
 import { AnimatePresence, motion } from "framer-motion"
 import {
   createBookingLink,
   getAlterLabel,
   calculateDuration,
   getDurationMinutes
-} from "@/lib/day-details-utils"
-import { RecommendationCards } from "@/components/day-recommendation-cards"
-import { ConnectionsTable } from "@/components/day-connections-table"
-import { PriceHistoryChart, type PriceHistoryEntry } from "@/components/price-history-chart"
+} from "@/lib/train-search/day-details-utils"
+import { RecommendationCards } from "./day-recommendation-cards"
+import { ConnectionsTable } from "./day-connections-table"
+import { PriceHistoryChart, type PriceHistoryEntry } from "./price-history-chart"
+import { logWarn } from "@/lib/shared/logger"
+
+const LOG_SCOPE = "bestpreissuche.day-details"
 
 interface Interval {
   preis: number
@@ -229,7 +232,10 @@ export function DayDetailsModal({
         // If no intervals are marked as cheapest, fall back to showing all intervals
         // (this maintains backward compatibility if the backend doesn't set the flag)
         if (markedCheapest.length === 0 && intervals.length > 0) {
-          console.warn('No intervals marked as cheapest per time slot, showing all intervals')
+          logWarn(LOG_SCOPE, "No cheapest-per-slot markers found; showing all intervals", {
+            travelDate: date,
+            intervalCount: intervals.length,
+          })
           return sortIntervals(intervals)
         }
         return sortIntervals(markedCheapest)

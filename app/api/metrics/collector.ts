@@ -1,3 +1,7 @@
+import { logDebug } from "@/lib/shared/logger"
+
+const LOG_SCOPE = "metrics.collector"
+
 interface MetricValue {
   value: number
   timestamp: number
@@ -15,11 +19,20 @@ interface Histogram {
   count: number
 }
 
+type MetricLabels = Record<string, string>
+
+interface LabeledMetric<T> {
+  labels: MetricLabels
+  value: T
+}
+
 class MetricsCollector {
   private counters = new Map<string, number>()
   private gauges = new Map<string, number>()
   private histograms = new Map<string, Histogram>()
-  private labels = new Map<string, Record<string, string>>()
+  private labeledCounters = new Map<string, Map<string, LabeledMetric<number>>>()
+  private labeledGauges = new Map<string, Map<string, LabeledMetric<number>>>()
+  private labeledHistograms = new Map<string, Map<string, LabeledMetric<Histogram>>>()
   
   // Histogram buckets for response times (in milliseconds)
   private readonly responseTimeBuckets = [50, 100, 200, 500, 1000, 2000, 5000, 10000, Infinity]
@@ -36,6 +49,8 @@ class MetricsCollector {
     this.counters.set('bahn_api_requests_total', 0)
     this.counters.set('bahn_api_rate_limits_total', 0)
     this.counters.set('user_search_requests_total', 0)
+    this.counters.set('user_search_completed_total', 0)
+    this.counters.set('user_search_errors_total', 0)
     this.counters.set('days_searched_total', 0)
     this.counters.set('days_cached_total', 0)
     this.counters.set('days_uncached_total', 0)
@@ -43,8 +58,15 @@ class MetricsCollector {
     this.counters.set('cache_misses_total', 0)
     this.counters.set('station_cache_hits_total', 0)
     this.counters.set('station_cache_misses_total', 0)
-    this.counters.set('session_cancellations_total', 0)
+    this.counters.set('station_search_api_requests_total', 0)
+    this.counters.set('station_search_clicks_total', 0)
     this.counters.set('streaming_connections_total', 0)
+    this.counters.set('urlaubsfinder_search_requests_total', 0)
+    this.counters.set('urlaubsfinder_search_completed_total', 0)
+    this.counters.set('urlaubsfinder_search_errors_total', 0)
+    this.counters.set('urlaubsfinder_destinations_requested_total', 0)
+    this.counters.set('urlaubsfinder_destinations_found_total', 0)
+    this.counters.set('urlaubsfinder_destinations_unavailable_total', 0)
     
     // Initialize gauges
     this.gauges.set('bahn_api_current_interval_ms', 1200)
@@ -67,27 +89,101 @@ class MetricsCollector {
       sum: 0,
       count: 0
     })
+
+    this.histograms.set('station_search_api_response_time_ms', {
+      buckets: this.responseTimeBuckets.map(le => ({ le, count: 0 })),
+      sum: 0,
+      count: 0
+    })
+
+    this.histograms.set('urlaubsfinder_search_duration_ms', {
+      buckets: this.responseTimeBuckets.map(le => ({ le, count: 0 })),
+      sum: 0,
+      count: 0
+    })
+  }
+
+  private normalizeLabels(labels?: Record<string, string>): MetricLabels | null {
+    if (!labels || Object.keys(labels).length === 0) {
+      return null
+    }
+
+    return Object.fromEntries(
+      Object.entries(labels)
+        .filter(([, value]) => value !== undefined && value !== null)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => [key, String(value)])
+    )
+  }
+
+  private labelKey(labels: MetricLabels): string {
+    return JSON.stringify(labels)
+  }
+
+  private getLabeledMetric<T>(
+    store: Map<string, Map<string, LabeledMetric<T>>>,
+    name: string,
+    labels: MetricLabels,
+    createValue: () => T
+  ): LabeledMetric<T> {
+    const key = this.labelKey(labels)
+    let metricSeries = store.get(name)
+    if (!metricSeries) {
+      metricSeries = new Map()
+      store.set(name, metricSeries)
+    }
+
+    let metric = metricSeries.get(key)
+    if (!metric) {
+      metric = { labels, value: createValue() }
+      metricSeries.set(key, metric)
+    }
+
+    return metric
+  }
+
+  private createHistogram(): Histogram {
+    return {
+      buckets: this.responseTimeBuckets.map(le => ({ le, count: 0 })),
+      sum: 0,
+      count: 0,
+    }
+  }
+
+  private observeHistogramValue(histogram: Histogram, value: number) {
+    for (const bucket of histogram.buckets) {
+      if (value <= bucket.le) {
+        bucket.count++
+      }
+    }
+
+    histogram.sum += value
+    histogram.count++
   }
 
   // Counter methods
   incrementCounter(name: string, value: number = 1, labels?: Record<string, string>) {
+    const normalizedLabels = this.normalizeLabels(labels)
+    if (normalizedLabels) {
+      const metric = this.getLabeledMetric(this.labeledCounters, name, normalizedLabels, () => 0)
+      metric.value += value
+      return
+    }
+
     const current = this.counters.get(name) || 0
     this.counters.set(name, current + value)
-    
-    if (labels) {
-      this.labels.set(name, { ...this.labels.get(name), ...labels })
-    }
-    
-    // console.log(`📊 Metric: ${name} = ${current + value}${labels ? ` (${JSON.stringify(labels)})` : ''}`) // Only for Debugging purposes
   }
 
   // Gauge methods
   setGauge(name: string, value: number, labels?: Record<string, string>) {
-    this.gauges.set(name, value)
-    
-    if (labels) {
-      this.labels.set(name, { ...this.labels.get(name), ...labels })
+    const normalizedLabels = this.normalizeLabels(labels)
+    if (normalizedLabels) {
+      const metric = this.getLabeledMetric(this.labeledGauges, name, normalizedLabels, () => 0)
+      metric.value = value
+      return
     }
+
+    this.gauges.set(name, value)
   }
 
   incrementGauge(name: string, value: number = 1) {
@@ -102,28 +198,23 @@ class MetricsCollector {
 
   // Histogram methods
   observeHistogram(name: string, value: number, labels?: Record<string, string>) {
+    const normalizedLabels = this.normalizeLabels(labels)
+    if (normalizedLabels) {
+      const metric = this.getLabeledMetric(this.labeledHistograms, name, normalizedLabels, () => this.createHistogram())
+      this.observeHistogramValue(metric.value, value)
+      return
+    }
+
     const histogram = this.histograms.get(name)
     if (!histogram) return
 
-    // Update buckets
-    for (const bucket of histogram.buckets) {
-      if (value <= bucket.le) {
-        bucket.count++
-      }
-    }
-
-    // Update sum and count
-    histogram.sum += value
-    histogram.count++
-
-    if (labels) {
-      this.labels.set(name, { ...this.labels.get(name), ...labels })
-    }
+    this.observeHistogramValue(histogram, value)
   }
 
   // Specific business metric methods
   recordBahnApiRequest(responseTimeMs: number, statusCode: number) {
     this.incrementCounter('bahn_api_requests_total')
+    this.incrementCounter('bahn_api_requests_by_status_total', 1, { status: String(statusCode) })
     this.observeHistogram('bahn_api_response_time_ms', responseTimeMs)
     
     if (statusCode === 429) {
@@ -136,6 +227,14 @@ class MetricsCollector {
     this.incrementCounter('days_searched_total', daysSearched)
     this.incrementCounter('days_cached_total', cachedDays)
     this.incrementCounter('days_uncached_total', uncachedDays)
+  }
+
+  recordUserSearchCompletion() {
+    this.incrementCounter('user_search_completed_total')
+  }
+
+  recordUserSearchError() {
+    this.incrementCounter('user_search_errors_total')
   }
 
   recordCacheHit(type: 'connection' | 'station' = 'connection') {
@@ -152,6 +251,20 @@ class MetricsCollector {
     } else {
       this.incrementCounter('cache_misses_total')
     }
+  }
+
+  recordCacheStale(type: 'connection' | 'station' = 'connection') {
+    this.incrementCounter('cache_stale_total', 1, { type })
+  }
+
+  recordStationSearchApiRequest(responseTimeMs: number, statusCode: number) {
+    this.incrementCounter('station_search_api_requests_total')
+    this.incrementCounter('station_search_api_requests_by_status_total', 1, { status: String(statusCode) })
+    this.observeHistogram('station_search_api_response_time_ms', responseTimeMs)
+  }
+
+  recordStationSearchClick() {
+    this.incrementCounter('station_search_clicks_total')
   }
 
   updateRateLimitInterval(intervalMs: number) {
@@ -181,6 +294,22 @@ class MetricsCollector {
     this.observeHistogram('user_search_duration_ms', durationMs)
   }
 
+  recordUrlaubsfinderSearch(destinationCount: number) {
+    this.incrementCounter('urlaubsfinder_search_requests_total')
+    this.incrementCounter('urlaubsfinder_destinations_requested_total', destinationCount)
+  }
+
+  recordUrlaubsfinderCompletion(durationMs: number, foundDestinations: number, unavailableDestinations: number) {
+    this.incrementCounter('urlaubsfinder_search_completed_total')
+    this.incrementCounter('urlaubsfinder_destinations_found_total', foundDestinations)
+    this.incrementCounter('urlaubsfinder_destinations_unavailable_total', unavailableDestinations)
+    this.observeHistogram('urlaubsfinder_search_duration_ms', durationMs)
+  }
+
+  recordUrlaubsfinderError() {
+    this.incrementCounter('urlaubsfinder_search_errors_total')
+  }
+
   // Memory usage tracking
   updateMemoryUsage() {
     if (typeof process !== 'undefined' && process.memoryUsage) {
@@ -191,7 +320,7 @@ class MetricsCollector {
   }
 
   private cleanupOldData() {
-    console.log('🧹 Cleaning up old metrics data...')
+    logDebug(LOG_SCOPE, "Metrics cleanup tick")
     // Histogramme haben keine automatische Bereinigung in diesem einfachen System
     // In einer produktiven Umgebung würde man hier ältere Daten archivieren
   }
@@ -201,34 +330,57 @@ class MetricsCollector {
     let output = ''
     
     // Export counters
-    for (const [name, value] of this.counters) {
+    const counterNames = new Set([...this.counters.keys(), ...this.labeledCounters.keys()])
+    for (const name of counterNames) {
       output += `# TYPE ${name} counter\n`
-      const labels = this.labels.get(name)
-      if (labels && Object.keys(labels).length > 0) {
-        const labelStr = Object.entries(labels).map(([k, v]) => `${k}="${v}"`).join(',')
-        output += `${name}{${labelStr}} ${value}\n`
-      } else {
+      const value = this.counters.get(name)
+      if (value !== undefined) {
         output += `${name} ${value}\n`
+      }
+      for (const metric of this.labeledCounters.get(name)?.values() ?? []) {
+        output += `${name}{${this.formatLabels(metric.labels)}} ${metric.value}\n`
       }
       output += '\n'
     }
     
     // Export gauges
-    for (const [name, value] of this.gauges) {
+    const gaugeNames = new Set([...this.gauges.keys(), ...this.labeledGauges.keys()])
+    for (const name of gaugeNames) {
       output += `# TYPE ${name} gauge\n`
-      output += `${name} ${value}\n\n`
+      const value = this.gauges.get(name)
+      if (value !== undefined) {
+        output += `${name} ${value}\n`
+      }
+      for (const metric of this.labeledGauges.get(name)?.values() ?? []) {
+        output += `${name}{${this.formatLabels(metric.labels)}} ${metric.value}\n`
+      }
+      output += '\n'
     }
     
     // Export histograms
-    for (const [name, histogram] of this.histograms) {
+    const histogramNames = new Set([...this.histograms.keys(), ...this.labeledHistograms.keys()])
+    for (const name of histogramNames) {
       output += `# TYPE ${name} histogram\n`
-      
-      for (const bucket of histogram.buckets) {
-        output += `${name}_bucket{le="${bucket.le === Infinity ? '+Inf' : bucket.le}"} ${bucket.count}\n`
+
+      const histogram = this.histograms.get(name)
+      if (histogram) {
+        for (const bucket of histogram.buckets) {
+          output += `${name}_bucket{le="${bucket.le === Infinity ? '+Inf' : bucket.le}"} ${bucket.count}\n`
+        }
+
+        output += `${name}_sum ${histogram.sum}\n`
+        output += `${name}_count ${histogram.count}\n`
       }
-      
-      output += `${name}_sum ${histogram.sum}\n`
-      output += `${name}_count ${histogram.count}\n\n`
+
+      for (const metric of this.labeledHistograms.get(name)?.values() ?? []) {
+        const labelStr = this.formatLabels(metric.labels)
+        for (const bucket of metric.value.buckets) {
+          output += `${name}_bucket{${labelStr},le="${bucket.le === Infinity ? '+Inf' : bucket.le}"} ${bucket.count}\n`
+        }
+        output += `${name}_sum{${labelStr}} ${metric.value.sum}\n`
+        output += `${name}_count{${labelStr}} ${metric.value.count}\n\n`
+      }
+      output += '\n'
     }
     
     // Add timestamp
@@ -243,11 +395,31 @@ class MetricsCollector {
     
     return {
       counters: Object.fromEntries(this.counters),
+      labeledCounters: this.mapLabeledMetrics(this.labeledCounters),
       gauges: Object.fromEntries(this.gauges),
+      labeledGauges: this.mapLabeledMetrics(this.labeledGauges),
       histograms: Object.fromEntries(this.histograms),
-      labels: Object.fromEntries(this.labels),
+      labeledHistograms: this.mapLabeledMetrics(this.labeledHistograms),
       timestamp: new Date().toISOString()
     }
+  }
+
+  private formatLabels(labels: MetricLabels): string {
+    return Object.entries(labels)
+      .map(([key, value]) => `${key}="${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+      .join(',')
+  }
+
+  private mapLabeledMetrics<T>(store: Map<string, Map<string, LabeledMetric<T>>>) {
+    return Object.fromEntries(
+      Array.from(store.entries()).map(([name, series]) => [
+        name,
+        Array.from(series.values()).map(metric => ({
+          labels: metric.labels,
+          value: metric.value,
+        })),
+      ])
+    )
   }
 }
 
