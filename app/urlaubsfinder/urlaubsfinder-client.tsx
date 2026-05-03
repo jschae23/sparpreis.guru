@@ -134,7 +134,11 @@ function parseUrlaubsfinderQuery(searchParams: QueryLike): Partial<Urlauberfinde
   return parsed
 }
 
-export default function UrlauberfinderPage() {
+interface UrlauberfinderPageProps {
+  showFooter?: boolean
+}
+
+export default function UrlauberfinderPage({ showFooter = false }: UrlauberfinderPageProps) {
   const router = useRouter()
   const pathname = usePathname()
 
@@ -426,7 +430,7 @@ export default function UrlauberfinderPage() {
           </div>
         )}
 
-        <Footer />
+        <Footer show={showFooter} />
       </div>
     </div>
   )

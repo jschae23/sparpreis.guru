@@ -4,18 +4,21 @@ import { getAppVersion, getCurrentYear } from "@/lib/shared/app-info"
 import { Github } from "lucide-react"
 import { useEffect, useState } from "react"
 
-export function Footer() {
+interface FooterProps {
+  show?: boolean
+}
+
+export function Footer({ show = false }: FooterProps) {
   const currentYear = getCurrentYear()
   const appVersion = getAppVersion()
-  const [showFooter, setShowFooter] = useState(false)
+  const [showFooter, setShowFooter] = useState(show)
 
   useEffect(() => {
-    // Footer anzeigen, wenn Domain sparpreis.guru ODER ENV SHOW_FOOTER gesetzt ist
     const shouldShowFooter =
       window.location.hostname === "sparpreis.guru" ||
-      (typeof process !== "undefined" && !!process.env.SHOW_FOOTER)
+      show
     setShowFooter(shouldShowFooter)
-  }, [])
+  }, [show])
 
   if (!showFooter) return null
 

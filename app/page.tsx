@@ -2,7 +2,7 @@ import { TrainSearchForm } from "@/components/bestpreissuche/train-search-form"
 import { TrainResults } from "@/components/bestpreissuche/train-results"
 import { FAQPopup } from "@/components/layout/faq-popup"
 import { Footer } from "@/components/layout/footer"
-import { isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
+import { isFooterEnabled, isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
 import { redirect } from "next/navigation"
 
 interface SearchParams {
@@ -77,6 +77,7 @@ export default async function Page({
   
   const hasSearch = params.start && params.ziel
   const urlaubsfinderEnabled = isUrlaubsfinderEnabled()
+  const footerEnabled = isFooterEnabled()
 
   return (
     <div className="min-h-screen bg-white">
@@ -117,7 +118,7 @@ export default async function Page({
           </section>
         
         {/* Footer */}
-        <Footer />
+        <Footer show={footerEnabled} />
       </div>
     </div>
   )
