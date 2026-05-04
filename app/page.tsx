@@ -102,7 +102,7 @@ export default async function Page({
               </nav>
             </div>
             <div className="flex-shrink-0">
-              <FAQPopup />
+              <FAQPopup context="bestpreissuche" />
             </div>
           </div>
         </header>

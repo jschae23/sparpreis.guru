@@ -57,6 +57,7 @@ const DynamicLeaflet = dynamic(async () => {
       onSelectRef.current = onSelectResult
       // Track whether user has interacted with the map (pan/zoom)
       const userInteractedRef = useRef(false)
+      const programmaticMoveRef = useRef(false)
 
       // Initialize map once on mount
       useEffect(() => {
@@ -76,9 +77,14 @@ const DynamicLeaflet = dynamic(async () => {
             maxZoom: 19,
           }).addTo(map)
 
-          // Mark as user-interacted on any manual move/zoom
-          map.on('movestart', () => { userInteractedRef.current = true })
-          map.on('zoomstart', () => { userInteractedRef.current = true })
+          // Mark only manual map movement as user interaction. Leaflet also emits
+          // move/zoom events for fitBounds, and those should not disable auto-fit.
+          map.on('movestart', () => {
+            if (!programmaticMoveRef.current) userInteractedRef.current = true
+          })
+          map.on('zoomstart', () => {
+            if (!programmaticMoveRef.current) userInteractedRef.current = true
+          })
 
           // Invalidate size after a short delay to ensure container is fully rendered
           setTimeout(() => {
@@ -200,9 +206,16 @@ const DynamicLeaflet = dynamic(async () => {
         if (!userInteractedRef.current && allMarkersForBounds.length > 0) {
           try {
             const group = L.featureGroup(allMarkersForBounds)
+            const clearProgrammaticMove = () => {
+              programmaticMoveRef.current = false
+            }
+            programmaticMoveRef.current = true
+            map.once('moveend', clearProgrammaticMove)
             map.fitBounds(group.getBounds().pad(0.15))
+            setTimeout(clearProgrammaticMove, 500)
             setTimeout(() => map.invalidateSize(), 50)
           } catch (e) {
+            programmaticMoveRef.current = false
             logWarn(LOG_SCOPE, "Could not fit Leaflet bounds", {
               error: e instanceof Error ? e.message : e,
               markerCount: allMarkersForBounds.length,

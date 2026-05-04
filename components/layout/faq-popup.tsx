@@ -5,39 +5,98 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from "@/components/ui/button"
 import { HelpCircle } from "lucide-react"
 
-export function FAQPopup() {
-  const [isOpen, setIsOpen] = useState(false)
+type FAQContext = "bestpreissuche" | "urlaubsfinder"
 
-  const faqs = [
+interface FAQItem {
+  question: string
+  answer: string
+}
+
+const bestpreissucheFaqs: FAQItem[] = [
+  {
+    question: "Wofür ist die Bestpreissuche gedacht?",
+    answer: "Für eine feste Strecke, aber flexible Reisetage. Du gibst Start, Ziel und einen Zeitraum ein. sparpreis.guru sucht pro ausgewähltem Tag günstige Bahnverbindungen und zeigt dir, an welchen Tagen die Fahrt am billigsten ist."
+  },
+  {
+    question: "Welche Filter werden berücksichtigt?",
+    answer: "Berücksichtigt werden Reisezeitraum, Wochentage, Abfahrt-ab, Ankunft-bis, Alter, BahnCard-Ermäßigung, Reiseklasse, schnelle Verbindungen, Direktverbindungen, maximale Umstiege und eine Mindest-Umstiegszeit. Je enger die Filter sind, desto weniger Verbindungen können gefunden werden."
+  },
+  {
+    question: "Was bedeuten Kalender und Tagesdetails?",
+    answer: "Der Kalender zeigt den besten gefundenen Preis pro Reisetag. In den Tagesdetails siehst du konkrete Verbindungen mit Abfahrtszeit, Ankunftszeit, Dauer, Umstiegen, Preis und Buchungslink. Wenn mehrere sinnvolle Optionen existieren, werden sie nach Preis und Reisequalität eingeordnet."
+  },
+  {
+    question: "Warum werden nur maximal 30 Tage abgefragt?",
+    answer: "Jeder Reisetag löst eigene Preisabfragen aus. Damit die Suche schnell bleibt und die Bahn-API nicht unnötig belastet wird, werden maximal 30 ausgewählte Tage gesucht. Wenn du Wochentage abwählst, zählen nur die übrig gebliebenen Tage."
+  },
+  {
+    question: "Sind die Preise verbindlich?",
+    answer: "Nein. Die Preise kommen aus der Bahn-Suche und können sich ändern, bis du bei der Bahn buchst. sparpreis.guru ist eine Suchhilfe, kein Verkaufssystem. Der verbindliche Preis ist der Preis, der dir beim Öffnen des Buchungslinks bei der Bahn angezeigt wird."
+  },
+  {
+    question: "Wie aktuell sind die Ergebnisse?",
+    answer: "Die Preise werden in der Regel live abgefragt. Um doppelte Anfragen zu vermeiden, können gleiche Suchergebnisse bis zu 60 Minuten aus dem Cache kommen. In den Tagesdetails wird angezeigt, wann ein Ergebnis zuletzt aktualisiert wurde."
+  },
+  {
+    question: "Warum sehe ich manchmal keine Preise?",
+    answer: "Dann hat die Bahn-Suche für deine Kriterien keine passende Verbindung mit Preis geliefert. Häufig helfen ein größerer Zeitraum, weniger strenge Zeitfilter, mehr erlaubte Umstiege oder das Deaktivieren von Nur Direktverbindungen."
+  },
+  {
+    question: "Was zeigt die Preishistorie?",
+    answer: "Die Preishistorie erscheint nur, wenn dieselbe Verbindung schon früher gesucht wurde. Dann siehst du, ob der aktuelle Preis im Vergleich zu früheren Abfragen eher niedrig, normal oder hoch wirkt. Ohne frühere Daten wird keine Historie angezeigt."
+  },
+  {
+    question: "Was passiert mit meinen Daten?",
+    answer: "Es werden keine personenbezogenen Profile angelegt. Such- und Preisabfragen werden technisch verarbeitet und zeitweise zwischengespeichert. Bei der Bahnhofssuche werden aggregierte Auswahlzahlen gespeichert, damit häufig gewählte passende Bahnhöfe in den Vorschlägen weiter oben erscheinen."
+  }
+]
+
+const urlaubsfinderFaqs: FAQItem[] = [
     {
-      question: "Was ist sparpreis.guru?",
-      answer: "sparpreis.guru hilft dabei, günstige Bahnverbindungen schneller zu finden. Die Bestpreissuche vergleicht Preise über mehrere Reisetage hinweg, der Urlaubsfinder vergleicht viele mögliche Reiseziele für einen gewählten Zeitraum."
+      question: "Wofür ist der Urlaubsfinder gedacht?",
+      answer: "Für den Fall, dass du weißt, wann du reisen willst, aber dein Ziel flexibel nach dem günstigsten Preis wählen willst. Du wählst deinen Startbahnhof, mögliche Reiseziele und Hin- sowie optional Rückfahrt. sparpreis.guru vergleicht die Ziele und sortiert sie nach Gesamtpreis."
     },
     {
-      question: "Was ist der Urlaubsfinder?",
-      answer: "Der Urlaubsfinder sucht von deinem Startbahnhof aus gleichzeitig nach günstigen Zielen. Du wählst mögliche Städte aus, legst Hin- und optional Rückfahrt fest und bekommst die günstigsten erreichbaren Ziele sortiert nach Gesamtpreis angezeigt."
+      question: "Welche Ziele werden durchsucht?",
+      answer: "Durchsucht werden nur die Ziele, die du im Formular auswählst. Du kannst Presets wie Großstädte, kleinere Städte oder europäische Ziele nutzen, einzelne Städte abwählen oder Regionen komplett hinzufügen. Je mehr Ziele ausgewählt sind, desto länger dauert die Suche."
     },
     {
-      question: "Was zeigen Karte und Ergebnisdetails im Urlaubsfinder?",
-      answer: "Die Karte zeigt gefundene Ziele räumlich an. In den Details siehst du Hin- und Rückfahrt, Preisanteile, Umstiege und den Routenverlauf. Die Buchungslinks führen zur Bahn-Suche mit den passenden Parametern."
+      question: "Was bedeutet der Gesamtpreis?",
+      answer: "Mit Rückfahrt ist der Gesamtpreis die Summe aus günstigster gefundener Hinfahrt und günstigster gefundener Rückfahrt für dieses Ziel. Ohne Rückfahrt wird nur die Hinfahrt bewertet. Die Ergebnisliste ist nach diesem Gesamtpreis sortiert."
     },
     {
-      question: "Warum werden nur maximal 30 Tage abgefragt?",
-      answer: "Unnötige Anfragen an die Bahn-API sollen vermieden werden. In der Bestpreissuche werden deshalb maximal 30 Reisetage betrachtet. Im Urlaubsfinder wird zusätzlich bei sehr vielen ausgewählten Zielen vor dem Start nachgefragt."
+      question: "Welche Filter werden berücksichtigt?",
+      answer: "Berücksichtigt werden Startbahnhof, ausgewählte Ziele, Hinreisedatum, optionales Rückreisedatum, Zeitfenster für Hin- und Rückfahrt, Alter, BahnCard-Ermäßigung, Reiseklasse, schnelle Verbindungen, Direktverbindungen, maximale Umstiege und Mindest-Umstiegszeit."
     },
     {
-      question: "Wie aktuell sind die Preise?",
-      answer: "Die Preise werden in der Regel live von der Deutschen Bahn abgerufen. Ergebnisse werden für 60 Minuten zwischengespeichert, um unnötige Mehrfachanfragen zu vermeiden."
+      question: "Was zeigen Karte und Details?",
+      answer: "Die Karte zeigt alle gefundenen Ziele mit Preis-Markern. Günstigere Ziele werden grün, mittlere gelb und teurere rot dargestellt. In den Details siehst du Abfahrts- und Ankunftszeiten, Preise für Hin- und Rückfahrt, Umstiege, Routenverlauf und Buchungslinks."
     },
     {
-      question: "Wie funktioniert die Preishistorie?",
-      answer: "Die Preishistorie zeigt an, wie sich die Preise für eine bestimmte Verbindung im Laufe der Zeit verändert haben – sofern für diese Verbindung bereits frühere Preisdaten vorliegen. Sie wird nur angezeigt, wenn die gleiche Suche schon einmal zu einem früheren Zeitpunkt durchgeführt wurde. Ist das nicht der Fall, gibt es keine Preishistorie für diese Verbindung."
+      question: "Warum muss ich große Suchen bestätigen?",
+      answer: "Ab mehr als 25 ausgewählten Zielen fragt der Urlaubsfinder vor dem Start nach. Jedes Ziel kann mehrere Bahn-Abfragen auslösen, besonders mit Rückfahrt. Die Bestätigung verhindert versehentlich sehr lange oder unnötig große Suchen."
+    },
+    {
+      question: "Sind die Preise verbindlich?",
+      answer: "Nein. Die Preise kommen aus der Bahn-Suche und können sich ändern, bis du bei der Bahn buchst. sparpreis.guru hilft beim Vergleichen. Der verbindliche Preis ist der Preis, den dir die Bahn nach dem Öffnen des Buchungslinks anzeigt."
+    },
+    {
+      question: "Warum fehlen manche Ziele?",
+      answer: "Ein Ziel erscheint nur in der Ergebnisliste, wenn für deine Kriterien eine passende Verbindung mit Preis gefunden wurde. Ziele ohne Treffer werden separat als nicht verfügbar angezeigt. Oft helfen weniger strenge Zeitfilter, mehr erlaubte Umstiege oder eine kleinere Zielauswahl."
+    },
+    {
+      question: "Wie aktuell sind die Ergebnisse?",
+      answer: "Die Preise werden in der Regel live abgefragt. Um doppelte Anfragen zu vermeiden, können gleiche Suchergebnisse bis zu 60 Minuten aus dem Cache kommen. Während der Suche erscheinen neue Treffer nach und nach."
     },
     {
       question: "Was passiert mit meinen Daten?",
-      answer: "Es werden keine personenbezogenen Daten gespeichert. Such- und Preisabfragen werden technisch verarbeitet und zwischengespeichert. Bei der Bahnhofssuche werden außerdem aggregierte Klickzahlen gespeichert, damit häufig gewählte passende Bahnhöfe künftig weiter oben erscheinen."
+      answer: "Es werden keine personenbezogenen Profile angelegt. Such- und Preisabfragen werden technisch verarbeitet und zeitweise zwischengespeichert. Bei der Bahnhofssuche werden aggregierte Auswahlzahlen gespeichert, damit häufig gewählte passende Bahnhöfe in den Vorschlägen weiter oben erscheinen."
     }
-  ]
+]
+
+export function FAQPopup({ context = "bestpreissuche" }: { context?: FAQContext }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const faqs = context === "urlaubsfinder" ? urlaubsfinderFaqs : bestpreissucheFaqs
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>

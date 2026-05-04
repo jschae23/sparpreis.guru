@@ -374,7 +374,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
               </nav>
             </div>
             <div className="flex-shrink-0">
-              <FAQPopup />
+              <FAQPopup context="urlaubsfinder" />
             </div>
           </div>
         </header>
