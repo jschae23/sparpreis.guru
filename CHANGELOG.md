@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.0](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.0.6...v1.1.0) (2026-05-06)
+
+
+### Features
+
+* add direct connections feature ([e4f7bdd](https://github.com/XLixl4snSU/sparpreis.guru/commit/e4f7bdd55e43a7d21c4c0fafadce00f6f46c3294))
+* **observability:** add structured logs and search metrics ([b30b791](https://github.com/XLixl4snSU/sparpreis.guru/commit/b30b79127fe71e41bd06d01b07281bbb63d55d0f))
+* **search:** improve station matching and suggestion ranking ([fc4e658](https://github.com/XLixl4snSU/sparpreis.guru/commit/fc4e65856e5e8e7a04bc4c7add89ad411414a547))
+* **urlaubsfinder:** add vacation destination search ([027ed3e](https://github.com/XLixl4snSU/sparpreis.guru/commit/027ed3e013f7f88c0c7552d128a893bbb85f8e61))
+
+
+### Bug Fixes
+
+* Add feature flag and prop to control Footer ([e0070cc](https://github.com/XLixl4snSU/sparpreis.guru/commit/e0070cc5908ee122f4553f40d8a4cf1b9afb9ee6))
+* **ci:** use node 22 for docker builds ([2dd36e7](https://github.com/XLixl4snSU/sparpreis.guru/commit/2dd36e7f5f3e095d2ec599cde2241c8ac1efccc1))
+* restore urlaubsfinder journey times ([57a9adf](https://github.com/XLixl4snSU/sparpreis.guru/commit/57a9adff8103ffab1a50532768a510bb009bafcc))
+
 ## [1.0.6](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.0.5...v1.0.6) (2026-02-15)
 
 
