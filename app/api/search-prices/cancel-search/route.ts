@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { globalRateLimiter } from "../rate-limiter"
+import { logDebug, logError, logInfo, logWarn } from "@/lib/shared/logger"
+
+const LOG_SCOPE = "bestpreissuche.cancel"
 
 // GET - Prüfe ob Session abgebrochen wurde
 export async function GET(request: NextRequest) {
@@ -18,7 +21,7 @@ export async function GET(request: NextRequest) {
       sessionId
     })
   } catch (error) {
-    console.error("Error checking cancel status:", error)
+    logError(LOG_SCOPE, "Could not check cancellation status", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
@@ -46,7 +49,11 @@ export async function POST(request: NextRequest) {
     // Informiere Rate-Limiter über Cancel
     globalRateLimiter.cancelSession(sessionId, reason)
     
-    console.log(`🛑 Session ${sessionId} cancelled (reason: ${reason})`)
+    const logCancel = reason === "user_request" ? logInfo : logDebug
+    logCancel(LOG_SCOPE, "🛑 Search cancellation requested", {
+      sessionId,
+      reason,
+    })
 
     // Markiere die Session als abgeschlossen in der Progress-Verfolgung
     try {
@@ -68,9 +75,12 @@ export async function POST(request: NextRequest) {
           activeRequests: 0,
         }),
       })
-      console.log(`✅ Progress marked as complete for cancelled session ${sessionId}`)
+      logDebug(LOG_SCOPE, "✅ Progress marked complete after cancellation", { sessionId })
     } catch (progressError) {
-      console.error(`⚠️ Failed to update progress for cancelled session ${sessionId}:`, progressError)
+      logWarn(LOG_SCOPE, "Could not mark progress complete after cancellation", {
+        sessionId,
+        error: progressError instanceof Error ? progressError.message : progressError,
+      })
       // Nicht kritisch - Cancel funktioniert trotzdem
     }
 
@@ -80,7 +90,7 @@ export async function POST(request: NextRequest) {
       message: "Session marked as cancelled" 
     })
   } catch (error) {
-    console.error("Error cancelling session:", error)
+    logError(LOG_SCOPE, "Could not cancel search session", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

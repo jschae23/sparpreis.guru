@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { globalRateLimiter } from "@/app/api/search-prices/rate-limiter"
+import { logDebug, logError } from "@/lib/shared/logger"
+
+const LOG_SCOPE = "search-progress"
 
 // In-Memory Storage für Progress-Daten
 const progressStorage = new Map<string, {
@@ -114,7 +117,7 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error("Error getting progress:", error)
+    logError(LOG_SCOPE, "Could not read search progress", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
@@ -140,17 +143,23 @@ export async function POST(request: NextRequest) {
       // Session als abgeschlossen markieren, damit sie nicht mehr als aktiv gilt
       // Verwende die cancel-Funktion mit speziellem Grund für abgeschlossene Suchen
       globalRateLimiter.cancelSession(sessionId, 'search_completed')
-      console.log(`✅ Session ${sessionId} marked as completed - no longer active for cancellation`)
+      logDebug(LOG_SCOPE, "✅ Search session marked as completed", { sessionId })
     }
 
     // Nur wichtige Meilensteine loggen
-    if (data.currentDay === 1 || data.currentDay === data.totalDays || data.currentDay % 10 === 0) {
-      console.log(`📊 Progress: ${data.currentDay}/${data.totalDays} (${Math.round((data.currentDay / data.totalDays) * 100)}%)`)
+    if (data.totalDays > 0 && (data.currentDay === 1 || data.currentDay === data.totalDays || data.currentDay % 10 === 0)) {
+      logDebug(LOG_SCOPE, "📊 Search progress milestone updated", {
+        sessionId,
+        currentDay: data.currentDay,
+        totalDays: data.totalDays,
+        progressPercent: Math.round((data.currentDay / data.totalDays) * 100),
+        currentDate: data.currentDate,
+      })
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Error updating progress:", error)
+    logError(LOG_SCOPE, "Could not update search progress", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
@@ -163,7 +172,7 @@ setInterval(() => {
   for (const [sessionId, data] of progressStorage.entries()) {
     if (now - data.timestamp > oneHour) {
       progressStorage.delete(sessionId)
-      console.log(`🧹 Cleaned up old progress data for session ${sessionId}`)
+      logDebug(LOG_SCOPE, "🧹 Old search progress data cleaned up", { sessionId })
     }
   }
 }, 5 * 60 * 1000) // Cleanup alle 5 Minuten

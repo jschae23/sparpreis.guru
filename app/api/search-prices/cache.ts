@@ -1,9 +1,12 @@
 import { metricsCollector } from '@/app/api/metrics/collector'
+import { formatLogDateTime, logDebug, logError, logInfo, logWarn } from '@/lib/shared/logger'
 import Database from 'better-sqlite3'
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { gzipSync, gunzipSync } from 'zlib'
 import { generateConnectionId } from './utils'
+
+const LOG_SCOPE = "bestpreissuche.cache"
 
 // Cache-Konfiguration
 const CACHE_FRESHNESS_TTL = 60 * 60 * 1000 // 60 Minuten - nach dieser Zeit werden Daten neu abgefragt
@@ -11,6 +14,8 @@ const DATA_RETENTION_DAYS = 90 // Daten werden 90 Tage aufbewahrt
 const DATA_RETENTION_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000
 const STATION_SEARCH_RETENTION_DAYS = 7 // Station-Suche Cache wird nach 7 Tagen gelöscht
 const STATION_SEARCH_RETENTION_MS = STATION_SEARCH_RETENTION_DAYS * 24 * 60 * 60 * 1000
+const STATION_USAGE_RETENTION_DAYS = 180 // Click-Prioritäten bleiben länger stabil, werden aber begrenzt
+const STATION_USAGE_RETENTION_MS = STATION_USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000
 
 // ENV-Variable für das Löschen vergangener Fahrten (standardmäßig aktiviert)
 const CLEANUP_PAST_CONNECTIONS = process.env.CLEANUP_PAST_CONNECTIONS !== 'false'
@@ -101,13 +106,33 @@ db.exec(`
     lon REAL,
     station_type TEXT,
     products TEXT,
+    result_rank INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (search_term, ext_id)
   );
 
   CREATE INDEX IF NOT EXISTS idx_station_search_term ON station_search_cache(search_term);
   CREATE INDEX IF NOT EXISTS idx_station_created ON station_search_cache(created_at);
+
+  CREATE TABLE IF NOT EXISTS station_search_usage (
+    search_term TEXT NOT NULL,
+    ext_id TEXT NOT NULL,
+    name TEXT,
+    click_count INTEGER NOT NULL DEFAULT 0,
+    last_clicked_at INTEGER NOT NULL,
+    PRIMARY KEY (search_term, ext_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_station_usage_term ON station_search_usage(search_term);
+  CREATE INDEX IF NOT EXISTS idx_station_usage_clicked ON station_search_usage(last_clicked_at);
 `)
+
+const stationSearchColumns = db
+  .prepare('PRAGMA table_info(station_search_cache)')
+  .all() as Array<{ name: string }>
+if (!stationSearchColumns.some(column => column.name === 'result_rank')) {
+  db.exec('ALTER TABLE station_search_cache ADD COLUMN result_rank INTEGER NOT NULL DEFAULT 0')
+}
 
 // Prepared Statements
 const stmtGetCache = db.prepare('SELECT data_compressed, last_fetched_at FROM connection_cache WHERE cache_key = ?')
@@ -125,23 +150,49 @@ const stmtCleanupCache = db.prepare('DELETE FROM connection_cache WHERE last_fet
 const stmtCleanupHistory = db.prepare('DELETE FROM price_history WHERE recorded_at < ?')
 const stmtGetCacheCount = db.prepare('SELECT COUNT(*) as count FROM connection_cache')
 const stmtGetHistoryCount = db.prepare('SELECT COUNT(*) as count FROM price_history')
+const stmtGetStationSearchCount = db.prepare('SELECT COUNT(*) as count FROM station_search_cache')
 
 // Station search prepared statements
 const stmtGetStationSearch = db.prepare(`
-  SELECT ext_id, station_id, name, lat, lon, station_type, products
-  FROM station_search_cache
-  WHERE search_term = ?
-  ORDER BY name ASC
+  SELECT
+    c.ext_id,
+    c.station_id,
+    c.name,
+    c.lat,
+    c.lon,
+    c.station_type,
+    c.products
+  FROM station_search_cache c
+  LEFT JOIN station_search_usage u
+    ON u.search_term = c.search_term AND u.ext_id = c.ext_id
+  WHERE c.search_term = ?
+  ORDER BY COALESCE(u.click_count, 0) DESC, c.result_rank ASC, c.name ASC
   LIMIT 10
 `)
 
 const stmtInsertStationSearch = db.prepare(`
   INSERT OR REPLACE INTO station_search_cache 
-  (search_term, ext_id, station_id, name, lat, lon, station_type, products, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  (search_term, ext_id, station_id, name, lat, lon, station_type, products, result_rank, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
 
 const stmtCleanupStationSearch = db.prepare('DELETE FROM station_search_cache WHERE created_at < ?')
+const stmtCleanupStationSearchUsage = db.prepare('DELETE FROM station_search_usage WHERE last_clicked_at < ?')
+
+const stmtGetStationSearchUsage = db.prepare(`
+  SELECT ext_id, click_count
+  FROM station_search_usage
+  WHERE search_term = ?
+`)
+
+const stmtRecordStationSearchClick = db.prepare(`
+  INSERT INTO station_search_usage (search_term, ext_id, name, click_count, last_clicked_at)
+  VALUES (?, ?, ?, 1, ?)
+  ON CONFLICT(search_term, ext_id) DO UPDATE SET
+    name = excluded.name,
+    click_count = click_count + 1,
+    last_clicked_at = excluded.last_clicked_at
+`)
 
 // Neue Prepared Statements für Cleanup vergangener Fahrten
 const stmtCleanupPastConnectionCache = db.prepare(`
@@ -260,12 +311,15 @@ export function getCachedResult(cacheKey: string): { data: TrainResults | null; 
     const data = decompressData(row.data_compressed)
     
     if (needsRefresh) {
-      console.log(`🔄 Cache entry found but stale (age: ${Math.round(age / 60000)} min)`)
+      logDebug(LOG_SCOPE, "♻️ Connection cache entry exists but is stale", {
+        ageMinutes: Math.round(age / 60000),
+        freshnessTtlMinutes: Math.round(CACHE_FRESHNESS_TTL / 60000),
+      })
     }
     
     return { data, needsRefresh, recordedAt: row.last_fetched_at }
   } catch (error) {
-    console.error('❌ Error reading from cache:', error)
+    logError(LOG_SCOPE, "Could not read connection cache entry", error)
     return { data: null, needsRefresh: true }
   }
 }
@@ -359,12 +413,22 @@ export function setCachedResult(
     const historyCount = (stmtGetHistoryCount.get() as { count: number }).count
     
     if (cacheCount % 50 === 0 || cacheCount < 10) {
-      console.log(`💾 Cache: ${cacheCount} entries, Price history: ${historyCount} records`)
+      logDebug(LOG_SCOPE, "💾 Connection cache stored", {
+        travelDate: params.date,
+        startStationId: params.startStationId,
+        destinationStationId: params.zielStationId,
+        cacheEntries: cacheCount,
+        priceHistoryRecords: historyCount,
+      })
     }
     
-    metricsCollector.updateCacheMetrics(0, cacheCount)
+    metricsCollector.updateCacheMetrics(getStationSearchCacheSize(), cacheCount)
   } catch (error) {
-    console.error('❌ Error writing to cache:', error)
+    logError(LOG_SCOPE, "Could not write connection cache entry", error, {
+      travelDate: params.date,
+      startStationId: params.startStationId,
+      destinationStationId: params.zielStationId,
+    })
   }
 }
 
@@ -374,22 +438,30 @@ function cleanupCache(): void {
     const now = Date.now()
     const cutoffTime = now - DATA_RETENTION_MS
     const stationSearchCutoff = now - STATION_SEARCH_RETENTION_MS
+    const stationUsageCutoff = now - STATION_USAGE_RETENTION_MS
     
     const cacheRemoved = stmtCleanupCache.run(cutoffTime).changes
     const historyRemoved = stmtCleanupHistory.run(cutoffTime).changes
     const stationSearchRemoved = stmtCleanupStationSearch.run(stationSearchCutoff).changes
+    const stationUsageRemoved = stmtCleanupStationSearchUsage.run(stationUsageCutoff).changes
     
-    if (cacheRemoved > 0 || historyRemoved > 0 || stationSearchRemoved > 0) {
-      console.log(`🧹 Cleaned up -> cache: ${cacheRemoved}, history: ${historyRemoved}, station search: ${stationSearchRemoved}`)
+    if (cacheRemoved > 0 || historyRemoved > 0 || stationSearchRemoved > 0 || stationUsageRemoved > 0) {
+      logInfo(LOG_SCOPE, "Expired cache data cleaned up", {
+        connectionCacheRemoved: cacheRemoved,
+        priceHistoryRemoved: historyRemoved,
+        stationSearchRemoved,
+        stationUsageRemoved,
+        retentionDays: DATA_RETENTION_DAYS,
+      })
       
       const cacheCount = (stmtGetCacheCount.get() as { count: number }).count
-      metricsCollector.updateCacheMetrics(0, cacheCount)
+      metricsCollector.updateCacheMetrics(getStationSearchCacheSize(), cacheCount)
     }
     
     // Optimiere Datenbank
     db.pragma('optimize')
   } catch (error) {
-    console.error('❌ Error during cache cleanup:', error)
+    logError(LOG_SCOPE, "Cache cleanup failed", error)
   }
 }
 
@@ -424,10 +496,14 @@ function cleanupPastConnections(): void {
     const historyRemoved = stmtCleanupPastPriceHistory.run(todayStr).changes
     
     if (cacheRemoved > 0 || historyRemoved > 0) {
-      console.log(`🧹 Cleaned up past connections -> cache: ${cacheRemoved}, history: ${historyRemoved}`)
+      logInfo(LOG_SCOPE, "Past travel dates cleaned from cache", {
+        beforeDate: todayStr,
+        connectionCacheRemoved: cacheRemoved,
+        priceHistoryRemoved: historyRemoved,
+      })
       
       const cacheCount = (stmtGetCacheCount.get() as { count: number }).count
-      metricsCollector.updateCacheMetrics(0, cacheCount)
+      metricsCollector.updateCacheMetrics(getStationSearchCacheSize(), cacheCount)
     }
     
     // Optimiere Datenbank nach größerem Cleanup
@@ -436,7 +512,7 @@ function cleanupPastConnections(): void {
       db.pragma('vacuum')
     }
   } catch (error) {
-    console.error('❌ Error during past connections cleanup:', error)
+    logError(LOG_SCOPE, "Past connection cleanup failed", error)
   }
 }
 
@@ -463,17 +539,23 @@ if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production' || t
         setInterval(cleanupPastConnections, 24 * 60 * 60 * 1000)
       }, msUntilNextCleanup)
       
-      console.log(`⏰ Next past connections cleanup scheduled for ${tomorrow.toISOString()}`)
+      logInfo(LOG_SCOPE, "Past connection cleanup scheduled", {
+        nextRunAt: formatLogDateTime(tomorrow),
+      })
     }
     
     // Starte initialen Cleanup vergangener Fahrten
     if (CLEANUP_PAST_CONNECTIONS) {
-      console.log('♻️ Past connections cleanup is ENABLED (set CLEANUP_PAST_CONNECTIONS=false to disable)')
+      logInfo(LOG_SCOPE, "Past connection cleanup enabled", {
+        disableWith: "CLEANUP_PAST_CONNECTIONS=false",
+      })
       scheduleNextPastConnectionsCleanup()
       // Führe sofort einen Cleanup durch beim Start
       setTimeout(cleanupPastConnections, 5000)
     } else {
-      console.log('⚠️ Past connections cleanup is DISABLED')
+      logWarn(LOG_SCOPE, "Past connection cleanup disabled", {
+        enableWith: "CLEANUP_PAST_CONNECTIONS=true or unset",
+      })
     }
   }
 }
@@ -551,7 +633,11 @@ export function getDayPriceHistory(
     
     return rows.map(row => ({ preis: row.min_preis, recorded_at: row.recorded_at }))
   } catch (error) {
-    console.error('❌ Error reading filtered day price history:', error)
+    logError(LOG_SCOPE, "Could not read day price history", error, {
+      travelDate: params.date,
+      startStationId: params.startStationId,
+      destinationStationId: params.zielStationId,
+    })
     return []
   }
 }
@@ -574,7 +660,9 @@ export function getConnectionPriceHistory(params: {
     ) as Array<{ preis: number; recorded_at: number }>
     return rows.map(row => ({ preis: row.preis, recorded_at: row.recorded_at }))
   } catch (error) {
-    console.error('❌ Error reading connection price history:', error)
+    logError(LOG_SCOPE, "Could not read connection price history", error, {
+      connectionId: params.connectionId,
+    })
     return []
   }
 }
@@ -589,7 +677,10 @@ export function getCachedStation(search: string): { id: string; normalizedId: st
     return null
   }
   
-  const station = results[0]
+  const normalizedSearch = search.toLowerCase().trim()
+  const station =
+    results.find(result => result.name.toLowerCase().trim() === normalizedSearch) ||
+    results[0]
   metricsCollector.recordCacheHit('station')
   
   // Normalisiere die Station-ID: Entferne den Timestamp-Parameter @p=
@@ -612,7 +703,11 @@ export function setCachedStation(search: string, data: { id: string; normalizedI
   
   setCachedStationSearch(search, [result])
   
-  console.log(`💾 Station cached: ${data.name}`)
+  logDebug(LOG_SCOPE, "💾 Station lookup cached", {
+    query: search,
+    stationName: data.name,
+    stationId: data.normalizedId,
+  })
 }
 
 // Neue Functions für Stationensuche mit Cache
@@ -653,21 +748,104 @@ export function getCachedStationSearch(searchTerm: string): StationSearchResult[
       products: row.products ? JSON.parse(row.products) : undefined
     }))
   } catch (error) {
-    console.error('❌ Error reading station search cache:', error)
+    logError(LOG_SCOPE, "Could not read station search cache", error, {
+      query: searchTerm,
+    })
     return null
+  }
+}
+
+function normalizeStationSearchTerm(searchTerm: string): string {
+  return searchTerm.toLowerCase().trim()
+}
+
+function getStationSearchPrefixes(searchTerm: string): string[] {
+  const normalizedTerm = normalizeStationSearchTerm(searchTerm)
+  const prefixes: string[] = []
+  const maxLength = Math.min(normalizedTerm.length, 40)
+
+  for (let length = 2; length <= maxLength; length++) {
+    prefixes.push(normalizedTerm.slice(0, length))
+  }
+
+  return prefixes
+}
+
+export function rankStationSearchResults(searchTerm: string, results: StationSearchResult[]): StationSearchResult[] {
+  try {
+    const normalizedTerm = normalizeStationSearchTerm(searchTerm)
+    const usageRows = stmtGetStationSearchUsage.all(normalizedTerm) as Array<{
+      ext_id: string
+      click_count: number
+    }>
+    const usageByExtId = new Map(usageRows.map(row => [row.ext_id, row.click_count]))
+
+    return results
+      .map((result, index) => ({
+        result,
+        index,
+        clickCount: usageByExtId.get(result.extId) ?? 0,
+      }))
+      .sort((a, b) => {
+        if (a.clickCount !== b.clickCount) {
+          return b.clickCount - a.clickCount
+        }
+        return a.index - b.index
+      })
+      .map(item => item.result)
+  } catch (error) {
+    logError(LOG_SCOPE, "Could not rank station search results", error, {
+      query: searchTerm,
+      resultCount: results.length,
+    })
+    return results
+  }
+}
+
+export function recordStationSearchClick(
+  searchTerm: string,
+  station: Pick<StationSearchResult, 'extId' | 'name'>
+): void {
+  try {
+    if (!station.extId || !station.name) {
+      return
+    }
+
+    const prefixes = getStationSearchPrefixes(searchTerm)
+    if (prefixes.length === 0) {
+      return
+    }
+
+    const now = Date.now()
+    const recordClick = db.transaction(() => {
+      for (const prefix of prefixes) {
+        stmtRecordStationSearchClick.run(prefix, station.extId, station.name, now)
+      }
+    })
+
+    recordClick()
+  } catch (error) {
+    logError(LOG_SCOPE, "Could not record station search click", error, {
+      query: searchTerm,
+      stationName: station.name,
+      stationId: station.extId,
+    })
   }
 }
 
 export function setCachedStationSearch(searchTerm: string, results: StationSearchResult[]): void {
   try {
-    const normalizedTerm = searchTerm.toLowerCase().trim()
+    const normalizedTerm = normalizeStationSearchTerm(searchTerm)
     const now = Date.now()
     
-    for (const result of results) {
+    results.forEach((result, index) => {
       // Skip stations without extId (required field)
       if (!result.extId || result.extId.trim() === '') {
-        console.warn(`⚠️ Skipping station without extId: ${result.name}`)
-        continue
+        logWarn(LOG_SCOPE, "Skipped station search result without extId", {
+          query: normalizedTerm,
+          stationName: result.name,
+        })
+        return
       }
       
       stmtInsertStationSearch.run(
@@ -679,17 +857,31 @@ export function setCachedStationSearch(searchTerm: string, results: StationSearc
         result.lon ?? null,
         result.type ?? null,
         result.products ? JSON.stringify(result.products) : null,
+        index,
         now
       )
-    }
+    })
+
+    metricsCollector.updateCacheMetrics(getStationSearchCacheSize(), getCacheSize())
   } catch (error) {
-    console.error('❌ Error writing station search cache:', error)
+    logError(LOG_SCOPE, "Could not write station search cache", error, {
+      query: searchTerm,
+      resultCount: results.length,
+    })
   }
 }
 
 export function getCacheSize(): number {
   try {
     return (stmtGetCacheCount.get() as { count: number }).count
+  } catch {
+    return 0
+  }
+}
+
+export function getStationSearchCacheSize(): number {
+  try {
+    return (stmtGetStationSearchCount.get() as { count: number }).count
   } catch {
     return 0
   }

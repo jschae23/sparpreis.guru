@@ -1,8 +1,9 @@
-import { TrainSearchForm } from "@/components/train-search-form"
-import { TrainResults } from "@/components/train-results"
-import { FAQPopup } from "@/components/faq-popup"
-import { getAppVersion, getCurrentYear } from "@/lib/app-info"
-import { Github } from "lucide-react"
+import { TrainSearchForm } from "@/components/bestpreissuche/train-search-form"
+import { TrainResults } from "@/components/bestpreissuche/train-results"
+import { FAQPopup } from "@/components/layout/faq-popup"
+import { Footer } from "@/components/layout/footer"
+import { MainNavigation } from "@/components/layout/main-navigation"
+import { isFooterEnabled, isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
 import { redirect } from "next/navigation"
 
 interface SearchParams {
@@ -76,21 +77,8 @@ export default async function Page({
   }
   
   const hasSearch = params.start && params.ziel
-  
-  const currentYear = getCurrentYear()
-  const appVersion = getAppVersion()
-
-  // Footer anzeigen, wenn Domain sparpreis.guru ODER ENV SHOW_FOOTER gesetzt ist
-  let showFooter = false
-  if (typeof window === "undefined") {
-    // Server Side: Prüfe ENV
-    showFooter = !!process.env.SHOW_FOOTER
-  } else {
-    // Client Side: Prüfe Hostname ODER ENV (falls z.B. via next/config oder window.__env)
-    showFooter =
-      window.location.hostname === "sparpreis.guru" ||
-      (typeof process !== "undefined" && !!process.env.SHOW_FOOTER)
-  }
+  const urlaubsfinderEnabled = isUrlaubsfinderEnabled()
+  const footerEnabled = isFooterEnabled()
 
   return (
     <div className="min-h-screen bg-white">
@@ -98,14 +86,18 @@ export default async function Page({
         <header className="mb-4">
           <div className="flex justify-between items-start">
             <div>
-              <h1 className="text-4xl font-bold mb-2">
-                <a href="/" className="text-gray-600 hover:text-retro-gradient">
-                  sparpreis.guru
-                </a>
-              </h1>
+              <div className="mb-2 flex items-center gap-2">
+                <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} variant="mobile" />
+                <h1 className="text-4xl font-bold">
+                  <a href="/" className="text-gray-600 hover:text-retro-gradient">
+                    sparpreis.guru
+                  </a>
+                </h1>
+              </div>
+              <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} />
             </div>
             <div className="flex-shrink-0">
-              <FAQPopup />
+              <FAQPopup context="bestpreissuche" />
             </div>
           </div>
         </header>
@@ -121,52 +113,7 @@ export default async function Page({
           </section>
         
         {/* Footer */}
-        {showFooter && (
-          <footer className="mt-8 border-t border-gray-200 pt-8">
-            <div className="text-xs text-center text-gray-400 mt-0">
-              <p>
-                Dieses Deployment dient ausschließlich als technische Demonstration des Projekts{" "}
-              <a href="https://github.com/XLixl4snSU/sparpreis.guru"
-                className="underline"
-                target="_blank"
-                rel="noopener noreferrer"
-              >sparpreis.guru</a>
-              </p>
-
-              <p>
-                Die Anwendung visualisiert Abfrageergebnisse und speichert keine personenbezogenen Daten.
-                Es werden keine kommerziellen Zwecke verfolgt.
-              </p>
-
-              <p>
-                Bei Einwänden (z. B. von Rechteinhabern oder Plattformbetreibern) wird das
-                Deployment auf Hinweis hin umgehend deaktiviert.
-                Kontakt:
-                {" "}
-              <a href="mailto:info@sparpreis.guru" className="underline">
-                info@sparpreis.guru
-              </a>
-              .
-              </p>
-            </div>
-            <div className="flex flex-row justify-between items-center text-sm text-gray-500 mt-4" >
-              <div>
-                © {currentYear} <span className="font-medium text-gray-600">sparpreis.guru</span>
-              </div>
-              <div className="mt-2 sm:mt-0 flex flex-row sm:items-end items-center gap-3">
-                <span>Version {appVersion}</span>
-                <a
-                  href="https://github.com/XLixl4snSU/sparpreis.guru"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline mt-1 flex items-center"
-                >
-                  <Github className="inline w-4 h-4 mr-1" /> GitHub
-                </a>
-              </div>
-            </div>
-          </footer>
-        )}
+        <Footer show={footerEnabled} />
       </div>
     </div>
   )

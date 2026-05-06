@@ -10,7 +10,32 @@ import {
   type PriceHistoryEntry
 } from './cache'
 import { metricsCollector } from '@/app/api/metrics/collector'
+import { logDebug, logError, logWarn } from '@/lib/shared/logger'
 import { formatDateKey, generateConnectionId, passesTimeFilter } from './utils';
+
+const LOG_SCOPE = "bestpreissuche.bahn"
+
+function formatTimeWindow(abfahrtAb?: string, ankunftBis?: string): string {
+  if (!abfahrtAb && !ankunftBis) return "beliebig"
+  return `${abfahrtAb || "beliebig"}-${ankunftBis || "beliebig"}`
+}
+
+function formatMaxTransfers(value: unknown): string {
+  if (value === undefined || value === null || value === "" || value === "alle") {
+    return "alle"
+  }
+  return String(value)
+}
+
+function routeContext(config: any, travelDate: string) {
+  return {
+    travelDate,
+    startStationId: config.startStationNormalizedId,
+    destinationStationId: config.zielStationNormalizedId,
+    timeWindow: formatTimeWindow(config.abfahrtAb, config.ankunftBis),
+    maxTransfers: formatMaxTransfers(config.maximaleUmstiege),
+  }
+}
 
 
 
@@ -28,30 +53,46 @@ export async function searchBahnhof(search: string): Promise<{ id: string; norma
   try {
     const encodedSearch = encodeURIComponent(search)
     const url = `https://www.bahn.de/web/api/reiseloesung/orte?suchbegriff=${encodedSearch}&typ=ALL&limit=10`
+    const stationApiStartTime = Date.now()
 
-    console.log(`🌐 Station API call: "${search}"`)
+    logDebug(LOG_SCOPE, "🌐 Station lookup via Bahn API started", { query: search })
 
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0",
-        Accept: "application/json",
-        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
-        Referer: "https://www.bahn.de/",
-      },
-    })
+    let response: Response
+    try {
+      response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0",
+          Accept: "application/json",
+          "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+          Referer: "https://www.bahn.de/",
+        },
+      })
+    } catch (error) {
+      metricsCollector.recordStationSearchApiRequest(Date.now() - stationApiStartTime, 500)
+      throw error
+    }
+
+    metricsCollector.recordStationSearchApiRequest(Date.now() - stationApiStartTime, response.status)
 
     if (!response.ok) return null
 
     const data = await response.json()
     if (!data || data.length === 0) return null
 
-    const station = data[0]
+    const normalizedSearch = search.toLowerCase().trim()
+    const station =
+      data.find((item: { name?: string }) => item.name?.toLowerCase().trim() === normalizedSearch) ||
+      data[0]
     const originalId = station.id
 
     // Normalisiere die Station-ID: Entferne den Timestamp-Parameter @p=
     const normalizedId = originalId.replace(/@p=\d+@/g, '@')
 
-    console.log(`✅ Found station: ${station.name}`)
+    logDebug(LOG_SCOPE, "✅ Station lookup resolved", {
+      query: search,
+      stationName: station.name,
+      stationId: normalizedId,
+    })
 
     const result = { 
       id: originalId,           // Für API-Aufrufe
@@ -64,7 +105,7 @@ export async function searchBahnhof(search: string): Promise<{ id: string; norma
 
     return result
   } catch (error) {
-    console.error("Error in searchBahnhof:", error)
+    logError(LOG_SCOPE, "Station lookup failed", error, { query: search })
     return null
   }
 }
@@ -110,6 +151,43 @@ interface TrainResults {
   [date: string]: TrainResult
 }
 
+function getStopTime(stop: any, direction: "abfahrt" | "ankunft"): string {
+  return (
+    stop?.[direction]?.sollzeit ||
+    stop?.[direction]?.zeit ||
+    stop?.[direction]?.ez ||
+    ""
+  )
+}
+
+function getSectionDepartureTime(abschnitt: any): string {
+  return (
+    abschnitt.abfahrtsZeitpunkt ||
+    getStopTime(abschnitt, "abfahrt") ||
+    getStopTime(abschnitt.startHalt, "abfahrt") ||
+    abschnitt.halte?.[0]?.abfahrt?.sollzeit ||
+    ""
+  )
+}
+
+function getSectionArrivalTime(abschnitt: any): string {
+  return (
+    abschnitt.ankunftsZeitpunkt ||
+    getStopTime(abschnitt, "ankunft") ||
+    getStopTime(abschnitt.zielHalt, "ankunft") ||
+    abschnitt.halte?.[abschnitt.halte.length - 1]?.ankunft?.sollzeit ||
+    ""
+  )
+}
+
+function hasIntervalTimes(interval: { abfahrtsZeitpunkt?: string; ankunftsZeitpunkt?: string }): boolean {
+  return Boolean(interval.abfahrtsZeitpunkt && interval.ankunftsZeitpunkt)
+}
+
+function hasUsableIntervalTimes(data: { allIntervals?: Array<{ abfahrtsZeitpunkt?: string; ankunftsZeitpunkt?: string }> } | undefined): boolean {
+  return Boolean(data?.allIntervals?.some(hasIntervalTimes))
+}
+
 // Main API call function for best price search
 export async function getBestPrice(config: any): Promise<{ result: TrainResults | null; wasApiCall: boolean; recordedAt: number }> {
   const dateObj = config.anfrageDatum as Date
@@ -134,12 +212,12 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
 
   // Prüfe Cache
   const cachedResult = getCachedResult(cacheKey)
+  let refreshMalformedCache = false
   if (cachedResult.data && !cachedResult.needsRefresh) {
-    console.log(`📦 Cache HIT for ${tag}`)
     metricsCollector.recordCacheHit('connection')
     
     const cachedData = cachedResult.data[tag]
-    if (cachedData && cachedData.allIntervals) {
+    if (cachedData && cachedData.allIntervals && hasUsableIntervalTimes(cachedData)) {
       // Zeitfilterung auf gecachte Daten anwenden - KORRIGIERT mit Datum-Check!
       const filteredIntervals = cachedData.allIntervals.filter((interval: any) => {
         if (!config.abfahrtAb && !config.ankunftBis) return true
@@ -223,7 +301,12 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         return interval.umstiegsAnzahl <= Number(config.maximaleUmstiege)
       })
       
-      console.log(`🔍 Cache: filtered ${filteredIntervals.length} -> ${umstiegsFilteredIntervals.length} intervals`)
+      logDebug(LOG_SCOPE, "📦 Connection cache hit; returning filtered cached offers", {
+        ...routeContext(config, tag),
+        cachedIntervals: cachedData.allIntervals.length,
+        afterTimeFilter: filteredIntervals.length,
+        afterTransferFilter: umstiegsFilteredIntervals.length,
+      })
       
       if (umstiegsFilteredIntervals.length === 0) {
         return {
@@ -287,8 +370,14 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       }
       return { result: filteredResult, wasApiCall: false, recordedAt: cachedResult.recordedAt ?? Date.now() }
     }
-    // Fallback für alte Cache-Einträge ohne allIntervals
-    if (cachedData) {
+    if (cachedData?.allIntervals && !hasUsableIntervalTimes(cachedData)) {
+      refreshMalformedCache = true
+      logDebug(LOG_SCOPE, "♻️ Connection cache entry has no journey times; refreshing from Bahn API", {
+        ...routeContext(config, tag),
+        cachedIntervals: cachedData.allIntervals.length,
+      })
+    } else if (cachedData) {
+      // Fallback für alte Cache-Einträge ohne allIntervals
       // Für alte Cache-Einträge ohne Filter-Info
       const allConnectionIds = Array.isArray(cachedData.allIntervals)
         ? cachedData.allIntervals.map((iv: any) => 
@@ -333,10 +422,13 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   }
 
   // Wenn Cache veraltet oder nicht vorhanden, fahre mit API-Call fort
-  if (cachedResult.needsRefresh) {
-    console.log(`🔄 Cache HIT but stale for ${tag}, refreshing`)
+  if (refreshMalformedCache) {
+    metricsCollector.recordCacheStale('connection')
+  } else if (cachedResult.data && cachedResult.needsRefresh) {
+    metricsCollector.recordCacheStale('connection')
+    logDebug(LOG_SCOPE, "♻️ Connection cache entry stale; refreshing from Bahn API", routeContext(config, tag))
   } else {
-    console.log(`❌ Cache MISS for ${tag}`)
+    logDebug(LOG_SCOPE, "🌐 Connection cache miss; fetching from Bahn API", routeContext(config, tag))
     metricsCollector.recordCacheMiss('connection')
   }
 
@@ -374,18 +466,21 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     requestBody.minUmstiegszeit = parseInt(config.umstiegszeit)
   }
 
+  const requestId = `${tag}-${config.startStationNormalizedId}-${config.zielStationNormalizedId}`
+  const apiCallStartTime = Date.now()
+
   try {
     // API-Call über globalen Rate Limiter
-    const requestId = `${tag}-${config.startStationNormalizedId}-${config.zielStationNormalizedId}`
-    const apiCallStartTime = Date.now()
-    
     const apiCallResult = await globalRateLimiter.addToQueue(requestId, async () => {
       // Prüfe Session-Abbruch direkt vor API-Call
       if (sessionId && globalRateLimiter.isSessionCancelledSync(sessionId)) {
         throw new Error(`Session ${sessionId} was cancelled`)
       }
       
-      console.log(`🌐 API call for ${tag}`)
+      logDebug(LOG_SCOPE, "🌐 Bahn price API request started", {
+        ...routeContext(config, tag),
+        requestId,
+      })
       // Match the working curl headers exactly
       const response = await fetch("https://www.bahn.de/web/api/angebote/tagesbestpreis", {
         method: "POST",
@@ -406,14 +501,26 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         try {
           errorText = await response.text()
           if (response.status === 429) {
-            console.log(`HTTP 429 received for ${requestId}`)
+            logWarn(LOG_SCOPE, "Bahn price API rate limit response", {
+              ...routeContext(config, tag),
+              requestId,
+              status: response.status,
+            })
           } else {
-            console.error(`HTTP ${response.status} error:`, errorText)
+            logError(LOG_SCOPE, "Bahn price API returned an error response", errorText.slice(0, 300), {
+              ...routeContext(config, tag),
+              requestId,
+              status: response.status,
+            })
           }
         } catch (e) {
           // keep logs quiet for 429
           if (response.status !== 429) {
-            console.error("Could not read error response")
+            logWarn(LOG_SCOPE, "Could not read Bahn API error response body", {
+              ...routeContext(config, tag),
+              requestId,
+              status: response.status,
+            })
           }
         }
         // Record failed API request
@@ -438,7 +545,10 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       const status = (responseText as any)?.__httpStatus
       const errText = (responseText as any)?.__errorText || ''
       if (status === 429) {
-        console.log(`ℹ️ HTTP 429 sentinel for ${tag} (will be retried by rate limiter)`) 
+        logWarn(LOG_SCOPE, "Bahn price API request was rate limited; rate limiter will retry", {
+          ...routeContext(config, tag),
+          status,
+        })
         const result = { [tag]: { preis: 0, info: 'Rate limited, retrying', abfahrtsZeitpunkt: '', ankunftsZeitpunkt: '' } }
         return { result, wasApiCall: true, recordedAt: Date.now() }
       }
@@ -448,7 +558,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
 
     // Check if response contains error message
     if (responseText.includes("Preisauskunft nicht möglich")) {
-      console.log("Price info not available for this date")
+      logDebug(LOG_SCOPE, "ℹ️ Bahn price API has no price information for travel date", routeContext(config, tag))
       const result = { [tag]: { preis: 0, info: "Kein Bestpreis verfügbar!", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "" } }
       setCachedResult(cacheKey, result, {
         startStationId: config.startStationNormalizedId,
@@ -468,7 +578,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     try {
       data = JSON.parse(responseText)
     } catch (parseError) {
-      console.error("Failed to parse JSON:", parseError)
+      logError(LOG_SCOPE, "Could not parse Bahn price API response", parseError, routeContext(config, tag))
       const errorResult = {
         [tag]: {
           preis: 0,
@@ -481,7 +591,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     }
 
     if (!data || !data.intervalle) {
-      console.log("No intervals found in response")
+      logDebug(LOG_SCOPE, "ℹ️ Bahn price API response contained no intervals", routeContext(config, tag))
       const result = { [tag]: { preis: 0, info: "Keine Intervalle gefunden!", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "" } }
       setCachedResult(cacheKey, result, {
         startStationId: config.startStationNormalizedId,
@@ -497,14 +607,25 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       return { result, wasApiCall: true, recordedAt: Date.now() }
     }
 
-    console.log(`Found ${data.intervalle.length} intervals`)
+    logDebug(LOG_SCOPE, "📥 Bahn price API response parsed", {
+      ...routeContext(config, tag),
+      rawIntervals: data.intervalle.length,
+    })
 
-    // Sammle alle Intervalle
-    const finalAllIntervals: IntervalDetails[] = []
+  // Sammle alle Intervalle
+  const finalAllIntervals: IntervalDetails[] = []
+  let skippedTeilpreisOffers = 0
     
     for (const iv of data.intervalle) {
       if (iv.preis && typeof iv.preis === "object" && "betrag" in iv.preis && Array.isArray(iv.verbindungen)) {
         for (const verbindung of iv.verbindungen) {
+          // Teilpreise (z. B. bei gemischten Betreibern wie Flixtrain) verfälschen den Gesamtpreis
+          // und werden deshalb standardmäßig ignoriert.
+          if (verbindung.teilpreis === true || verbindung.teilpreis === "true") {
+            skippedTeilpreisOffers += 1
+            continue
+          }
+
           // Skip connections without price information
           if (!verbindung.abPreis || typeof verbindung.abPreis !== "object" || !("betrag" in verbindung.abPreis)) {
             continue
@@ -514,8 +635,8 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           
           if (verbindung.verbindung && verbindung.verbindung.verbindungsAbschnitte && verbindung.verbindung.verbindungsAbschnitte.length > 0) {
             const abschnitte = verbindung.verbindung.verbindungsAbschnitte.map((abschnitt: any) => ({
-              abfahrtsZeitpunkt: abschnitt.abfahrtsZeitpunkt,
-              ankunftsZeitpunkt: abschnitt.ankunftsZeitpunkt,
+              abfahrtsZeitpunkt: getSectionDepartureTime(abschnitt),
+              ankunftsZeitpunkt: getSectionArrivalTime(abschnitt),
               abfahrtsOrt: abschnitt.abfahrtsOrt,
               ankunftsOrt: abschnitt.ankunftsOrt,
               abfahrtsOrtExtId: abschnitt.abfahrtsOrtExtId,
@@ -542,6 +663,41 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           }
         }
       }
+    }
+
+    if (skippedTeilpreisOffers > 0) {
+      logDebug(LOG_SCOPE, "🚫 Ignored partial-price offers without reliable total fare", {
+        ...routeContext(config, tag),
+        skippedOffers: skippedTeilpreisOffers,
+      })
+    }
+
+    if (finalAllIntervals.length === 0) {
+      const result = {
+        [tag]: {
+          preis: 0,
+          info: skippedTeilpreisOffers > 0
+            ? "Nur Teilpreise verfügbar (kein verwertbarer Gesamtpreis)"
+            : "Keine verwertbaren Verbindungen gefunden!",
+          abfahrtsZeitpunkt: "",
+          ankunftsZeitpunkt: "",
+          allIntervals: [],
+        },
+      }
+
+      setCachedResult(cacheKey, result, {
+        startStationId: config.startStationNormalizedId,
+        zielStationId: config.zielStationNormalizedId,
+        date: tag,
+        alter: config.alter,
+        ermaessigungArt: config.ermaessigungArt || "KEINE_ERMAESSIGUNG",
+        ermaessigungKlasse: config.ermaessigungKlasse || "KLASSENLOS",
+        klasse: config.klasse,
+        schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
+        umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
+      })
+
+      return { result, wasApiCall: true, recordedAt: Date.now() }
     }
 
     // Erstelle vollständigen Cache-Eintrag mit ALLEN Verbindungen (ohne Markierung)
@@ -590,10 +746,16 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       return interval.umstiegsAnzahl <= Number(config.maximaleUmstiege)
     })
 
-    console.log(`🔍 API: filtered ${timeFilteredIntervals.length} -> ${umstiegsFilteredIntervals.length} intervals`)
+    logDebug(LOG_SCOPE, "🔍 Bahn API offers filtered for request", {
+      ...routeContext(config, tag),
+      rawOffers: finalAllIntervals.length,
+      afterTimeFilter: timeFilteredIntervals.length,
+      afterTransferFilter: umstiegsFilteredIntervals.length,
+      skippedPartialPriceOffers: skippedTeilpreisOffers,
+    })
 
     if (umstiegsFilteredIntervals.length === 0) {
-      console.log("No intervals remaining after transfer filtering")
+      logDebug(LOG_SCOPE, "ℹ️ No offers remain after request filters", routeContext(config, tag))
       // Auch für leere Ergebnisse die Historie mit Zeitfiltern
       const emptyDayHistory = getDayPriceHistory({
         startStationId: config.startStationNormalizedId,
@@ -679,9 +841,13 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       }
       // 429 nur informativ loggen, nicht als Fehler
       if (error instanceof Error && (error.message.includes('429') || error.message.includes('Too Many Requests'))) {
-        console.log(`ℹ️ API rate limited for ${tag}: ${error.message}`)
+        logWarn(LOG_SCOPE, "Bahn price API request rate limited", {
+          ...routeContext(config, tag),
+          error: error.message,
+        })
       } else {
-        console.error(`❌ API error for ${tag}:`, error instanceof Error ? error.message : error)
+        metricsCollector.recordBahnApiRequest(Date.now() - apiCallStartTime, 500)
+        logError(LOG_SCOPE, "Bahn price API request failed", error, routeContext(config, tag))
       }
       const result = {
         [tag]: {
