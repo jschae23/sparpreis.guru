@@ -7,6 +7,7 @@ import { UrlauberfinderResults } from '@/components/urlaubsfinder/urlaubsfinder-
 import { AlertCircle } from 'lucide-react'
 import { FAQPopup } from '@/components/layout/faq-popup'
 import { Footer } from '@/components/layout/footer'
+import { MainNavigation } from '@/components/layout/main-navigation'
 import { ICE_STATIONS } from '@/lib/stations/ice-stations'
 import { logError, logWarn } from '@/lib/shared/logger'
 
@@ -359,19 +360,15 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
         <header className="mb-4">
           <div className="flex justify-between items-start">
             <div>
-              <h1 className="text-4xl font-bold mb-2">
-                <a href="/" className="text-gray-600 hover:text-retro-gradient">
-                  sparpreis.guru
-                </a>
-              </h1>
-              <nav className="flex gap-4 mt-2">
-                <a href="/" className="text-blue-600 hover:underline font-medium">
-                  Bestpreissuche
-                </a>
-                <a href="/urlaubsfinder" className="text-blue-600 hover:underline font-medium underline">
-                  Urlaubsfinder
-                </a>
-              </nav>
+              <div className="mb-2 flex items-center gap-2">
+                <MainNavigation active="urlaubsfinder" variant="mobile" />
+                <h1 className="text-4xl font-bold">
+                  <a href="/" className="text-gray-600 hover:text-retro-gradient">
+                    sparpreis.guru
+                  </a>
+                </h1>
+              </div>
+              <MainNavigation active="urlaubsfinder" />
             </div>
             <div className="flex-shrink-0">
               <FAQPopup context="urlaubsfinder" />

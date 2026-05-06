@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from "@/components/ui/button"
 import { HelpCircle } from "lucide-react"
 
-type FAQContext = "bestpreissuche" | "urlaubsfinder"
+type FAQContext = "bestpreissuche" | "urlaubsfinder" | "direktverbindungen"
 
 interface FAQItem {
   question: string
@@ -94,9 +94,45 @@ const urlaubsfinderFaqs: FAQItem[] = [
     }
 ]
 
+const direktverbindungenFaqs: FAQItem[] = [
+  {
+    question: "Wofür ist die Direktverbindungen-Seite gedacht?",
+    answer: "Du wählst einen Startbahnhof und siehst alle Ziele, die laut GTFS-Daten ohne Umstieg erreichbar sind. Die Seite ist für Orientierung gedacht, nicht für Preis- oder Buchungsabfragen."
+  },
+  {
+    question: "Was bedeutet Direktverbindung?",
+    answer: "Eine Direktverbindung bedeutet, dass Start und Ziel in derselben Fahrtfolge eines Zuges vorkommen. Zwischenhalte sind möglich, aber du musst nicht umsteigen."
+  },
+  {
+    question: "Welche Daten werden verwendet?",
+    answer: "Die Direktverbindungen werden aus den freien GTFS.de-Feeds für Fernverkehr und Nahverkehr vorbereitet und als statische Datenbasis ausgeliefert. Dadurch bleibt die Suche schnell und belastet keine Live-Preis-API."
+  },
+  {
+    question: "Wie aktuell sind die Daten?",
+    answer: "Die zentrale Datenbasis wird einmal täglich neu gebaut. Die laufende App lädt neue Daten automatisch nach und speichert sie lokal zwischen. Im Ergebnisbereich wird angezeigt, von wann die aktuell geladene Datei stammt."
+  },
+  {
+    question: "Was zeigen die Filter?",
+    answer: "Du kannst alle Direktverbindungen anzeigen oder auf Fernverkehr beziehungsweise Nahverkehr eingrenzen. Zusätzlich kannst du nach maximaler Fahrtdauer und nach einer Mindestanzahl direkter Fahrten pro Tag filtern."
+  },
+  {
+    question: "Was bedeuten Fahrten pro Tag und typische Fahrtdauer?",
+    answer: "Fahrten pro Tag ist ein Durchschnitt über den Fahrplanzeitraum des GTFS-Feeds. Die typische Fahrtdauer ist der Durchschnitt der gefundenen direkten Fahrten, während die große Fahrzeitangabe die schnellste direkte Fahrt zeigt."
+  },
+  {
+    question: "Warum sehe ich keine Preise?",
+    answer: "Diese Seite zeigt das Netz erreichbarer Ziele, keine konkreten Tickets. Für Preise nutzt du die Bestpreissuche oder den Urlaubsfinder."
+  }
+]
+
 export function FAQPopup({ context = "bestpreissuche" }: { context?: FAQContext }) {
   const [isOpen, setIsOpen] = useState(false)
-  const faqs = context === "urlaubsfinder" ? urlaubsfinderFaqs : bestpreissucheFaqs
+  const faqs =
+    context === "urlaubsfinder"
+      ? urlaubsfinderFaqs
+      : context === "direktverbindungen"
+        ? direktverbindungenFaqs
+        : bestpreissucheFaqs
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>

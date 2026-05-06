@@ -2,6 +2,7 @@ import { TrainSearchForm } from "@/components/bestpreissuche/train-search-form"
 import { TrainResults } from "@/components/bestpreissuche/train-results"
 import { FAQPopup } from "@/components/layout/faq-popup"
 import { Footer } from "@/components/layout/footer"
+import { MainNavigation } from "@/components/layout/main-navigation"
 import { isFooterEnabled, isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
 import { redirect } from "next/navigation"
 
@@ -85,21 +86,15 @@ export default async function Page({
         <header className="mb-4">
           <div className="flex justify-between items-start">
             <div>
-              <h1 className="text-4xl font-bold mb-2">
-                <a href="/" className="text-gray-600 hover:text-retro-gradient">
-                  sparpreis.guru
-                </a>
-              </h1>
-              <nav className="flex gap-4 mt-2">
-                <a href="/" className="text-blue-600 hover:underline font-medium underline">
-                  Bestpreissuche
-                </a>
-                {urlaubsfinderEnabled && (
-                  <a href="/urlaubsfinder" className="text-blue-600 hover:underline font-medium">
-                    Urlaubsfinder
+              <div className="mb-2 flex items-center gap-2">
+                <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} variant="mobile" />
+                <h1 className="text-4xl font-bold">
+                  <a href="/" className="text-gray-600 hover:text-retro-gradient">
+                    sparpreis.guru
                   </a>
-                )}
-              </nav>
+                </h1>
+              </div>
+              <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} />
             </div>
             <div className="flex-shrink-0">
               <FAQPopup context="bestpreissuche" />
