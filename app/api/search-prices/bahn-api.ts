@@ -151,6 +151,43 @@ interface TrainResults {
   [date: string]: TrainResult
 }
 
+function getStopTime(stop: any, direction: "abfahrt" | "ankunft"): string {
+  return (
+    stop?.[direction]?.sollzeit ||
+    stop?.[direction]?.zeit ||
+    stop?.[direction]?.ez ||
+    ""
+  )
+}
+
+function getSectionDepartureTime(abschnitt: any): string {
+  return (
+    abschnitt.abfahrtsZeitpunkt ||
+    getStopTime(abschnitt, "abfahrt") ||
+    getStopTime(abschnitt.startHalt, "abfahrt") ||
+    abschnitt.halte?.[0]?.abfahrt?.sollzeit ||
+    ""
+  )
+}
+
+function getSectionArrivalTime(abschnitt: any): string {
+  return (
+    abschnitt.ankunftsZeitpunkt ||
+    getStopTime(abschnitt, "ankunft") ||
+    getStopTime(abschnitt.zielHalt, "ankunft") ||
+    abschnitt.halte?.[abschnitt.halte.length - 1]?.ankunft?.sollzeit ||
+    ""
+  )
+}
+
+function hasIntervalTimes(interval: { abfahrtsZeitpunkt?: string; ankunftsZeitpunkt?: string }): boolean {
+  return Boolean(interval.abfahrtsZeitpunkt && interval.ankunftsZeitpunkt)
+}
+
+function hasUsableIntervalTimes(data: { allIntervals?: Array<{ abfahrtsZeitpunkt?: string; ankunftsZeitpunkt?: string }> } | undefined): boolean {
+  return Boolean(data?.allIntervals?.some(hasIntervalTimes))
+}
+
 // Main API call function for best price search
 export async function getBestPrice(config: any): Promise<{ result: TrainResults | null; wasApiCall: boolean; recordedAt: number }> {
   const dateObj = config.anfrageDatum as Date
@@ -175,11 +212,12 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
 
   // Prüfe Cache
   const cachedResult = getCachedResult(cacheKey)
+  let refreshMalformedCache = false
   if (cachedResult.data && !cachedResult.needsRefresh) {
     metricsCollector.recordCacheHit('connection')
     
     const cachedData = cachedResult.data[tag]
-    if (cachedData && cachedData.allIntervals) {
+    if (cachedData && cachedData.allIntervals && hasUsableIntervalTimes(cachedData)) {
       // Zeitfilterung auf gecachte Daten anwenden - KORRIGIERT mit Datum-Check!
       const filteredIntervals = cachedData.allIntervals.filter((interval: any) => {
         if (!config.abfahrtAb && !config.ankunftBis) return true
@@ -332,8 +370,14 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       }
       return { result: filteredResult, wasApiCall: false, recordedAt: cachedResult.recordedAt ?? Date.now() }
     }
-    // Fallback für alte Cache-Einträge ohne allIntervals
-    if (cachedData) {
+    if (cachedData?.allIntervals && !hasUsableIntervalTimes(cachedData)) {
+      refreshMalformedCache = true
+      logDebug(LOG_SCOPE, "♻️ Connection cache entry has no journey times; refreshing from Bahn API", {
+        ...routeContext(config, tag),
+        cachedIntervals: cachedData.allIntervals.length,
+      })
+    } else if (cachedData) {
+      // Fallback für alte Cache-Einträge ohne allIntervals
       // Für alte Cache-Einträge ohne Filter-Info
       const allConnectionIds = Array.isArray(cachedData.allIntervals)
         ? cachedData.allIntervals.map((iv: any) => 
@@ -378,7 +422,9 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   }
 
   // Wenn Cache veraltet oder nicht vorhanden, fahre mit API-Call fort
-  if (cachedResult.data && cachedResult.needsRefresh) {
+  if (refreshMalformedCache) {
+    metricsCollector.recordCacheStale('connection')
+  } else if (cachedResult.data && cachedResult.needsRefresh) {
     metricsCollector.recordCacheStale('connection')
     logDebug(LOG_SCOPE, "♻️ Connection cache entry stale; refreshing from Bahn API", routeContext(config, tag))
   } else {
@@ -589,8 +635,8 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           
           if (verbindung.verbindung && verbindung.verbindung.verbindungsAbschnitte && verbindung.verbindung.verbindungsAbschnitte.length > 0) {
             const abschnitte = verbindung.verbindung.verbindungsAbschnitte.map((abschnitt: any) => ({
-              abfahrtsZeitpunkt: abschnitt.abfahrtsZeitpunkt,
-              ankunftsZeitpunkt: abschnitt.ankunftsZeitpunkt,
+              abfahrtsZeitpunkt: getSectionDepartureTime(abschnitt),
+              ankunftsZeitpunkt: getSectionArrivalTime(abschnitt),
               abfahrtsOrt: abschnitt.abfahrtsOrt,
               ankunftsOrt: abschnitt.ankunftsOrt,
               abfahrtsOrtExtId: abschnitt.abfahrtsOrtExtId,

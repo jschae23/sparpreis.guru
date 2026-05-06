@@ -57,6 +57,21 @@ interface UnavailableDestination {
   returnPrice?: number
 }
 
+interface JourneyInterval {
+  preis?: number
+  abfahrtsZeitpunkt?: string
+  ankunftsZeitpunkt?: string
+  umstiegsAnzahl?: number
+  abschnitte?: JourneyLeg[]
+}
+
+interface JourneyPriceData {
+  preis?: number
+  abfahrtsZeitpunkt?: string
+  ankunftsZeitpunkt?: string
+  allIntervals?: JourneyInterval[]
+}
+
 interface UrlauberfinderRequest {
   homeStation: string
   destinations: string[]
@@ -74,6 +89,59 @@ interface UrlauberfinderRequest {
   returnAbfahrtAb?: string
   returnAnkunftBis?: string
   umstiegszeit?: string
+}
+
+function hasJourneyTimestamp(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0
+}
+
+function getDisplayInterval(data: JourneyPriceData): JourneyInterval | undefined {
+  const intervals = Array.isArray(data.allIntervals) ? data.allIntervals : []
+  if (intervals.length === 0) return undefined
+
+  const matchingPriceInterval = intervals.find(
+    (interval) =>
+      interval.preis === data.preis &&
+      hasJourneyTimestamp(interval.abfahrtsZeitpunkt) &&
+      hasJourneyTimestamp(interval.ankunftsZeitpunkt)
+  )
+
+  return (
+    matchingPriceInterval ||
+    intervals.find(
+      (interval) =>
+        hasJourneyTimestamp(interval.abfahrtsZeitpunkt) &&
+        hasJourneyTimestamp(interval.ankunftsZeitpunkt)
+    )
+  )
+}
+
+function getJourneyTimes(data: JourneyPriceData) {
+  const displayInterval = getDisplayInterval(data)
+  const legs = Array.isArray(displayInterval?.abschnitte)
+    ? displayInterval.abschnitte.map((leg: JourneyLeg) => ({
+        abfahrtsZeitpunkt: leg.abfahrtsZeitpunkt,
+        ankunftsZeitpunkt: leg.ankunftsZeitpunkt,
+        abfahrtsOrt: leg.abfahrtsOrt,
+        ankunftsOrt: leg.ankunftsOrt,
+        verkehrsmittel: leg.verkehrsmittel,
+      }))
+    : []
+
+  return {
+    departure:
+      data.abfahrtsZeitpunkt ||
+      displayInterval?.abfahrtsZeitpunkt ||
+      legs[0]?.abfahrtsZeitpunkt ||
+      "",
+    arrival:
+      data.ankunftsZeitpunkt ||
+      displayInterval?.ankunftsZeitpunkt ||
+      legs[legs.length - 1]?.ankunftsZeitpunkt ||
+      "",
+    transfers: displayInterval?.umstiegsAnzahl || 0,
+    legs,
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -243,21 +311,11 @@ export async function POST(request: NextRequest) {
               const outwardData = outwardResult.result[dateKey]
               if (outwardData && outwardData.preis > 0) {
                 outwardPrice = outwardData.preis
-                outwardDeparture = outwardData.abfahrtsZeitpunkt || ""
-                outwardArrival = outwardData.ankunftsZeitpunkt || ""
-                
-                // Extract connection details if available
-                if (outwardData.allIntervals && outwardData.allIntervals.length > 0) {
-                  const firstInterval = outwardData.allIntervals[0]
-                  outwardTransfers = firstInterval.umstiegsAnzahl || 0
-                  outwardLegs = firstInterval.abschnitte ? firstInterval.abschnitte.map((leg: any) => ({
-                    abfahrtsZeitpunkt: leg.abfahrtsZeitpunkt,
-                    ankunftsZeitpunkt: leg.ankunftsZeitpunkt,
-                    abfahrtsOrt: leg.abfahrtsOrt,
-                    ankunftsOrt: leg.ankunftsOrt,
-                    verkehrsmittel: leg.verkehrsmittel,
-                  })) : []
-                }
+                const outwardJourney = getJourneyTimes(outwardData)
+                outwardDeparture = outwardJourney.departure
+                outwardArrival = outwardJourney.arrival
+                outwardTransfers = outwardJourney.transfers
+                outwardLegs = outwardJourney.legs
               }
             }
 
@@ -301,21 +359,11 @@ export async function POST(request: NextRequest) {
                 const returnData = returnResult.result[dateKey]
                 if (returnData && returnData.preis > 0) {
                   returnPrice = returnData.preis
-                  returnDeparture = returnData.abfahrtsZeitpunkt || ""
-                  returnArrival = returnData.ankunftsZeitpunkt || ""
-                  
-                  // Extract connection details if available
-                  if (returnData.allIntervals && returnData.allIntervals.length > 0) {
-                    const firstInterval = returnData.allIntervals[0]
-                    returnTransfers = firstInterval.umstiegsAnzahl || 0
-                    returnLegs = firstInterval.abschnitte ? firstInterval.abschnitte.map((leg: any) => ({
-                      abfahrtsZeitpunkt: leg.abfahrtsZeitpunkt,
-                      ankunftsZeitpunkt: leg.ankunftsZeitpunkt,
-                      abfahrtsOrt: leg.abfahrtsOrt,
-                      ankunftsOrt: leg.ankunftsOrt,
-                      verkehrsmittel: leg.verkehrsmittel,
-                    })) : []
-                  }
+                  const returnJourney = getJourneyTimes(returnData)
+                  returnDeparture = returnJourney.departure
+                  returnArrival = returnJourney.arrival
+                  returnTransfers = returnJourney.transfers
+                  returnLegs = returnJourney.legs
                 }
               }
             }
