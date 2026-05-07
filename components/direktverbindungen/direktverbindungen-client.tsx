@@ -14,6 +14,7 @@ import {
 } from "@/components/direktverbindungen/direct-connections-map"
 import { FAQPopup } from "@/components/layout/faq-popup"
 import { Footer } from "@/components/layout/footer"
+import { BrandLogo } from "@/components/layout/brand-logo"
 import { MainNavigation } from "@/components/layout/main-navigation"
 import { logError } from "@/lib/shared/logger"
 
@@ -468,35 +469,32 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
   return (
     <div className="min-h-screen bg-white">
       <div className="container mx-auto max-w-6xl px-4 py-6">
-        <header className="mb-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="mb-2 flex items-center gap-2">
-                <MainNavigation active="direktverbindungen" variant="mobile" />
-                <h1 className="text-4xl font-bold">
-                  <a href="/" className="text-gray-600 hover:text-retro-gradient">
-                    sparpreis.guru
-                  </a>
-                </h1>
-              </div>
-              <MainNavigation active="direktverbindungen" />
+        <header className="mb-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <MainNavigation active="direktverbindungen" variant="mobile" />
+              <h1 className="min-w-0">
+                <BrandLogo />
+              </h1>
             </div>
-            <div className="flex-shrink-0">
-              <FAQPopup context="direktverbindungen" />
+            <div className="hidden sm:block">
+              <MainNavigation active="direktverbindungen" />
             </div>
           </div>
         </header>
 
         <section className="mb-8">
-          <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-gray-100 p-2 shadow-lg sm:p-3">
-            <h2 className="mb-2 flex items-center gap-2 text-lg font-bold text-gray-800">
-              <Train className="h-5 w-5 text-blue-600" />
-              Direktverbindungen
-            </h2>
+          <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-gray-100 p-2 shadow-lg sm:p-4">
+            <div className="mb-3 flex items-center justify-between gap-3 sm:mb-4">
+              <h2 className="text-lg font-bold text-gray-800 sm:text-xl">
+                Direktverbindungen
+              </h2>
+              <FAQPopup context="direktverbindungen" />
+            </div>
 
-            <form onSubmit={handleSubmit} className="space-y-2 sm:space-y-3">
-              <div className="rounded-lg border border-gray-100 bg-white p-2 shadow-sm sm:p-3">
-                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+              <div className="rounded-lg border border-gray-100 bg-white p-2 shadow-sm sm:p-4">
+                <h3 className="mb-2 flex items-center gap-2 text-md font-semibold text-gray-700 sm:mb-3">
                   <MapPin className="h-4 w-4 text-blue-600" />
                   Startbahnhof
                 </h3>

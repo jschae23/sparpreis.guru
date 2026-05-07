@@ -1,7 +1,7 @@
 import { TrainSearchForm } from "@/components/bestpreissuche/train-search-form"
 import { TrainResults } from "@/components/bestpreissuche/train-results"
-import { FAQPopup } from "@/components/layout/faq-popup"
 import { Footer } from "@/components/layout/footer"
+import { BrandLogo } from "@/components/layout/brand-logo"
 import { MainNavigation } from "@/components/layout/main-navigation"
 import { isFooterEnabled, isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
 import { redirect } from "next/navigation"
@@ -83,21 +83,16 @@ export default async function Page({
   return (
     <div className="min-h-screen bg-white">
       <div className="container mx-auto px-4 py-6 max-w-6xl">
-        <header className="mb-4">
-          <div className="flex justify-between items-start">
-            <div>
-              <div className="mb-2 flex items-center gap-2">
-                <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} variant="mobile" />
-                <h1 className="text-4xl font-bold">
-                  <a href="/" className="text-gray-600 hover:text-retro-gradient">
-                    sparpreis.guru
-                  </a>
-                </h1>
-              </div>
-              <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} />
+        <header className="mb-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} variant="mobile" />
+              <h1 className="min-w-0">
+                <BrandLogo />
+              </h1>
             </div>
-            <div className="flex-shrink-0">
-              <FAQPopup context="bestpreissuche" />
+            <div className="hidden sm:block">
+              <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} />
             </div>
           </div>
         </header>
