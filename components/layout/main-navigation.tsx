@@ -34,16 +34,20 @@ export function MainNavigation({ active, showUrlaubsfinder = true, variant = "de
   }) ?? items[0]
 
   return (
-    <nav className={variant === "desktop" ? "mt-2" : ""}>
+    <nav>
       {variant === "desktop" ? (
-      <div className="hidden flex-wrap gap-4 sm:flex">
+      <div className="hidden flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 sm:flex">
         {items.map(item => {
           const isActive = item.href === activeItem.href
           return (
             <a
               key={item.href}
               href={item.href}
-              className={`font-medium text-blue-600 hover:underline ${isActive ? "underline" : ""}`}
+              className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+                isActive
+                  ? "bg-white text-blue-700 shadow-sm ring-1 ring-gray-200"
+                  : "text-gray-600 hover:bg-white/80 hover:text-blue-700"
+              }`}
             >
               {item.label}
             </a>

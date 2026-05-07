@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
+import { FAQPopup } from "@/components/layout/faq-popup"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -410,10 +411,12 @@ export function UrlauberfinderSearchForm({
 
   return (
     <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-2 sm:p-4 rounded-xl shadow-lg border border-gray-200">
-      <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4 text-gray-800 flex items-center gap-2">
-        <Train className="w-5 h-5 text-blue-600" />
-        Urlaubsfinder
-      </h2>
+      <div className="mb-3 flex items-center justify-between gap-3 sm:mb-4">
+        <h2 className="text-lg font-bold text-gray-800 sm:text-xl">
+          Urlaubsfinder
+        </h2>
+        <FAQPopup context="urlaubsfinder" />
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
         {/* Heimatbahnhof */}
