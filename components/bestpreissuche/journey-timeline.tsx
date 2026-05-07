@@ -139,6 +139,20 @@ export function JourneyTimelineVertical({ legs }: { legs: JourneyLeg[] }) {
 
 const MAX_SEGMENTS_PER_ROW = 3
 
+function InlineText({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <span className={`block min-w-0 max-w-[7.5rem] truncate ${className}`}>
+      {children}
+    </span>
+  )
+}
+
 export function JourneyTimelineHorizontal({ legs }: { legs: JourneyLeg[] }) {
   if (!legs || legs.length === 0) {
     return (
@@ -161,13 +175,13 @@ export function JourneyTimelineHorizontal({ legs }: { legs: JourneyLeg[] }) {
   const textSize = "text-xs"
 
   return (
-    <div className="w-full space-y-2">
+    <div className="w-full min-w-0 space-y-2">
       {chunks.map((chunk, chunkIdx) => {
         const isLastChunk = chunkIdx === chunks.length - 1
         const chunkStartIdx = chunkIdx * MAX_SEGMENTS_PER_ROW
 
         return (
-          <div key={chunkIdx} className="flex items-start">
+          <div key={chunkIdx} className="flex min-w-0 items-start">
             {chunk.map((leg, idx) => {
               const globalIdx = chunkStartIdx + idx
               const vehicleStyle = getVehicleTypeStyle(leg.verkehrsmittel?.produktGattung)
@@ -185,20 +199,20 @@ export function JourneyTimelineHorizontal({ legs }: { legs: JourneyLeg[] }) {
                 <React.Fragment key={idx}>
                   {/* Start station (first of each chunk) */}
                   {(isFirst || (chunkIdx > 0 && idx === 0)) && (
-                    <div className="flex flex-col text-center flex-shrink-0">
+                    <div className="flex min-w-0 flex-col text-center flex-shrink-0">
                       <div className={`${topRowHeight} flex items-center justify-center px-1`}>
-                        <div className={`font-semibold text-gray-800 ${textSize} whitespace-nowrap`}>
+                        <InlineText className={`font-semibold text-gray-800 ${textSize}`}>
                           {leg.abfahrtsOrt}
-                        </div>
+                        </InlineText>
                       </div>
-                      <div className={`font-semibold text-gray-800 ${textSize} whitespace-nowrap mt-1`}>
+                      <div className={`font-semibold text-gray-800 ${textSize} mt-1`}>
                         {fmtTime(leg.abfahrtsZeitpunkt)}
                       </div>
                     </div>
                   )}
 
                   {/* Line */}
-                  <div className="flex-1 flex flex-col px-1">
+                  <div className="min-w-3 flex-1 flex flex-col px-1">
                     <div className={`${topRowHeight} flex items-center`}>
                       <div className="w-full h-px bg-gray-400" />
                     </div>
@@ -206,10 +220,10 @@ export function JourneyTimelineHorizontal({ legs }: { legs: JourneyLeg[] }) {
                   </div>
 
                   {/* Vehicle badge + duration */}
-                  <div className="flex flex-col text-center flex-shrink-0">
+                  <div className="flex min-w-0 flex-col text-center flex-shrink-0">
                     <div className={`${topRowHeight} flex items-center justify-center`}>
                       <div
-                        className={`px-2 py-1 rounded font-semibold ${textSize} ${vehicleStyle.color} ${vehicleStyle.bg} ${vehicleStyle.border} border whitespace-nowrap shadow-sm`}
+                        className={`max-w-[5.75rem] truncate px-2 py-1 rounded font-semibold ${textSize} ${vehicleStyle.color} ${vehicleStyle.bg} ${vehicleStyle.border} border whitespace-nowrap shadow-sm`}
                       >
                         {vehicleLabel(leg)}
                       </div>
@@ -218,7 +232,7 @@ export function JourneyTimelineHorizontal({ legs }: { legs: JourneyLeg[] }) {
                   </div>
 
                   {/* Line */}
-                  <div className="flex-1 flex flex-col px-1">
+                  <div className="min-w-3 flex-1 flex flex-col px-1">
                     <div className={`${topRowHeight} flex items-center`}>
                       <div className="w-full h-px bg-gray-400" />
                     </div>
@@ -226,13 +240,13 @@ export function JourneyTimelineHorizontal({ legs }: { legs: JourneyLeg[] }) {
                   </div>
 
                   {/* Arrival / transfer station */}
-                  <div className="flex flex-col text-center flex-shrink-0">
+                  <div className="flex min-w-0 flex-col text-center flex-shrink-0">
                     <div className={`${topRowHeight} flex items-center justify-center px-1`}>
-                      <div className={`font-semibold text-gray-800 ${textSize} whitespace-nowrap`}>
+                      <InlineText className={`font-semibold text-gray-800 ${textSize}`}>
                         {leg.ankunftsOrt}
-                      </div>
+                      </InlineText>
                     </div>
-                    <div className={`font-semibold text-gray-800 ${textSize} whitespace-nowrap mt-1`}>
+                    <div className={`font-semibold text-gray-800 ${textSize} mt-1`}>
                       {!isLast && transferTime !== null && transferStyle ? (
                         isLastInChunk && !isLastChunk ? (
                           // End of a non-final chunk row: just show arrival time
@@ -241,7 +255,7 @@ export function JourneyTimelineHorizontal({ legs }: { legs: JourneyLeg[] }) {
                           </span>
                         ) : (
                           // Mid-journey transfer: arr | badge | dep
-                          <div className={`flex items-center gap-1 justify-center ${textSize}`}>
+                          <div className={`flex flex-wrap items-center gap-1 justify-center ${textSize}`}>
                             <span className={`font-semibold text-gray-600 ${textSize}`}>
                               {fmtTime(leg.ankunftsZeitpunkt)}
                             </span>

@@ -154,7 +154,7 @@ function JourneyBlock({
   const bgCls = isOut ? "bg-blue-50/70" : "bg-orange-50/70"
 
   return (
-    <div className={`rounded-lg border ${borderCls} ${bgCls} p-4 md:p-5`}>
+    <div className={`min-w-0 rounded-lg border ${borderCls} ${bgCls} p-4 md:p-5`}>
       <div className="flex items-center justify-between mb-2">
         <Badge variant="outline" className={`${accent} border-current bg-white/70 rounded-full px-2 py-0.5`}>
           {isOut ? "Hinfahrt" : "Rückfahrt"}
@@ -197,7 +197,7 @@ function JourneyBlock({
       </div>
       {legs && legs.length > 0 && (
         <div className="mt-4 pt-4 border-t border-white/80">
-          <div className="hidden md:block rounded-lg border border-gray-200 bg-white p-4">
+          <div className="hidden min-w-0 overflow-x-auto md:block rounded-lg border border-gray-200 bg-white p-4 pb-5">
             <JourneyTimelineHorizontal legs={legs} />
           </div>
           <div className="md:hidden rounded-lg border border-gray-200 bg-white p-3">
@@ -442,7 +442,7 @@ function ResultCard({
 
         {isExpanded && (
           <div className="border-t border-gray-100 px-4 md:px-6 pb-4 md:pb-6 pt-4 md:pt-5 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className={`grid gap-3 ${result.returnDate && result.returnPrice && result.returnPrice > 0 ? "xl:grid-cols-2" : ""}`}>
+            <div className="grid gap-3">
               <JourneyBlock
                 direction="out"
                 departure={result.outwardDeparture}
