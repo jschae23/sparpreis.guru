@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.4](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.2.3...v1.2.4) (2026-07-27)
+
+
+### Bug Fixes
+
+* update undici and other deps ([8aea9aa](https://github.com/XLixl4snSU/sparpreis.guru/commit/8aea9aa66605e076361acb2b4ac87246a82751d8))
+* update undici and other deps ([1783857](https://github.com/XLixl4snSU/sparpreis.guru/commit/1783857f83302b547af0a1eae7c7fb8cc7fb8f90))
+
 ## [1.2.3](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.2.2...v1.2.3) (2026-06-15)
 
 
