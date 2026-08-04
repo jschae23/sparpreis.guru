@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { BlockList, isIP } from "node:net"
 import { metricsCollector } from "./collector"
-import IPCIDR from 'ip-cidr';
 import { logError, logInfo, logWarn } from "@/lib/shared/logger";
 
 const LOG_SCOPE = "metrics"
@@ -8,34 +8,49 @@ const LOG_SCOPE = "metrics"
 // Security: List of allowed IPs (from ENV, comma separated)
 const ALLOWED_METRICS_IPS = process.env.ALLOWED_METRICS_IPS
   ? process.env.ALLOWED_METRICS_IPS.split(',').map(ip => ip.trim()).filter(Boolean)
-  : null;
+  : [];
+
+const ALLOWED_METRICS_NETWORKS = new BlockList();
+
+for (const allowed of ALLOWED_METRICS_IPS) {
+  const [address, prefixText, ...extraParts] = allowed.split('/');
+  const ipVersion = isIP(address);
+
+  if (ipVersion === 0 || extraParts.length > 0) {
+    logWarn(LOG_SCOPE, "Ignoring invalid metrics IP allowlist entry", { allowed });
+    continue;
+  }
+
+  const addressType = ipVersion === 6 ? 'ipv6' : 'ipv4';
+
+  try {
+    if (prefixText === undefined) {
+      ALLOWED_METRICS_NETWORKS.addAddress(address, addressType);
+    } else {
+      if (!/^\d+$/.test(prefixText)) {
+        throw new Error("Invalid CIDR prefix");
+      }
+
+      ALLOWED_METRICS_NETWORKS.addSubnet(address, Number(prefixText), addressType);
+    }
+  } catch (error) {
+    logWarn(LOG_SCOPE, "Ignoring invalid metrics IP allowlist entry", {
+      allowed,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 // Security: API Key from environment (checked at runtime)
 const getMetricsApiKey = () => process.env.METRICS_API_KEY;
 
 function isIPAllowed(ip: string): boolean {
-  if (!ip) return false;
-  if (!ALLOWED_METRICS_IPS || ALLOWED_METRICS_IPS.length === 0) return false;
+  if (!ip || ALLOWED_METRICS_IPS.length === 0) return false;
 
-  // Normalize IPv6-mapped IPv4 addresses
-  let checkIp = ip;
-  if (ip.startsWith('::ffff:')) {
-    checkIp = ip.replace('::ffff:', '');
-    if (ALLOWED_METRICS_IPS.includes(checkIp)) return true;
-  }
+  const ipVersion = isIP(ip);
+  if (ipVersion === 0) return false;
 
-  // Exact matches
-  if (ALLOWED_METRICS_IPS.includes(checkIp)) return true;
-
-  // CIDR support
-  for (const allowed of ALLOWED_METRICS_IPS) {
-    if (allowed.includes('/')) {
-      const cidr = new IPCIDR(allowed);
-      if (cidr.contains(checkIp)) return true;
-    }
-  }
-
-  return false;
+  return ALLOWED_METRICS_NETWORKS.check(ip, ipVersion === 6 ? 'ipv6' : 'ipv4');
 }
 
 function getClientIP(request: NextRequest): string {

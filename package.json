@@ -58,7 +58,6 @@
     "framer-motion": "^12.43.0",
     "geist": "^1.7.2",
     "input-otp": "1.4.2",
-    "ip-cidr": "^4.0.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.539.0",
     "next": "^16.3.0",
