@@ -20,6 +20,12 @@ let dbPath: string | null = null
 let refreshPromise: Promise<void> | null = null
 let overviewJsonCache: string | null = null
 
+export interface DirectConnectionsDbRefreshStatus {
+  isRefreshing: boolean
+  refreshRequired: boolean
+  reason: "missing" | "stale" | null
+}
+
 function isHttpsAllowedRemote(url: string): boolean {
   try {
     const parsed = new URL(url)
@@ -45,12 +51,22 @@ async function activeDbPath(): Promise<string> {
   return BUNDLED_DB_FILE
 }
 
-async function shouldRefreshCache(): Promise<boolean> {
+async function getRefreshReason(): Promise<"missing" | "stale" | null> {
   try {
     const stat = await fs.stat(CACHE_DB_FILE)
-    return Date.now() - stat.mtimeMs > REFRESH_INTERVAL_MS
+    return Date.now() - stat.mtimeMs > REFRESH_INTERVAL_MS ? "stale" : null
   } catch {
-    return true
+    return "missing"
+  }
+}
+
+export async function getDirectConnectionsDbRefreshStatus(): Promise<DirectConnectionsDbRefreshStatus> {
+  const reason = await getRefreshReason()
+
+  return {
+    isRefreshing: refreshPromise !== null,
+    refreshRequired: reason !== null || refreshPromise !== null,
+    reason,
   }
 }
 
@@ -129,7 +145,7 @@ async function downloadRemoteDb(): Promise<void> {
 }
 
 async function refreshCacheIfNeeded(): Promise<void> {
-  if (!(await shouldRefreshCache())) return
+  if ((await getRefreshReason()) === null) return
   if (!refreshPromise) {
     refreshPromise = downloadRemoteDb().finally(() => {
       refreshPromise = null

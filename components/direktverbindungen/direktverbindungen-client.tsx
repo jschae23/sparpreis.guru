@@ -81,6 +81,12 @@ interface DirektverbindungenClientProps {
   showFooter?: boolean
 }
 
+interface DirectConnectionsDbRefreshStatus {
+  isRefreshing: boolean
+  refreshRequired: boolean
+  reason: "missing" | "stale" | null
+}
+
 const ctrl =
   "h-11 w-full min-w-0 max-w-full box-border px-3 text-base leading-tight rounded-md border border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
 
@@ -185,6 +191,7 @@ function productDotClasses(product: "longDistance" | "regional"): string {
 export default function DirektverbindungenClient({ showFooter = false }: DirektverbindungenClientProps) {
   const [data, setData] = useState<DirectConnectionsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isDatabaseUpdating, setIsDatabaseUpdating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [selectedStation, setSelectedStation] = useState<DirectStation | null>(null)
@@ -209,6 +216,16 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
     async function loadData() {
       try {
         setIsLoading(true)
+        try {
+          const statusResponse = await fetch("/api/direct-connections/status", { cache: "no-store" })
+          if (statusResponse.ok) {
+            const status = await statusResponse.json() as DirectConnectionsDbRefreshStatus
+            if (!cancelled) setIsDatabaseUpdating(status.refreshRequired || status.isRefreshing)
+          }
+        } catch {
+          // The data request below remains the source of truth if the optional status check fails.
+        }
+
         const response = await fetch("/api/direct-connections", { cache: "no-store" })
         if (!response.ok) {
           throw new Error("Die Direktverbindungsdaten sind aktuell nicht verfügbar.")
@@ -230,7 +247,10 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
         setError(loadError instanceof Error ? loadError.message : "Direktverbindungsdaten konnten nicht geladen werden.")
         logError(LOG_SCOPE, "Could not load direct connection data", loadError)
       } finally {
-        if (!cancelled) setIsLoading(false)
+        if (!cancelled) {
+          setIsLoading(false)
+          setIsDatabaseUpdating(false)
+        }
       }
     }
 
@@ -660,6 +680,24 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
             </form>
           </div>
         </section>
+
+        {isLoading && isDatabaseUpdating && (
+          <section
+            role="status"
+            aria-live="polite"
+            className="mb-8 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"
+          >
+            <div className="flex gap-3">
+              <Loader2 className="mt-0.5 h-5 w-5 flex-shrink-0 animate-spin" />
+              <div>
+                <div className="font-semibold">Datenbasis wird aktualisiert</div>
+                <p className="mt-1">
+                  Die Direktverbindungsdaten fehlen lokal oder sind veraltet. Die aktuelle Datenbank wird heruntergeladen. Das kann beim ersten Aufruf einen Moment dauern.
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
 
         {error && (
           <section className="mb-8 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
