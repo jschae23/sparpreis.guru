@@ -54,6 +54,7 @@ class GlobalRateLimiter {
     completedSessionTimeout: 30 * 1000 // 30 Sekunden (reduziert)
   }
   private readonly activeSearchHeartbeatTimeout = 30 * 1000
+  private readonly visibleSearchHeartbeatTimeout = 5 * 1000
 
   private minInterval = this.config.baseInterval
   private readonly maxConcurrentRequests = Number(process.env.RL_MAX_CONCURRENT_REQUESTS ?? 3)
@@ -691,6 +692,19 @@ class GlobalRateLimiter {
     rateLimitedRemainingRequests?: number
   ): void {
     if (!sessionId || sessionId === 'default' || this.cancelledSessions.has(sessionId)) return
+
+    const liveRemainingRequests =
+      (this.sessionQueues.get(sessionId)?.length || 0) +
+      (this.activeRequestsBySession.get(sessionId) || 0)
+    if (
+      remainingRequests !== undefined && remainingRequests <= 0 &&
+      rateLimitedRemainingRequests !== undefined && rateLimitedRemainingRequests <= 0 &&
+      liveRemainingRequests === 0
+    ) {
+      this.unregisterSearchSession(sessionId)
+      return
+    }
+
     this.registerSearchSession(sessionId, remainingRequests, rateLimitedRemainingRequests)
     this.clientSearchHeartbeats.set(sessionId, Date.now())
   }
@@ -850,7 +864,16 @@ class GlobalRateLimiter {
     const activeSearchSessionIds = new Set<string>()
     for (const [registeredSessionId, lastHeartbeat] of this.activeSearchSessions.entries()) {
       if (now - lastHeartbeat <= this.activeSearchHeartbeatTimeout) {
-        activeSearchSessionIds.add(registeredSessionId)
+        const reportedRemainingRequests = this.remainingRequestsBySession.get(registeredSessionId) || 0
+        const liveRemainingRequests =
+          (this.sessionQueues.get(registeredSessionId)?.length || 0) +
+          (this.activeRequestsBySession.get(registeredSessionId) || 0)
+        const clientHeartbeat = this.clientSearchHeartbeats.get(registeredSessionId) || 0
+        const hasFreshClientHeartbeat = now - clientHeartbeat <= this.visibleSearchHeartbeatTimeout
+
+        if (liveRemainingRequests > 0 || (reportedRemainingRequests > 0 && hasFreshClientHeartbeat)) {
+          activeSearchSessionIds.add(registeredSessionId)
+        }
       } else {
         this.activeSearchSessions.delete(registeredSessionId)
         this.remainingRequestsBySession.delete(registeredSessionId)
@@ -978,6 +1001,8 @@ class GlobalRateLimiter {
       otherActiveRequests,
       otherActiveSearches,
       otherRemainingRequests,
+      otherCompetingSearches: competingSearchSessions.length,
+      otherCompetingRemainingRequests: otherRateLimitedRemainingRequests,
       competingSessions,
       competingRemainingRequests,
       averageExecutionTimeMs: Math.round(estimatedExecutionTimeMs),
