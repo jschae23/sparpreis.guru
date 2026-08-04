@@ -9,8 +9,12 @@
   "scripts": {
     "build": "next build",
     "build:direct-connections": "python scripts/build-direct-connections.py",
+    "database:check": "node scripts/check-database.cjs",
+    "database:migrate": "node scripts/migrate-database.cjs",
+    "predev": "node scripts/migrate-database.cjs",
     "dev": "next dev",
     "lint": "next lint",
+    "prestart": "node scripts/migrate-database.cjs",
     "start": "next start"
   },
   "dependencies": {
@@ -54,7 +58,6 @@
     "framer-motion": "^12.43.0",
     "geist": "^1.7.2",
     "input-otp": "1.4.2",
-    "ip-cidr": "^4.0.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.539.0",
     "next": "^16.3.0",
@@ -82,7 +85,6 @@
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "typescript": "^5.9.3",
-    "wrangler": "^4.118.0"
+    "typescript": "^5.9.3"
   }
 }

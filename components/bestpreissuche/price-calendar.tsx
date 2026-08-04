@@ -273,6 +273,7 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
     sessionId,
     isActive: Boolean(isStreaming && !isCompleteNow),
     remainingRequests: Math.max(0, totalDays - completedDays),
+    searchType: "bestpreissuche",
   })
 
   return (

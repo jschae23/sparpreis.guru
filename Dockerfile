@@ -31,6 +31,9 @@ RUN mkdir -p data && chown node:node data
 COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/lib/database ./lib/database
+COPY --from=builder --chown=node:node /app/scripts/check-database.cjs ./scripts/check-database.cjs
+COPY --from=builder --chown=node:node /app/scripts/migrate-database.cjs ./scripts/migrate-database.cjs
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
