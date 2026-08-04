@@ -5,7 +5,12 @@ import type { SearchQueueStatusData } from "@/hooks/use-search-queue-status"
 import { cn } from "@/lib/utils"
 
 function formatEta(seconds: number): string {
-  const roundedSeconds = Math.max(1, Math.round(seconds))
+  const safeSeconds = Math.max(1, Math.ceil(seconds))
+  const roundedSeconds = safeSeconds < 60
+    ? Math.ceil(safeSeconds / 5) * 5
+    : safeSeconds < 5 * 60
+      ? Math.ceil(safeSeconds / 15) * 15
+      : Math.ceil(safeSeconds / 60) * 60
   if (roundedSeconds < 60) return `${roundedSeconds} Sek.`
 
   const minutes = Math.floor(roundedSeconds / 60)

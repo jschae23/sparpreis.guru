@@ -1,5 +1,9 @@
 import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logInfo, logWarn } from '@/lib/shared/logger'
+import {
+  completeSearchEtaTracking,
+  discardSearchEtaTracking,
+} from '@/lib/search/search-eta-tracking'
 
 const LOG_SCOPE = "bahn-api.rate-limiter"
 
@@ -25,8 +29,11 @@ class GlobalRateLimiter {
   private lastApiCallStart = 0 // Wann der letzte API-Call GESTARTET wurde
   private activeRequests = 0
   private activeRequestsBySession = new Map<string, number>()
+  private activeRequestStartedAt = new Map<QueuedRequest, number>()
   private activeSearchSessions = new Map<string, number>()
   private remainingRequestsBySession = new Map<string, number>()
+  private rateLimitedRemainingRequestsBySession = new Map<string, number>()
+  private clientSearchHeartbeats = new Map<string, number>()
   private rateLimitedUntil = 0
   
   // Interne Cancel-Session Verwaltung
@@ -42,14 +49,18 @@ class GlobalRateLimiter {
     minPacedInterval: Number(process.env.RL_MIN_PACED_INTERVAL_MS ?? 1250),
     maxInterval: Number(process.env.RL_MAX_INTERVAL_MS ?? 12000),
     maxRetries: 3,
-    cleanupInterval: 15000, // 15 Sekunden (erhöht für weniger CPU-Last)
+    cleanupInterval: 5000,
     sessionCancelTimeout: 3 * 60 * 1000, // 3 Minuten (reduziert)
     completedSessionTimeout: 30 * 1000 // 30 Sekunden (reduziert)
   }
-  private readonly activeSearchHeartbeatTimeout = 10 * 1000
+  private readonly activeSearchHeartbeatTimeout = 30 * 1000
 
   private minInterval = this.config.baseInterval
   private readonly maxConcurrentRequests = Number(process.env.RL_MAX_CONCURRENT_REQUESTS ?? 3)
+  private averageExecutionTimeMs = 2000
+  private readonly executionTimeSmoothing = 0.2
+  private recentExecutionTimesMs: number[] = []
+  private readonly maxRecentExecutionTimes = 100
   
   // Request-Tracking für DB-API Limits
   private requestHistory: number[] = [] // Timestamps der letzten Requests
@@ -60,6 +71,7 @@ class GlobalRateLimiter {
     // Starte regelmäßigen Cleanup abgebrochener Sessions
     this.cleanupTimer = setInterval(() => {
       this.cleanupCancelledSessions()
+      this.cleanupStaleSearchSessions()
     }, this.config.cleanupInterval)
   }
 
@@ -139,14 +151,14 @@ class GlobalRateLimiter {
   }
 
   private async processNextRequest() {
+    this.cleanupStaleSearchSessions()
+    this.cleanupCancelledSessions()
+
     // Prüfe ob wir verarbeiten können
     const totalRequests = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
     if (totalRequests === 0 || this.activeRequests >= this.maxConcurrentRequests) {
       return
     }
-
-    // Cleanup abgebrochene Sessions BEVOR wir Round-Robin machen
-    this.cleanupCancelledSessions()
 
     // Round-Robin: Finde nächste Session mit Requests
     let request: QueuedRequest | null = null
@@ -183,6 +195,7 @@ class GlobalRateLimiter {
           // Entferne Session aus Round-Robin und Queue
           this.sessionQueues.delete(currentSessionId)
           this.sessionRoundRobin = this.sessionRoundRobin.filter(id => id !== currentSessionId)
+          this.unregisterSearchSession(currentSessionId)
           if (this.currentSessionIndex >= this.sessionRoundRobin.length && this.sessionRoundRobin.length > 0) {
             this.currentSessionIndex = 0
           }
@@ -226,6 +239,7 @@ class GlobalRateLimiter {
     this.lastApiCallStart = Date.now()
     this.activeRequests++
     const effectiveSessionId = request.sessionId || 'default'
+    this.activeRequestStartedAt.set(request, this.lastApiCallStart)
     this.activeRequestsBySession.set(
       effectiveSessionId,
       (this.activeRequestsBySession.get(effectiveSessionId) || 0) + 1
@@ -238,6 +252,21 @@ class GlobalRateLimiter {
     this.executeRequestWithRetry(request)
       .catch(() => { /* rejection handled via request.reject() */ })
       .finally(() => {
+        const executionStartedAt = this.activeRequestStartedAt.get(request!)
+        this.activeRequestStartedAt.delete(request!)
+        if (
+          executionStartedAt !== undefined &&
+          !(request!.sessionId && this.isSessionCancelledSync(request!.sessionId))
+        ) {
+          const executionDuration = Math.min(45_000, Math.max(1, Date.now() - executionStartedAt))
+          this.averageExecutionTimeMs =
+            this.executionTimeSmoothing * executionDuration +
+            (1 - this.executionTimeSmoothing) * this.averageExecutionTimeMs
+          this.recentExecutionTimesMs.push(executionDuration)
+          if (this.recentExecutionTimesMs.length > this.maxRecentExecutionTimes) {
+            this.recentExecutionTimesMs.shift()
+          }
+        }
         this.activeRequests--
         const remainingActiveRequests = (this.activeRequestsBySession.get(effectiveSessionId) || 1) - 1
         if (remainingActiveRequests > 0) {
@@ -296,6 +325,7 @@ class GlobalRateLimiter {
           rejectedRequests: requestCount,
         })
       }
+      this.unregisterSearchSession(sessionId)
     }
     
     if (sessionsToRemove.length > 0) {
@@ -629,20 +659,69 @@ class GlobalRateLimiter {
     return this.cancelledSessions.has(sessionId)
   }
 
-  public registerSearchSession(sessionId: string, remainingRequests?: number): void {
+  public registerSearchSession(
+    sessionId: string,
+    remainingRequests?: number,
+    rateLimitedRemainingRequests?: number
+  ): void {
     if (!sessionId || sessionId === 'default') return
+    if (this.cancelledSessions.has(sessionId)) return
     this.activeSearchSessions.set(sessionId, Date.now())
     if (remainingRequests !== undefined && Number.isFinite(remainingRequests)) {
       this.remainingRequestsBySession.set(sessionId, Math.max(0, Math.ceil(remainingRequests)))
+    }
+    if (rateLimitedRemainingRequests !== undefined && Number.isFinite(rateLimitedRemainingRequests)) {
+      this.rateLimitedRemainingRequestsBySession.set(
+        sessionId,
+        Math.max(0, Math.ceil(rateLimitedRemainingRequests))
+      )
     }
   }
 
   public unregisterSearchSession(sessionId: string): void {
     this.activeSearchSessions.delete(sessionId)
     this.remainingRequestsBySession.delete(sessionId)
+    this.rateLimitedRemainingRequestsBySession.delete(sessionId)
+    this.clientSearchHeartbeats.delete(sessionId)
+  }
+
+  public heartbeatSearchSession(
+    sessionId: string,
+    remainingRequests?: number,
+    rateLimitedRemainingRequests?: number
+  ): void {
+    if (!sessionId || sessionId === 'default' || this.cancelledSessions.has(sessionId)) return
+    this.registerSearchSession(sessionId, remainingRequests, rateLimitedRemainingRequests)
+    this.clientSearchHeartbeats.set(sessionId, Date.now())
+  }
+
+  private cleanupStaleSearchSessions(now = Date.now()): void {
+    const staleSessionIds = Array.from(this.clientSearchHeartbeats.entries())
+      .filter(([, lastHeartbeat]) => now - lastHeartbeat > this.activeSearchHeartbeatTimeout)
+      .map(([sessionId]) => sessionId)
+
+    for (const sessionId of staleSessionIds) {
+      const queuedRequests = this.sessionQueues.get(sessionId)?.length || 0
+      const activeRequests = this.activeRequestsBySession.get(sessionId) || 0
+      const reportedRemainingRequests = this.remainingRequestsBySession.get(sessionId) || 0
+
+      logWarn(LOG_SCOPE, "Cancelling search session after heartbeat timeout", {
+        sessionId,
+        heartbeatTimeoutMs: this.activeSearchHeartbeatTimeout,
+        queuedRequests,
+        activeRequests,
+        reportedRemainingRequests,
+      })
+      this.cancelSession(sessionId, 'heartbeat_timeout')
+    }
   }
 
   public cancelSession(sessionId: string, reason: string = 'user_request'): void {
+    if (reason === 'search_completed') {
+      completeSearchEtaTracking(sessionId)
+    } else {
+      discardSearchEtaTracking(sessionId)
+    }
     this.unregisterSearchSession(sessionId)
 
     // Spezielle Behandlung für abgeschlossene Suchen - kein Cancel-Log
@@ -726,7 +805,21 @@ class GlobalRateLimiter {
     }, this.config.sessionCancelTimeout)
   }
 
+  private getEstimatedExecutionTimeMs(): number {
+    if (this.recentExecutionTimesMs.length === 0) return this.averageExecutionTimeMs
+
+    const sortedExecutionTimes = [...this.recentExecutionTimesMs].sort((a, b) => a - b)
+    const percentileIndex = Math.min(
+      sortedExecutionTimes.length - 1,
+      Math.max(0, Math.ceil(sortedExecutionTimes.length * 0.75) - 1)
+    )
+
+    return Math.max(this.averageExecutionTimeMs, sortedExecutionTimes[percentileIndex])
+  }
+
   getQueueStatus(sessionId?: string) {
+    this.cleanupStaleSearchSessions()
+
     // Berechne Gesamt-Queue-Größe über alle Sessions
     const totalQueueSize = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
     
@@ -761,6 +854,7 @@ class GlobalRateLimiter {
       } else {
         this.activeSearchSessions.delete(registeredSessionId)
         this.remainingRequestsBySession.delete(registeredSessionId)
+        this.rateLimitedRemainingRequestsBySession.delete(registeredSessionId)
       }
     }
     for (const [queuedSessionId, queue] of this.sessionQueues.entries()) {
@@ -777,6 +871,27 @@ class GlobalRateLimiter {
     const sessionActiveRequests = sessionId
       ? this.activeRequestsBySession.get(sessionId) || 0
       : 0
+    const estimatedExecutionTimeMs = this.getEstimatedExecutionTimeMs()
+    const estimateActiveRemainingMs = (startedAt: number) => {
+      const elapsedMs = Math.max(0, now - startedAt)
+      const expectedRemainingMs = estimatedExecutionTimeMs - elapsedMs
+      const overrunAllowanceMs = Math.min(
+        15_000,
+        Math.max(2_000, estimatedExecutionTimeMs * 0.5, elapsedMs * 0.5)
+      )
+      return Math.max(500, expectedRemainingMs, elapsedMs >= estimatedExecutionTimeMs ? overrunAllowanceMs : 0)
+    }
+    const activeRequestRemainingTimesMs = Array.from(this.activeRequestStartedAt.entries())
+      .map(([, startedAt]) => estimateActiveRemainingMs(startedAt))
+    while (activeRequestRemainingTimesMs.length < this.activeRequests) {
+      activeRequestRemainingTimesMs.push(estimatedExecutionTimeMs)
+    }
+    const sessionActiveRemainingTimesMs = Array.from(this.activeRequestStartedAt.entries())
+      .filter(([activeRequest]) => activeRequest.sessionId === sessionId)
+      .map(([, startedAt]) => estimateActiveRemainingMs(startedAt))
+    while (sessionActiveRemainingTimesMs.length < sessionActiveRequests) {
+      sessionActiveRemainingTimesMs.push(estimatedExecutionTimeMs)
+    }
     const hasOwnRequest = sessionQueueSize > 0 || sessionActiveRequests > 0
     const totalUsers = activeSearchSessionIds.size
     const otherActiveSearches = Math.max(
@@ -793,6 +908,31 @@ class GlobalRateLimiter {
 
       return sum + Math.max(reportedRemaining, liveRemaining)
     }, 0)
+    const competingSearchSessions = Array.from(activeSearchSessionIds).filter((activeSessionId) => {
+      if (activeSessionId === sessionId) return false
+
+      const reportedRemaining = this.rateLimitedRemainingRequestsBySession.get(activeSessionId) || 0
+      const liveRemaining =
+        (this.sessionQueues.get(activeSessionId)?.length || 0) +
+        (this.activeRequestsBySession.get(activeSessionId) || 0)
+
+      return Math.max(reportedRemaining, liveRemaining) > 0
+    })
+    const otherRateLimitedRemainingRequests = competingSearchSessions.reduce((sum, activeSessionId) => {
+      const reportedRemaining = this.rateLimitedRemainingRequestsBySession.get(activeSessionId) || 0
+      const liveRemaining =
+        (this.sessionQueues.get(activeSessionId)?.length || 0) +
+        (this.activeRequestsBySession.get(activeSessionId) || 0)
+
+      return sum + Math.max(reportedRemaining, liveRemaining)
+    }, 0)
+    const defaultRemainingRequests =
+      (this.sessionQueues.get('default')?.length || 0) +
+      (this.activeRequestsBySession.get('default') || 0)
+    const defaultSessionIsCompeting = defaultRemainingRequests > 0
+    const competingRemainingRequests = otherRateLimitedRemainingRequests + defaultRemainingRequests
+    const competingSessions = competingSearchSessions.length + (defaultSessionIsCompeting ? 1 : 0)
+    const otherActiveRequests = Math.max(0, this.activeRequests - sessionActiveRequests)
     
     // Geschätzte Wartezeit basierend auf Round-Robin
     const waitingRequests = ownPosition !== null ? ownPosition : 0
@@ -804,6 +944,17 @@ class GlobalRateLimiter {
     const sustainedInterval = Math.ceil(
       this.config.rollingLimitWindow / this.config.rollingLimitCount
     )
+    const intervalDelay = Math.max(0, this.minInterval - (now - this.lastApiCallStart))
+    const pacingDelay = Math.max(0, effectiveInterval - (now - this.lastApiCallStart))
+    const rollingWindowDelay = requestsInWindow >= this.config.rollingLimitCount
+      ? Math.max(
+          0,
+          Math.min(...this.requestHistory.filter(
+            timestamp => timestamp > now - this.config.rollingLimitWindow
+          )) + this.config.rollingLimitWindow + this.config.rollingLimitSafetyBuffer - now
+        )
+      : 0
+    const nextRateLimitStartDelay = Math.max(intervalDelay, pacingDelay, rollingWindowDelay)
     const estimatedWaitTime = hasOwnRequest ? waitingRequests * (effectiveInterval / 1000) : 0
     
     const result = {
@@ -822,8 +973,16 @@ class GlobalRateLimiter {
       estimatedWaitTime, // Geschätzte Wartezeit in Sekunden
       sessionQueueSize, // Wie viele eigene Requests in der Queue sind
       sessionActiveRequests,
+      sessionActiveRemainingTimesMs,
+      activeRequestRemainingTimesMs,
+      otherActiveRequests,
       otherActiveSearches,
       otherRemainingRequests,
+      competingSessions,
+      competingRemainingRequests,
+      averageExecutionTimeMs: Math.round(estimatedExecutionTimeMs),
+      maxConcurrentRequests: this.maxConcurrentRequests,
+      nextRateLimitStartDelay,
       sessionPosition: ownPosition // Position in der Round-Robin Liste
     }
     

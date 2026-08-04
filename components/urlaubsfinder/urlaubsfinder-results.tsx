@@ -129,7 +129,13 @@ interface UrlauberfinderResultsProps {
   isLoading: boolean
   homeStation: string
   homeCoords?: { lat: number; lon: number }
-  progress?: { processed: number; total: number; destination: string } | null
+  progress?: {
+    processed: number
+    total: number
+    destination: string
+    processedRequests?: number
+    totalRequests?: number
+  } | null
   sessionId?: string | null
   plannedDestinations?: number
   requestsPerDestination?: number
@@ -517,10 +523,14 @@ export function UrlauberfinderResults({
   const remainingDestinations = progress
     ? Math.max(0, progress.total - progress.processed)
     : Math.max(1, plannedDestinations - results.length - unavailableResults.length)
+  const remainingRequests = progress?.processedRequests !== undefined && progress.totalRequests !== undefined
+    ? Math.max(0, progress.totalRequests - progress.processedRequests)
+    : remainingDestinations * requestsPerDestination
   const queueStatus = useSearchQueueStatus({
     sessionId,
     isActive: isLoading,
-    remainingRequests: remainingDestinations * requestsPerDestination,
+    remainingRequests,
+    searchType: "urlaubsfinder",
   })
 
   useEffect(() => {

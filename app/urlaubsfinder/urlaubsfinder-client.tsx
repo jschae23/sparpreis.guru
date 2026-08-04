@@ -169,7 +169,13 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
   const [error, setError] = useState<string | null>(null)
   const [showAbortModal, setShowAbortModal] = useState(false)
   const [abortModalMessage, setAbortModalMessage] = useState<string>('')
-  const [progress, setProgress] = useState<{ processed: number; total: number; destination: string } | null>(null)
+  const [progress, setProgress] = useState<{
+    processed: number
+    total: number
+    destination: string
+    processedRequests?: number
+    totalRequests?: number
+  } | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [plannedDestinations, setPlannedDestinations] = useState(0)
   const [requestsPerDestination, setRequestsPerDestination] = useState(1)

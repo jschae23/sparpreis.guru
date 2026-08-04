@@ -14,18 +14,28 @@ interface UseSearchQueueStatusOptions {
   sessionId?: string | null
   isActive: boolean
   remainingRequests: number
+  searchType: "bestpreissuche" | "urlaubsfinder"
+}
+
+function estimateInitialSeconds(remainingRequests: number): number {
+  const normalizedRequests = Math.max(1, Math.ceil(remainingRequests))
+  const burstStartsAfterInitialSlots = Math.min(7, Math.max(0, normalizedRequests - 3))
+  const pacedStarts = Math.max(0, normalizedRequests - 10)
+  return Math.max(2, Math.ceil(2 + burstStartsAfterInitialSlots * 0.45 + pacedStarts * 2))
 }
 
 export function useSearchQueueStatus({
   sessionId,
   isActive,
   remainingRequests,
+  searchType,
 }: UseSearchQueueStatusOptions): SearchQueueStatusData {
   const normalizedRemainingRequests = Math.max(0, remainingRequests)
   const remainingRequestsRef = useRef(normalizedRemainingRequests)
+  const hasServerEstimateRef = useRef(false)
   remainingRequestsRef.current = normalizedRemainingRequests
   const fallbackStatus: SearchQueueStatusData = {
-    estimatedTimeRemaining: Math.max(2, Math.ceil(Math.max(1, normalizedRemainingRequests) * 1.5)),
+    estimatedTimeRemaining: estimateInitialSeconds(normalizedRemainingRequests),
     otherActiveSearches: 0,
     otherRemainingRequests: 0,
     isContended: false,
@@ -43,12 +53,14 @@ export function useSearchQueueStatus({
 
     let cancelled = false
     let pollTimer: ReturnType<typeof setTimeout> | undefined
+    hasServerEstimateRef.current = false
 
     const poll = async () => {
       try {
         const params = new URLSearchParams({
           sessionId,
           remainingRequests: String(remainingRequestsRef.current),
+          searchType,
         })
         const response = await fetch(`/api/search-progress?${params.toString()}`, {
           cache: "no-store",
@@ -56,12 +68,29 @@ export function useSearchQueueStatus({
 
         if (response.ok && !cancelled) {
           const data = await response.json()
-          setStatus({
-            estimatedTimeRemaining: Math.max(1, Number(data.estimatedTimeRemaining) || 1),
-            otherActiveSearches: Math.max(0, Number(data.otherActiveSearches) || 0),
-            otherRemainingRequests: Math.max(0, Number(data.otherRemainingRequests) || 0),
-            isContended: Boolean(data.isContended),
-            isRateLimited: Boolean(data.isRateLimited),
+          if (data.isCancelled) {
+            cancelled = true
+            return
+          }
+          const rawEstimate = Math.max(1, Number(data.estimatedTimeRemaining) || 1)
+          const shouldSmoothEstimate = hasServerEstimateRef.current
+          hasServerEstimateRef.current = true
+          setStatus((previousStatus) => {
+            const estimatedTimeRemaining = shouldSmoothEstimate
+              ? Math.ceil(
+                  rawEstimate > previousStatus.estimatedTimeRemaining
+                    ? previousStatus.estimatedTimeRemaining * 0.35 + rawEstimate * 0.65
+                    : previousStatus.estimatedTimeRemaining * 0.65 + rawEstimate * 0.35
+                )
+              : rawEstimate
+
+            return {
+              estimatedTimeRemaining,
+              otherActiveSearches: Math.max(0, Number(data.otherActiveSearches) || 0),
+              otherRemainingRequests: Math.max(0, Number(data.otherRemainingRequests) || 0),
+              isContended: Boolean(data.isContended),
+              isRateLimited: Boolean(data.isRateLimited),
+            }
           })
         }
       } catch {
@@ -74,10 +103,7 @@ export function useSearchQueueStatus({
     }
 
     setStatus({
-      estimatedTimeRemaining: Math.max(
-        2,
-        Math.ceil(Math.max(1, remainingRequestsRef.current) * 1.5)
-      ),
+      estimatedTimeRemaining: estimateInitialSeconds(remainingRequestsRef.current),
       otherActiveSearches: 0,
       otherRemainingRequests: 0,
       isContended: false,
@@ -88,16 +114,8 @@ export function useSearchQueueStatus({
     return () => {
       cancelled = true
       if (pollTimer) clearTimeout(pollTimer)
-      void fetch('/api/search-progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, isActiveSearch: false }),
-        keepalive: true,
-      }).catch(() => {
-        // The heartbeat timeout removes the session if cleanup cannot be delivered.
-      })
     }
-  }, [isActive, sessionId])
+  }, [isActive, searchType, sessionId])
 
   return sessionId ? status : fallbackStatus
 }

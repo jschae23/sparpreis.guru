@@ -258,7 +258,9 @@ export async function POST(request: NextRequest) {
         const unavailableDestinations: UnavailableDestination[] = []
         const destinationEntries = Array.from(destinationMap.entries())
         const totalDestinations = destinationEntries.length
+        const totalPriceRequests = totalDestinations * (returnDate ? 2 : 1)
         let completedDestinations = 0
+        let completedPriceRequests = 0
         let isStreamClosed = false
 
         const abortHandler = () => {
@@ -278,6 +280,29 @@ export async function POST(request: NextRequest) {
             isStreamClosed = true
             globalRateLimiter.cancelSession(sessionId, 'user_request')
             return false
+          }
+        }
+
+        const trackPriceRequest = async <T>(
+          priceRequest: Promise<T>,
+          destination: string
+        ): Promise<T> => {
+          try {
+            return await priceRequest
+          } finally {
+            completedPriceRequests++
+            if (!request.signal.aborted) {
+              safeEnqueue({
+                type: 'progress',
+                data: {
+                  processed: completedDestinations,
+                  total: totalDestinations,
+                  destination,
+                  processedRequests: completedPriceRequests,
+                  totalRequests: totalPriceRequests,
+                },
+              })
+            }
           }
         }
 
@@ -306,6 +331,8 @@ export async function POST(request: NextRequest) {
               queued: index + 1,
               total: totalDestinations,
               destination: destinationDisplayName,
+              processedRequests: completedPriceRequests,
+              totalRequests: totalPriceRequests,
             },
           })
 
@@ -338,7 +365,10 @@ export async function POST(request: NextRequest) {
               umstiegszeit,
             }
 
-            const outwardResultPromise = getBestPrice(outwardConfig)
+            const outwardResultPromise = trackPriceRequest(
+              getBestPrice(outwardConfig),
+              destinationDisplayName
+            )
 
             let outwardPrice = 0
             let outwardDeparture = ""
@@ -375,7 +405,10 @@ export async function POST(request: NextRequest) {
                 umstiegszeit,
               }
 
-              returnResultPromise = getBestPrice(returnConfig)
+              returnResultPromise = trackPriceRequest(
+                getBestPrice(returnConfig),
+                destinationDisplayName
+              )
             }
 
             const [outwardResult, returnResult] = await Promise.all([
@@ -496,6 +529,8 @@ export async function POST(request: NextRequest) {
                   processed: completedDestinations,
                   total: totalDestinations,
                   destination: destinationDisplayName,
+                  processedRequests: completedPriceRequests,
+                  totalRequests: totalPriceRequests,
                 },
               })
             }
@@ -505,7 +540,7 @@ export async function POST(request: NextRequest) {
         logInfo(LOG_SCOPE, "Urlaubsfinder destination price requests queued in parallel", {
           sessionId,
           destinations: totalDestinations,
-          priceRequests: totalDestinations * (returnDate ? 2 : 1),
+          priceRequests: totalPriceRequests,
         })
 
         await Promise.all(

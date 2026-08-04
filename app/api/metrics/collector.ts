@@ -36,6 +36,7 @@ class MetricsCollector {
   
   // Histogram buckets for response times (in milliseconds)
   private readonly responseTimeBuckets = [50, 100, 200, 500, 1000, 2000, 5000, 10000, Infinity]
+  private readonly etaErrorBuckets = [1000, 2500, 5000, 10000, 20000, 30000, 60000, 120000, Infinity]
   
   constructor() {
     this.initializeMetrics()
@@ -101,6 +102,12 @@ class MetricsCollector {
       sum: 0,
       count: 0
     })
+
+    this.histograms.set('search_eta_absolute_error_ms', {
+      buckets: this.etaErrorBuckets.map(le => ({ le, count: 0 })),
+      sum: 0,
+      count: 0
+    })
   }
 
   private normalizeLabels(labels?: Record<string, string>): MetricLabels | null {
@@ -142,9 +149,12 @@ class MetricsCollector {
     return metric
   }
 
-  private createHistogram(): Histogram {
+  private createHistogram(name?: string): Histogram {
+    const buckets = name
+      ? this.histograms.get(name)?.buckets.map((bucket) => bucket.le) || this.responseTimeBuckets
+      : this.responseTimeBuckets
     return {
-      buckets: this.responseTimeBuckets.map(le => ({ le, count: 0 })),
+      buckets: buckets.map(le => ({ le, count: 0 })),
       sum: 0,
       count: 0,
     }
@@ -200,7 +210,7 @@ class MetricsCollector {
   observeHistogram(name: string, value: number, labels?: Record<string, string>) {
     const normalizedLabels = this.normalizeLabels(labels)
     if (normalizedLabels) {
-      const metric = this.getLabeledMetric(this.labeledHistograms, name, normalizedLabels, () => this.createHistogram())
+      const metric = this.getLabeledMetric(this.labeledHistograms, name, normalizedLabels, () => this.createHistogram(name))
       this.observeHistogramValue(metric.value, value)
       return
     }
@@ -292,6 +302,20 @@ class MetricsCollector {
 
   recordSearchDuration(durationMs: number) {
     this.observeHistogram('user_search_duration_ms', durationMs)
+  }
+
+  recordSearchEtaAccuracy(searchType: string, estimatedRemainingMs: number, actualRemainingMs: number) {
+    const signedErrorMs = estimatedRemainingMs - actualRemainingMs
+    const labels = { search_type: searchType }
+
+    this.observeHistogram('search_eta_absolute_error_ms', Math.abs(signedErrorMs), labels)
+    this.incrementCounter('search_eta_samples_total', 1, labels)
+
+    if (signedErrorMs >= 0) {
+      this.incrementCounter('search_eta_overestimation_ms_total', signedErrorMs, labels)
+    } else {
+      this.incrementCounter('search_eta_underestimation_ms_total', Math.abs(signedErrorMs), labels)
+    }
   }
 
   recordUrlaubsfinderSearch(destinationCount: number) {

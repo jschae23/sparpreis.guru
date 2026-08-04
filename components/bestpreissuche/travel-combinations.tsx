@@ -2559,6 +2559,7 @@ export function TravelCombinations({
     sessionId,
     isActive: Boolean(isStreaming && completedDays < totalDays),
     remainingRequests: Math.max(0, totalDays - completedDays),
+    searchType: "bestpreissuche",
   })
 
   if (!hasReturnSearch) return null

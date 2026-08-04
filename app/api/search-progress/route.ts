@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { globalRateLimiter } from "@/app/api/search-prices/rate-limiter"
+import { estimateSearchEtaSeconds } from "@/lib/search/search-eta"
+import {
+  recordSearchEtaEstimate,
+  type SearchEtaType,
+} from "@/lib/search/search-eta-tracking"
 import { logDebug, logError } from "@/lib/shared/logger"
 
 const LOG_SCOPE = "search-progress"
@@ -40,6 +45,12 @@ function parseRequestedRemainingRequests(url: URL): number | undefined {
   return undefined
 }
 
+function parseSearchType(url: URL): SearchEtaType {
+  const searchType = url.searchParams.get('searchType')
+  if (searchType === 'bestpreissuche' || searchType === 'urlaubsfinder') return searchType
+  return 'unknown'
+}
+
 function getRemainingWork(
   url: URL,
   progressData: SearchProgressData | undefined,
@@ -53,7 +64,7 @@ function getRemainingWork(
   const progressUncached = Math.max(0, progressData?.uncachedDays || 0)
   const progressCached = Math.max(0, progressData?.cachedDays || 0)
   const total = Math.max(
-    requestedRemaining ?? progressRemaining,
+    progressData ? progressRemaining : (requestedRemaining ?? 0),
     liveSessionRequests
   )
   const knownUncached = Math.min(total, Math.max(progressUncached, liveSessionRequests))
@@ -74,42 +85,12 @@ function calculateEstimatedTimeRemaining(
 ): number {
   if (progressData?.isComplete && remainingWork.total === 0) return 0
 
-  const workItems = Math.max(1, remainingWork.uncached)
-  const effectiveIntervalSeconds = Math.max(0.25, queueStatus.effectiveInterval / 1000)
-  const averageApiSeconds = Math.min(
-    Math.max((progressData?.averageUncachedResponseTime || 2000) / 1000, 0.5),
-    10
-  )
-  const sessionsSharingCapacity = Math.max(
-    1,
-    queueStatus.totalUsers + (queueStatus.hasOwnRequest ? 0 : 1)
-  )
-  const alreadyRunningForSession = Math.min(
-    workItems,
-    Math.max(0, queueStatus.sessionActiveRequests)
-  )
-  const remainingStarts = Math.max(0, workItems - Math.max(1, alreadyRunningForSession))
-  const fastStartsForSession = Math.min(
-    remainingStarts,
-    Math.floor(queueStatus.burstCapacity / sessionsSharingCapacity)
-  )
-  const pacedStartsForSession = Math.max(0, remainingStarts - fastStartsForSession)
-  const sustainedIntervalSeconds = Math.max(
-    effectiveIntervalSeconds,
-    queueStatus.sustainedInterval / 1000
-  )
-  const scheduledSeconds =
-    fastStartsForSession * effectiveIntervalSeconds * sessionsSharingCapacity +
-    pacedStartsForSession * sustainedIntervalSeconds * sessionsSharingCapacity
-  const cachedSeconds = remainingWork.cached * Math.max(
-    (progressData?.averageCachedResponseTime || 100) / 1000,
-    0.05
-  )
-
-  return Math.max(
-    2,
-    Math.ceil(queueStatus.estimatedWaitTime + scheduledSeconds + averageApiSeconds + cachedSeconds)
-  )
+  return estimateSearchEtaSeconds({
+    uncachedRequests: remainingWork.uncached,
+    cachedRequests: remainingWork.cached,
+    averageCachedResponseTimeMs: progressData?.averageCachedResponseTime || 100,
+    queue: queueStatus,
+  })
 }
 
 // GET - Progress-Daten abrufen
@@ -123,12 +104,16 @@ export async function GET(request: NextRequest) {
     }
 
     const progressData = progressStorage.get(sessionId)
+    const requestedRemaining = parseRequestedRemainingRequests(url)
     if (!progressData?.isComplete) {
-      globalRateLimiter.registerSearchSession(
+      globalRateLimiter.heartbeatSearchSession(
         sessionId,
         progressData
           ? Math.max(0, progressData.totalDays - progressData.currentDay)
-          : parseRequestedRemainingRequests(url)
+          : requestedRemaining,
+        progressData
+          ? Math.max(0, progressData.uncachedDays || 0)
+          : requestedRemaining
       )
     }
     const queueStatus = globalRateLimiter.getQueueStatus(sessionId)
@@ -138,6 +123,11 @@ export async function GET(request: NextRequest) {
       progressData,
       queueStatus
     )
+
+    const isCancelled = globalRateLimiter.isSessionCancelledSync(sessionId)
+    if (!isCancelled && !progressData?.isComplete && remainingWork.total > 0) {
+      recordSearchEtaEstimate(sessionId, estimatedTimeRemaining, parseSearchType(url))
+    }
 
     return NextResponse.json({
       currentDay: progressData?.currentDay || 0,
@@ -150,6 +140,7 @@ export async function GET(request: NextRequest) {
       totalUsers: queueStatus.totalUsers,
       otherActiveSearches: queueStatus.otherActiveSearches,
       otherRemainingRequests: queueStatus.otherRemainingRequests,
+      isCancelled,
       isContended: remainingWork.total > 0 && queueStatus.otherActiveSearches > 0,
       isRateLimited: queueStatus.isRateLimited,
       effectiveInterval: queueStatus.effectiveInterval,
@@ -173,7 +164,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (data.isActiveSearch === false) {
-      globalRateLimiter.unregisterSearchSession(sessionId)
+      globalRateLimiter.cancelSession(sessionId, 'client_inactive')
       return NextResponse.json({ success: true })
     }
 
@@ -192,7 +183,8 @@ export async function POST(request: NextRequest) {
     } else {
       globalRateLimiter.registerSearchSession(
         sessionId,
-        Math.max(0, Number(data.totalDays || 0) - Number(data.currentDay || 0))
+        Math.max(0, Number(data.totalDays || 0) - Number(data.currentDay || 0)),
+        Math.max(0, Number(data.uncachedDays || 0))
       )
     }
 
