@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.4.0](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.3.0...v1.4.0) (2026-08-04)
+
+### ⚠️ Wichtiger Hinweis zur Datenbankmigration
+
+Beim ersten Start wird die bestehende Datenbank automatisch migriert.
+Dabei wird standardmäßig die Datei
+`connection-cache.db.backup-v1-before-v2` angelegt.
+
+Dieses Backup wird nicht automatisch entfernt und kann erheblichen
+Speicherplatz belegen. Nach einem erfolgreichen Start und einem
+fehlerfreien `pnpm database:check` kann es manuell gelöscht werden,
+sofern kein Rollback mehr benötigt wird.
+
+Vor dem Upgrade sollte ausreichend freier Speicherplatz auf dem
+Daten-Volume vorhanden sein.
+
+### Features
+
+* **database:** add versioned SQLite migrations ([3c1caec](https://github.com/XLixl4snSU/sparpreis.guru/commit/3c1caecdd5e1a06414cd8e577419bdc26e8e7f93))
+* **search:** improve search progress ETA accuracy ([34197bb](https://github.com/XLixl4snSU/sparpreis.guru/commit/34197bb91de6c14819ac4b57fb77c2ce93467050))
+
+
+### Bug Fixes
+
+* **bestpreissuche:** focus combinations selected from price matrix ([880692d](https://github.com/XLixl4snSU/sparpreis.guru/commit/880692da031c9ee8b3919c65757a355d9785f5f9))
+* **bestpreissuche:** prevent price history chart overflow ([0b92056](https://github.com/XLixl4snSU/sparpreis.guru/commit/0b92056d8b362da3da77e3d55e3f3bdc2d75719a))
+* **bestpreissuche:** stabilize search lifecycle in strict mode ([e523eed](https://github.com/XLixl4snSU/sparpreis.guru/commit/e523eedc70d7195ff5f9b7c5be40921be10fc3d0))
+* **search:** hide inactive sessions from queue status ([f992284](https://github.com/XLixl4snSU/sparpreis.guru/commit/f9922843cc86bcc7763810f377dd567b74135f28))
+
 ## [1.3.0](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.2.4...v1.3.0) (2026-08-04)
 
 
