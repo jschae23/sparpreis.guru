@@ -16,7 +16,7 @@ type MainNavItem = {
 }
 
 interface MainNavigationProps {
-  active: "bestpreissuche" | "urlaubsfinder" | "direktverbindungen"
+  active: "bestpreissuche" | "klassik" | "urlaubsfinder" | "direktverbindungen"
   showUrlaubsfinder?: boolean
   variant?: "desktop" | "mobile"
 }
@@ -29,7 +29,7 @@ export function MainNavigation({ active, showUrlaubsfinder = true, variant = "de
   ].filter(item => item.enabled !== false)
 
   const activeItem = items.find(item => {
-    if (active === "bestpreissuche") return item.href === "/"
+    if (active === "bestpreissuche" || active === "klassik") return item.href === "/"
     return item.href.includes(active)
   }) ?? items[0]
 
@@ -74,7 +74,7 @@ export function MainNavigation({ active, showUrlaubsfinder = true, variant = "de
                 <DropdownMenuItem key={item.href} asChild>
                   <a
                     href={item.href}
-                    className={`cursor-pointer ${isActive ? "font-semibold text-blue-700" : ""}`}
+                    className={`cursor-pointer ${isActive && active !== "klassik" ? "font-semibold text-blue-700" : ""}`}
                   >
                     {item.label}
                   </a>
