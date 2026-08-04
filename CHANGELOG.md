@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.0](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.2.4...v1.3.0) (2026-08-04)
+
+
+### Features
+
+* **bestpreissuche:** add flexible return journey search ([e233b39](https://github.com/XLixl4snSU/sparpreis.guru/commit/e233b39185d2d9331d0bea75064684b51194f58f))
+* **direktverbindungen:** show database refresh status ([ba6fbac](https://github.com/XLixl4snSU/sparpreis.guru/commit/ba6fbac234769f139136671b25e7ca1a1cb0d863))
+* **klassik:** add classic price calendar mode ([b8d6435](https://github.com/XLixl4snSU/sparpreis.guru/commit/b8d6435b55a2b15e9ecfdf4538f21c3e1b81c562))
+* **search:** report fair queue progress ([75851b8](https://github.com/XLixl4snSU/sparpreis.guru/commit/75851b816bdaf18eba5e4d83b23bb6fcf53a07f7))
+* **urlaubsfinder:** simplify destination and return search ([f8b7d0a](https://github.com/XLixl4snSU/sparpreis.guru/commit/f8b7d0a94b677af5be686c11d37c5a0cc441e390))
+
+
+### Bug Fixes
+
+* **bestpreissuche:** handle optional chart tooltip values ([5b1b03e](https://github.com/XLixl4snSU/sparpreis.guru/commit/5b1b03e98478779c220d204849a258df3a7fbcef))
+* **deps:** update Next.js and PostCSS ([df13998](https://github.com/XLixl4snSU/sparpreis.guru/commit/df1399826f552757432976d80b42ffd8f6975a9e))
+* **search:** handle temporary Bahn API failures ([609b866](https://github.com/XLixl4snSU/sparpreis.guru/commit/609b866a1d5916c2c012cc7e78985dfb6e7ba7eb))
+
 ## [1.2.4](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.2.3...v1.2.4) (2026-07-27)
 
 
