@@ -1,10 +1,13 @@
 import { metricsCollector } from '@/app/api/metrics/collector'
 import { formatLogDateTime, logDebug, logError, logInfo, logWarn } from '@/lib/shared/logger'
 import Database from 'better-sqlite3'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { gzipSync, gunzipSync } from 'zlib'
 import { generateConnectionId } from './utils'
+import { connectionKey } from '@/lib/database/connection-key.cjs'
+import { initializeEmptyDatabase } from '@/lib/database/database-migrations.cjs'
+import databaseSchema from '@/lib/database/database-schema.json'
 
 const LOG_SCOPE = "bestpreissuche.cache"
 
@@ -49,89 +52,33 @@ interface TrainResults {
 }
 
 // Initialisiere SQLite Datenbank
+const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build'
 const dataDir = join(process.cwd(), 'data')
-if (!existsSync(dataDir)) {
-  mkdirSync(dataDir, { recursive: true })
+const dbPath = process.env.DATABASE_PATH || join(dataDir, 'connection-cache.db')
+const dbDir = dirname(dbPath)
+if (!isBuildPhase && !existsSync(dbDir)) {
+  mkdirSync(dbDir, { recursive: true })
 }
+const db = new Database(isBuildPhase ? ':memory:' : dbPath)
 
-const dbPath = join(dataDir, 'connection-cache.db')
-const db = new Database(dbPath)
-
-// Aktiviere WAL-Modus für bessere Performance
+// Der Migrationsrunner wird vor dem Serverstart ausgeführt. Hier wird nur noch
+// geprüft, dass kein Prozess mit einem inkompatiblen Schema weiterarbeitet.
+db.pragma('busy_timeout = 30000')
 db.pragma('journal_mode = WAL')
 db.pragma('synchronous = NORMAL')
+db.pragma('foreign_keys = ON')
 
-// Erstelle Tabellen
-db.exec(`
-  CREATE TABLE IF NOT EXISTS connection_cache (
-    cache_key TEXT NOT NULL,
-    data_compressed BLOB NOT NULL,
-    created_at INTEGER NOT NULL,
-    last_fetched_at INTEGER NOT NULL,
-    PRIMARY KEY (cache_key)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_last_fetched ON connection_cache(last_fetched_at);
-
-  /* Legacy price_history (belassen für Abwärtskompatibilität, standardmäßig nicht mehr beschrieben) */
-  CREATE TABLE IF NOT EXISTS price_history (
-    connection_id TEXT NOT NULL,
-    start_station_id TEXT NOT NULL,
-    ziel_station_id TEXT NOT NULL,
-    date TEXT NOT NULL,
-    "alter" TEXT NOT NULL,
-    ermaessigung_art TEXT NOT NULL,
-    ermaessigung_klasse TEXT NOT NULL,
-    klasse TEXT NOT NULL,
-    abfahrts_zeitpunkt TEXT NOT NULL,
-    ankunfts_zeitpunkt TEXT NOT NULL,
-    preis REAL NOT NULL,
-    info TEXT NOT NULL,
-    recorded_at INTEGER NOT NULL,
-    PRIMARY KEY (connection_id, "alter", ermaessigung_art, ermaessigung_klasse, klasse, recorded_at)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_price_history_connection ON price_history(
-    start_station_id, ziel_station_id, date, "alter", ermaessigung_art, ermaessigung_klasse, klasse
-  );
-  CREATE INDEX IF NOT EXISTS idx_price_history_recorded ON price_history(recorded_at);
-
-  /* Station search cache */
-  CREATE TABLE IF NOT EXISTS station_search_cache (
-    search_term TEXT NOT NULL,
-    ext_id TEXT NOT NULL,
-    station_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    lat REAL,
-    lon REAL,
-    station_type TEXT,
-    products TEXT,
-    result_rank INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (search_term, ext_id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_station_search_term ON station_search_cache(search_term);
-  CREATE INDEX IF NOT EXISTS idx_station_created ON station_search_cache(created_at);
-
-  CREATE TABLE IF NOT EXISTS station_search_usage (
-    search_term TEXT NOT NULL,
-    ext_id TEXT NOT NULL,
-    name TEXT,
-    click_count INTEGER NOT NULL DEFAULT 0,
-    last_clicked_at INTEGER NOT NULL,
-    PRIMARY KEY (search_term, ext_id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_station_usage_term ON station_search_usage(search_term);
-  CREATE INDEX IF NOT EXISTS idx_station_usage_clicked ON station_search_usage(last_clicked_at);
-`)
-
-const stationSearchColumns = db
-  .prepare('PRAGMA table_info(station_search_cache)')
-  .all() as Array<{ name: string }>
-if (!stationSearchColumns.some(column => column.name === 'result_rank')) {
-  db.exec('ALTER TABLE station_search_cache ADD COLUMN result_rank INTEGER NOT NULL DEFAULT 0')
+if (isBuildPhase) {
+  initializeEmptyDatabase(db)
+} else {
+  const databaseVersion = db.pragma('user_version', { simple: true }) as number
+  if (databaseVersion !== databaseSchema.latestVersion) {
+    db.close()
+    throw new Error(
+      `Database schema mismatch: current=${databaseVersion}, expected=${databaseSchema.latestVersion}. ` +
+      'Run "npm run database:migrate" before starting the application.'
+    )
+  }
 }
 
 // Prepared Statements
@@ -140,16 +87,59 @@ const stmtSetCache = db.prepare(`
   INSERT OR REPLACE INTO connection_cache (cache_key, data_compressed, created_at, last_fetched_at)
   VALUES (?, ?, ?, ?)
 `)
-const stmtInsertPriceHistory = db.prepare(`
-  INSERT OR IGNORE INTO price_history (
-    connection_id, start_station_id, ziel_station_id, date, "alter", ermaessigung_art,
-    ermaessigung_klasse, klasse, abfahrts_zeitpunkt, ankunfts_zeitpunkt, preis, info, recorded_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+const stmtInsertPriceHistoryContext = db.prepare(`
+  INSERT OR IGNORE INTO price_history_context (
+    start_station_id,
+    destination_station_id,
+    travel_date,
+    age_type,
+    discount_type,
+    discount_class,
+    travel_class
+  ) VALUES (?, ?, ?, ?, ?, ?, ?)
+`)
+const stmtGetPriceHistoryContext = db.prepare(`
+  SELECT id
+  FROM price_history_context
+  WHERE start_station_id = ?
+    AND destination_station_id = ?
+    AND travel_date = ?
+    AND age_type = ?
+    AND discount_type = ?
+    AND discount_class = ?
+    AND travel_class = ?
+`)
+const stmtInsertPriceHistoryJourney = db.prepare(`
+  INSERT OR IGNORE INTO price_history_journey (context_id, connection_key)
+  VALUES (?, ?)
+`)
+const stmtGetPriceHistoryJourney = db.prepare(`
+  SELECT id
+  FROM price_history_journey
+  WHERE context_id = ? AND connection_key = ?
+`)
+const stmtInsertPriceHistoryObservation = db.prepare(`
+  INSERT OR IGNORE INTO price_history_observation (journey_id, recorded_at, price)
+  VALUES (?, ?, ?)
 `)
 const stmtCleanupCache = db.prepare('DELETE FROM connection_cache WHERE last_fetched_at < ?')
-const stmtCleanupHistory = db.prepare('DELETE FROM price_history WHERE recorded_at < ?')
+const stmtCleanupHistory = db.prepare('DELETE FROM price_history_observation WHERE recorded_at < ?')
+const stmtCleanupOrphanHistoryJourneys = db.prepare(`
+  DELETE FROM price_history_journey
+  WHERE NOT EXISTS (
+    SELECT 1 FROM price_history_observation
+    WHERE price_history_observation.journey_id = price_history_journey.id
+  )
+`)
+const stmtCleanupOrphanHistoryContexts = db.prepare(`
+  DELETE FROM price_history_context
+  WHERE NOT EXISTS (
+    SELECT 1 FROM price_history_journey
+    WHERE price_history_journey.context_id = price_history_context.id
+  )
+`)
 const stmtGetCacheCount = db.prepare('SELECT COUNT(*) as count FROM connection_cache')
-const stmtGetHistoryCount = db.prepare('SELECT COUNT(*) as count FROM price_history')
+const stmtGetHistoryCount = db.prepare('SELECT COUNT(*) as count FROM price_history_observation')
 const stmtGetStationSearchCount = db.prepare('SELECT COUNT(*) as count FROM station_search_cache')
 
 // Station search prepared statements
@@ -194,67 +184,29 @@ const stmtRecordStationSearchClick = db.prepare(`
     last_clicked_at = excluded.last_clicked_at
 `)
 
-// Neue Prepared Statements für Cleanup vergangener Fahrten
-const stmtCleanupPastConnectionCache = db.prepare(`
-  DELETE FROM connection_cache 
-  WHERE cache_key LIKE '%"date":"' || ? || '"%'
+const stmtCountPastPriceHistory = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM price_history_observation observation
+  JOIN price_history_journey journey ON journey.id = observation.journey_id
+  JOIN price_history_context context ON context.id = journey.context_id
+  WHERE context.travel_date < ?
 `)
-
 const stmtCleanupPastPriceHistory = db.prepare(`
-  DELETE FROM price_history 
-  WHERE date < ?
-`)
-
-// Historie-Abfragen - OHNE Gruppierung nach Tag, um alle Zeitstempel zu behalten
-const stmtGetDayPriceHistory = db.prepare(`
-  SELECT MIN(preis) as min_preis, recorded_at
-  FROM price_history
-  WHERE start_station_id = ? 
-    AND ziel_station_id = ? 
-    AND date = ? 
-    AND "alter" = ? 
-    AND ermaessigung_art = ? 
-    AND ermaessigung_klasse = ? 
-    AND klasse = ?
-  GROUP BY recorded_at
-  ORDER BY recorded_at ASC
+  DELETE FROM price_history_context
+  WHERE travel_date < ?
 `)
 
 const stmtGetConnectionPriceHistory = db.prepare(`
-  SELECT preis, recorded_at
-  FROM price_history
-  WHERE connection_id = ?
-    AND "alter" = ?
-    AND ermaessigung_art = ?
-    AND ermaessigung_klasse = ?
-    AND klasse = ?
-  ORDER BY recorded_at ASC
-`)
-
-// Neue Version: Hole nur Preise für Verbindungen die den Filterkriterien entsprechen
-const stmtGetFilteredDayPriceHistory = db.prepare(`
-  SELECT MIN(preis) as min_preis, recorded_at
-  FROM price_history
-  WHERE start_station_id = ? 
-    AND ziel_station_id = ? 
-    AND date = ? 
-    AND "alter" = ? 
-    AND ermaessigung_art = ? 
-    AND ermaessigung_klasse = ? 
-    AND klasse = ?
-    AND connection_id IN (
-      SELECT DISTINCT connection_id FROM price_history ph2
-      WHERE ph2.start_station_id = ? 
-        AND ph2.ziel_station_id = ? 
-        AND ph2.date = ? 
-        AND ph2."alter" = ? 
-        AND ph2.ermaessigung_art = ? 
-        AND ph2.ermaessigung_klasse = ? 
-        AND ph2.klasse = ?
-        AND ph2.recorded_at = price_history.recorded_at
-    )
-  GROUP BY DATE(recorded_at / 1000, 'unixepoch')
-  ORDER BY recorded_at ASC
+  SELECT observation.price AS preis, observation.recorded_at
+  FROM price_history_observation observation
+  JOIN price_history_journey journey ON journey.id = observation.journey_id
+  JOIN price_history_context context ON context.id = journey.context_id
+  WHERE journey.connection_key = ?
+    AND context.age_type = ?
+    AND context.discount_type = ?
+    AND context.discount_class = ?
+    AND context.travel_class = ?
+  ORDER BY observation.recorded_at ASC
 `)
 
 // Cache-Hilfsfunktionen
@@ -296,6 +248,48 @@ function compressData(data: TrainResults): Buffer {
 function decompressData(compressed: Buffer): TrainResults {
   const decompressed = gunzipSync(compressed)
   return JSON.parse(decompressed.toString('utf-8'))
+}
+
+function getOrCreatePriceHistoryContextId(params: {
+  startStationId: string
+  zielStationId: string
+  date: string
+  alter: string
+  ermaessigungArt: string
+  ermaessigungKlasse: string
+  klasse: string
+}): number {
+  const values = [
+    params.startStationId,
+    params.zielStationId,
+    params.date,
+    params.alter,
+    params.ermaessigungArt,
+    params.ermaessigungKlasse,
+    params.klasse,
+  ] as const
+
+  stmtInsertPriceHistoryContext.run(...values)
+  const row = stmtGetPriceHistoryContext.get(...values) as { id: number } | undefined
+  if (!row) {
+    throw new Error('Could not resolve price history context after insert')
+  }
+  return row.id
+}
+
+function recordPriceHistoryObservation(
+  contextId: number,
+  connectionId: string,
+  price: number,
+  recordedAt: number
+): void {
+  const key = connectionKey(connectionId)
+  stmtInsertPriceHistoryJourney.run(contextId, key)
+  const journey = stmtGetPriceHistoryJourney.get(contextId, key) as { id: number } | undefined
+  if (!journey) {
+    throw new Error('Could not resolve price history journey after insert')
+  }
+  stmtInsertPriceHistoryObservation.run(journey.id, recordedAt, price)
 }
 
 export function getCachedResult(cacheKey: string): { data: TrainResults | null; needsRefresh: boolean; recordedAt?: number } {
@@ -350,8 +344,14 @@ export function setCachedResult(
     // Cache-Eintrag speichern
     stmtSetCache.run(cacheKey, compressed, now, now)
     
+    let historyContextId: number | undefined
+    const getHistoryContextId = () => {
+      historyContextId ??= getOrCreatePriceHistoryContextId(params)
+      return historyContextId
+    }
+
     // Preishistorie für alle Verbindungen speichern
-    for (const [dateKey, result] of Object.entries(data)) {
+    for (const result of Object.values(data)) {
       // Hauptverbindung
       if (result.abfahrtsZeitpunkt && result.ankunftsZeitpunkt) {
         const umstiegsAnzahl = result.allIntervals?.find(iv => iv.abfahrtsZeitpunkt === result.abfahrtsZeitpunkt && iv.ankunftsZeitpunkt === result.ankunftsZeitpunkt)?.umstiegsAnzahl || 0
@@ -362,20 +362,11 @@ export function setCachedResult(
           result.ankunftsZeitpunkt,
           umstiegsAnzahl
         )
-        
-        stmtInsertPriceHistory.run(
+
+        recordPriceHistoryObservation(
+          getHistoryContextId(),
           connectionId,
-          params.startStationId,
-          params.zielStationId,
-          params.date,
-          params.alter,
-          params.ermaessigungArt,
-          params.ermaessigungKlasse,
-          params.klasse,
-          result.abfahrtsZeitpunkt,
-          result.ankunftsZeitpunkt,
           result.preis,
-          result.info,
           now
         )
       }
@@ -390,20 +381,11 @@ export function setCachedResult(
             interval.ankunftsZeitpunkt,
             interval.umstiegsAnzahl
           )
-          
-          stmtInsertPriceHistory.run(
+
+          recordPriceHistoryObservation(
+            getHistoryContextId(),
             connectionId,
-            params.startStationId,
-            params.zielStationId,
-            params.date,
-            params.alter,
-            params.ermaessigungArt,
-            params.ermaessigungKlasse,
-            params.klasse,
-            interval.abfahrtsZeitpunkt,
-            interval.ankunftsZeitpunkt,
             interval.preis,
-            interval.info,
             now
           )
         }
@@ -444,6 +426,8 @@ function cleanupCache(): void {
     
     const cacheRemoved = stmtCleanupCache.run(cutoffTime).changes
     const historyRemoved = stmtCleanupHistory.run(cutoffTime).changes
+    stmtCleanupOrphanHistoryJourneys.run()
+    stmtCleanupOrphanHistoryContexts.run()
     const stationSearchRemoved = stmtCleanupStationSearch.run(stationSearchCutoff).changes
     const stationUsageRemoved = stmtCleanupStationSearchUsage.run(stationUsageCutoff).changes
     
@@ -494,14 +478,17 @@ function cleanupPastConnections(): void {
       }
     }
     
-    // Lösche Preishistorie für vergangene Daten
-    const historyRemoved = stmtCleanupPastPriceHistory.run(todayStr).changes
+    // Lösche Preishistorie für vergangene Daten. Das Entfernen des Kontexts
+    // löscht Journeys und Beobachtungen über die Foreign Keys mit.
+    const historyRemoved = (stmtCountPastPriceHistory.get(todayStr) as { count: number }).count
+    const historyContextsRemoved = stmtCleanupPastPriceHistory.run(todayStr).changes
     
     if (cacheRemoved > 0 || historyRemoved > 0) {
       logInfo(LOG_SCOPE, "Past travel dates cleaned from cache", {
         beforeDate: todayStr,
         connectionCacheRemoved: cacheRemoved,
         priceHistoryRemoved: historyRemoved,
+        priceHistoryContextsRemoved: historyContextsRemoved,
       })
       
       const cacheCount = (stmtGetCacheCount.get() as { count: number }).count
@@ -511,7 +498,10 @@ function cleanupPastConnections(): void {
     // Optimiere Datenbank nach größerem Cleanup
     if (cacheRemoved > 100 || historyRemoved > 1000) {
       db.pragma('optimize')
-      db.pragma('vacuum')
+      logInfo(LOG_SCOPE, "Database compaction scheduled for next application start", {
+        connectionCacheRemoved: cacheRemoved,
+        priceHistoryRemoved: historyRemoved,
+      })
     }
   } catch (error) {
     logError(LOG_SCOPE, "Past connection cleanup failed", error)
@@ -603,21 +593,24 @@ export function getDayPriceHistory(
       return []
     }
     
-    // Filtere Connection-IDs VOR dem MIN() Aggregat
+    // Filtere Journeys vor dem MIN()-Aggregat. Die festen 32-Byte-Keys
+    // ersetzen die langen, mehrfach gespeicherten Connection-ID-Texte.
     const placeholders = connectionIds.map(() => '?').join(',')
     const query = `
-      SELECT MIN(filtered.preis) as min_preis, filtered.recorded_at
+      SELECT MIN(filtered.price) as min_preis, filtered.recorded_at
       FROM (
-        SELECT preis, recorded_at
-        FROM price_history
-        WHERE start_station_id = ? 
-          AND ziel_station_id = ? 
-          AND date = ? 
-          AND "alter" = ? 
-          AND ermaessigung_art = ? 
-          AND ermaessigung_klasse = ? 
-          AND klasse = ?
-          AND connection_id IN (${placeholders})
+        SELECT observation.price, observation.recorded_at
+        FROM price_history_observation observation
+        JOIN price_history_journey journey ON journey.id = observation.journey_id
+        JOIN price_history_context context ON context.id = journey.context_id
+        WHERE context.start_station_id = ?
+          AND context.destination_station_id = ?
+          AND context.travel_date = ?
+          AND context.age_type = ?
+          AND context.discount_type = ?
+          AND context.discount_class = ?
+          AND context.travel_class = ?
+          AND journey.connection_key IN (${placeholders})
       ) AS filtered
       GROUP BY filtered.recorded_at
       ORDER BY filtered.recorded_at ASC
@@ -632,7 +625,7 @@ export function getDayPriceHistory(
       params.ermaessigungArt,
       params.ermaessigungKlasse,
       params.klasse,
-      ...connectionIds
+      ...connectionIds.map(connectionKey)
     ) as Array<{ min_preis: number; recorded_at: number }>
     
     return rows.map(row => ({ preis: row.min_preis, recorded_at: row.recorded_at }))
@@ -656,7 +649,7 @@ export function getConnectionPriceHistory(params: {
 }): PriceHistoryEntry[] {
   try {
     const rows = stmtGetConnectionPriceHistory.all(
-      params.connectionId,
+      connectionKey(params.connectionId),
       params.alter,
       params.ermaessigungArt,
       params.ermaessigungKlasse,

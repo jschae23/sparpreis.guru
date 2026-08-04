@@ -9,8 +9,12 @@
   "scripts": {
     "build": "next build",
     "build:direct-connections": "python scripts/build-direct-connections.py",
+    "database:check": "node scripts/check-database.cjs",
+    "database:migrate": "node scripts/migrate-database.cjs",
+    "predev": "node scripts/migrate-database.cjs",
     "dev": "next dev",
     "lint": "next lint",
+    "prestart": "node scripts/migrate-database.cjs",
     "start": "next start"
   },
   "dependencies": {
