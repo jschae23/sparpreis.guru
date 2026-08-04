@@ -1585,6 +1585,7 @@ function CombinationComparisonPanel({
   const [pendingResultFocus, setPendingResultFocus] = useState<string | null>(null)
   const [expandedCombinationKeys, setExpandedCombinationKeys] = useState<Set<string>>(new Set())
   const combinationResultRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const combinationListRef = useRef<HTMLDivElement>(null)
 
   const toggleCombinationDetails = (key: string) => {
     setExpandedCombinationKeys((current) => {
@@ -1601,9 +1602,18 @@ function CombinationComparisonPanel({
 
     const animationFrame = window.requestAnimationFrame(() => {
       const result = combinationResultRefs.current.get(pendingResultFocus)
-      if (!result) return
+      const list = combinationListRef.current
+      if (!result || !list) return
 
-      result.scrollIntoView({ behavior: "smooth", block: "nearest" })
+      const card = result.closest<HTMLElement>("article") || result
+      const listRect = list.getBoundingClientRect()
+      const cardRect = card.getBoundingClientRect()
+      const listPaddingTop = Number.parseFloat(window.getComputedStyle(list).paddingTop) || 0
+
+      list.scrollTo({
+        top: Math.max(0, list.scrollTop + cardRect.top - listRect.top - listPaddingTop),
+        behavior: "smooth",
+      })
       result.focus({ preventScroll: true })
       setPendingResultFocus(null)
     })
@@ -1620,6 +1630,12 @@ function CombinationComparisonPanel({
       setPendingResultFocus(getCombinationKey(outwardDate, returnDate))
     }
     onSelectTimelineCombination(outwardDate, returnDate)
+  }
+
+  const handleMatrixSelection = (outwardDate: string, returnDate: string) => {
+    setPendingResultFocus(getCombinationKey(outwardDate, returnDate))
+    setMatrixOpen(false)
+    onSelectCombination(outwardDate, returnDate)
   }
 
   const handleCombinationSort = (key: CombinationSortKey) => {
@@ -1799,7 +1815,10 @@ function CombinationComparisonPanel({
         })}
       </div>
 
-      <div className="max-h-[36rem] space-y-2 overflow-y-auto overscroll-contain bg-gray-50 p-3 lg:max-h-[44rem]">
+      <div
+        ref={combinationListRef}
+        className="max-h-[36rem] space-y-2 overflow-y-auto overscroll-contain bg-gray-50 p-3 lg:max-h-[44rem]"
+      >
         {visibleCombinations.map((combination) => {
           const active = isSameCombination(combination, selectedCombination)
           const isBestPrice = combination.totalPrice === minPrice
@@ -1993,7 +2012,7 @@ function CombinationComparisonPanel({
           maxNights={maxNights}
           isStreaming={isStreaming}
           selectedCombination={selectedCombination}
-          onSelectCombination={onSelectCombination}
+          onSelectCombination={handleMatrixSelection}
           onOpenLarge={shouldOfferExpandedMatrix ? () => setMatrixOpen(true) : undefined}
         />
       </div>
@@ -2030,7 +2049,7 @@ function CombinationComparisonPanel({
             maxNights={maxNights}
             isStreaming={isStreaming}
             selectedCombination={selectedCombination}
-            onSelectCombination={onSelectCombination}
+            onSelectCombination={handleMatrixSelection}
             expanded
           />
         </div>
