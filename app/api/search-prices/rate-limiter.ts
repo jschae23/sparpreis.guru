@@ -24,6 +24,10 @@ class GlobalRateLimiter {
   private currentSessionIndex = 0 // Aktueller Index im Round-Robin
   private lastApiCallStart = 0 // Wann der letzte API-Call GESTARTET wurde
   private activeRequests = 0
+  private activeRequestsBySession = new Map<string, number>()
+  private activeSearchSessions = new Map<string, number>()
+  private remainingRequestsBySession = new Map<string, number>()
+  private rateLimitedUntil = 0
   
   // Interne Cancel-Session Verwaltung
   private cancelledSessions = new Set<string>() // Cancelled Sessions
@@ -42,6 +46,7 @@ class GlobalRateLimiter {
     sessionCancelTimeout: 3 * 60 * 1000, // 3 Minuten (reduziert)
     completedSessionTimeout: 30 * 1000 // 30 Sekunden (reduziert)
   }
+  private readonly activeSearchHeartbeatTimeout = 10 * 1000
 
   private minInterval = this.config.baseInterval
   private readonly maxConcurrentRequests = Number(process.env.RL_MAX_CONCURRENT_REQUESTS ?? 3)
@@ -71,6 +76,9 @@ class GlobalRateLimiter {
       
       // Verwende 'default' als sessionId falls keine angegeben
       const effectiveSessionId = sessionId || 'default'
+      if (sessionId) {
+        this.registerSearchSession(sessionId)
+      }
       
       // Erstelle Queue für Session falls nicht vorhanden
       if (!this.sessionQueues.has(effectiveSessionId)) {
@@ -217,6 +225,11 @@ class GlobalRateLimiter {
     // Setze Zeitstempel und erhöhe aktive Requests
     this.lastApiCallStart = Date.now()
     this.activeRequests++
+    const effectiveSessionId = request.sessionId || 'default'
+    this.activeRequestsBySession.set(
+      effectiveSessionId,
+      (this.activeRequestsBySession.get(effectiveSessionId) || 0) + 1
+    )
 
     // Tracking für Rate Limit Logik
     this.trackRequest(this.lastApiCallStart)
@@ -226,6 +239,12 @@ class GlobalRateLimiter {
       .catch(() => { /* rejection handled via request.reject() */ })
       .finally(() => {
         this.activeRequests--
+        const remainingActiveRequests = (this.activeRequestsBySession.get(effectiveSessionId) || 1) - 1
+        if (remainingActiveRequests > 0) {
+          this.activeRequestsBySession.set(effectiveSessionId, remainingActiveRequests)
+        } else {
+          this.activeRequestsBySession.delete(effectiveSessionId)
+        }
         const totalRequestsCompleted = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
         logDebug(LOG_SCOPE, "API request completed", {
           requestId: request!.id,
@@ -298,31 +317,24 @@ class GlobalRateLimiter {
     try {
       // Wrapper um request.execute() mit periodischer Session-Abbruch-Prüfung
       const executeWithCancellation = async () => {
-        // Starte den ursprünglichen Request
-        const requestPromise = request.execute().catch((e) => { 
-          // Attach a catch immediately to avoid unhandledRejection logs, then rethrow
-          throw e 
+        const requestPromise = request.execute()
+        let checkInterval: ReturnType<typeof setInterval> | undefined
+
+        const cancellationPromise = new Promise<never>((_, reject) => {
+          checkInterval = setInterval(() => {
+            if (request.sessionId && this.isSessionCancelledSync(request.sessionId)) {
+              reject(new Error(`Session ${request.sessionId} was cancelled during execution`))
+            }
+          }, 500)
         })
-        
-        // Periodenprüfung ob Session abgebrochen wurde (alle 500ms)
-        const checkCancellation = () => {
-          return new Promise<never>((_, reject) => {
-            const checkInterval = setInterval(() => {
-              if (request.sessionId && this.isSessionCancelledSync(request.sessionId)) {
-                clearInterval(checkInterval)
-                reject(new Error(`Session ${request.sessionId} was cancelled during execution`))
-              }
-            }, 500) // Alle 500ms prüfen
-            
-            // Cleanup wenn Request fertig ist
-            requestPromise.finally(() => {
-              clearInterval(checkInterval)
-            })
-          })
+
+        try {
+          return await Promise.race([requestPromise, cancellationPromise])
+        } finally {
+          if (checkInterval) {
+            clearInterval(checkInterval)
+          }
         }
-        
-        // Race zwischen Request und Cancellation Check
-        return Promise.race([requestPromise, checkCancellation()])
       }
       
       const result: any = await executeWithCancellation()
@@ -461,6 +473,7 @@ class GlobalRateLimiter {
   private onRateLimitHit(forceMax: boolean = false) {
     // Sofort auf Max-Intervall springen, wenn gefordert
     const target = forceMax ? this.config.maxInterval : Math.min(this.minInterval * 1.5, this.config.maxInterval)
+    this.rateLimitedUntil = Date.now() + 60 * 1000
     
     logWarn(LOG_SCOPE, "Rate limit interval increased", {
       previousIntervalMs: this.minInterval,
@@ -615,7 +628,23 @@ class GlobalRateLimiter {
   public isSessionCancelledSync(sessionId: string): boolean {
     return this.cancelledSessions.has(sessionId)
   }
+
+  public registerSearchSession(sessionId: string, remainingRequests?: number): void {
+    if (!sessionId || sessionId === 'default') return
+    this.activeSearchSessions.set(sessionId, Date.now())
+    if (remainingRequests !== undefined && Number.isFinite(remainingRequests)) {
+      this.remainingRequestsBySession.set(sessionId, Math.max(0, Math.ceil(remainingRequests)))
+    }
+  }
+
+  public unregisterSearchSession(sessionId: string): void {
+    this.activeSearchSessions.delete(sessionId)
+    this.remainingRequestsBySession.delete(sessionId)
+  }
+
   public cancelSession(sessionId: string, reason: string = 'user_request'): void {
+    this.unregisterSearchSession(sessionId)
+
     // Spezielle Behandlung für abgeschlossene Suchen - kein Cancel-Log
     if (reason === 'search_completed') {
       this.cancelledSessions.add(sessionId)
@@ -724,13 +753,57 @@ class GlobalRateLimiter {
       }
     }
     
-    // Anzahl unterschiedlicher Sessions in den Queues
-    const totalUsers = this.sessionQueues.size
-    const hasOwnRequest = sessionQueueSize > 0
+    const now = Date.now()
+    const activeSearchSessionIds = new Set<string>()
+    for (const [registeredSessionId, lastHeartbeat] of this.activeSearchSessions.entries()) {
+      if (now - lastHeartbeat <= this.activeSearchHeartbeatTimeout) {
+        activeSearchSessionIds.add(registeredSessionId)
+      } else {
+        this.activeSearchSessions.delete(registeredSessionId)
+        this.remainingRequestsBySession.delete(registeredSessionId)
+      }
+    }
+    for (const [queuedSessionId, queue] of this.sessionQueues.entries()) {
+      if (queuedSessionId !== 'default' && queue.length > 0) {
+        activeSearchSessionIds.add(queuedSessionId)
+      }
+    }
+    for (const [activeSessionId, count] of this.activeRequestsBySession.entries()) {
+      if (activeSessionId !== 'default' && count > 0) {
+        activeSearchSessionIds.add(activeSessionId)
+      }
+    }
+
+    const sessionActiveRequests = sessionId
+      ? this.activeRequestsBySession.get(sessionId) || 0
+      : 0
+    const hasOwnRequest = sessionQueueSize > 0 || sessionActiveRequests > 0
+    const totalUsers = activeSearchSessionIds.size
+    const otherActiveSearches = Math.max(
+      0,
+      totalUsers - (sessionId && activeSearchSessionIds.has(sessionId) ? 1 : 0)
+    )
+    const otherRemainingRequests = Array.from(activeSearchSessionIds).reduce((sum, activeSessionId) => {
+      if (activeSessionId === sessionId) return sum
+
+      const reportedRemaining = this.remainingRequestsBySession.get(activeSessionId) || 0
+      const liveRemaining =
+        (this.sessionQueues.get(activeSessionId)?.length || 0) +
+        (this.activeRequestsBySession.get(activeSessionId) || 0)
+
+      return sum + Math.max(reportedRemaining, liveRemaining)
+    }, 0)
     
     // Geschätzte Wartezeit basierend auf Round-Robin
     const waitingRequests = ownPosition !== null ? ownPosition : 0
-    const effectiveInterval = Math.max(this.minInterval, this.getRollingWindowPacingInterval(Date.now()))
+    const effectiveInterval = Math.max(this.minInterval, this.getRollingWindowPacingInterval(now))
+    const requestsInWindow = this.requestHistory.filter(
+      timestamp => timestamp > now - this.config.rollingLimitWindow
+    ).length
+    const burstCapacity = Math.max(0, this.config.pacingStartCount - requestsInWindow)
+    const sustainedInterval = Math.ceil(
+      this.config.rollingLimitWindow / this.config.rollingLimitCount
+    )
     const estimatedWaitTime = hasOwnRequest ? waitingRequests * (effectiveInterval / 1000) : 0
     
     const result = {
@@ -738,12 +811,19 @@ class GlobalRateLimiter {
       activeRequests: this.activeRequests,
       lastApiCall: this.lastApiCallStart,
       currentInterval: this.minInterval,
+      effectiveInterval,
+      burstCapacity,
+      sustainedInterval,
+      isRateLimited: now < this.rateLimitedUntil,
       // Neue benutzerfreundliche Werte für Round-Robin
       waitingRequests, // Wie viele Sessions vor mir warten
       totalUsers, // Wie viele unterschiedliche Sessions in den Queues
       hasOwnRequest, // Ob ich überhaupt Requests in der Queue habe
       estimatedWaitTime, // Geschätzte Wartezeit in Sekunden
       sessionQueueSize, // Wie viele eigene Requests in der Queue sind
+      sessionActiveRequests,
+      otherActiveSearches,
+      otherRemainingRequests,
       sessionPosition: ownPosition // Position in der Round-Robin Liste
     }
     
@@ -751,7 +831,7 @@ class GlobalRateLimiter {
     metricsCollector.updateQueueMetrics(
       result.queueSize,
       result.activeRequests,
-      this.sessionQueues.size
+      activeSearchSessionIds.size
     )
     
     return result

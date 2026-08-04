@@ -4,8 +4,7 @@ import { logDebug, logError } from "@/lib/shared/logger"
 
 const LOG_SCOPE = "search-progress"
 
-// In-Memory Storage für Progress-Daten
-const progressStorage = new Map<string, {
+interface SearchProgressData {
   currentDay: number
   totalDays: number
   currentDate: string
@@ -18,7 +17,100 @@ const progressStorage = new Map<string, {
   activeRequests?: number
   timestamp: number
   isActiveSearch?: boolean // Markiert aktive Suchen
-}>()
+}
+
+// In-Memory Storage für Progress-Daten
+const progressStorage = new Map<string, SearchProgressData>()
+
+interface RemainingWork {
+  total: number
+  uncached: number
+  cached: number
+}
+
+function parseRequestedRemainingRequests(url: URL): number | undefined {
+  const rawRequestedValue = url.searchParams.get('remainingRequests')
+  if (rawRequestedValue === null) return undefined
+
+  const requestedValue = Number(rawRequestedValue)
+  if (Number.isFinite(requestedValue) && requestedValue >= 0) {
+    return Math.min(Math.ceil(requestedValue), 500)
+  }
+
+  return undefined
+}
+
+function getRemainingWork(
+  url: URL,
+  progressData: SearchProgressData | undefined,
+  queueStatus: ReturnType<typeof globalRateLimiter.getQueueStatus>
+): RemainingWork {
+  const requestedRemaining = parseRequestedRemainingRequests(url)
+  const liveSessionRequests = queueStatus.sessionQueueSize + queueStatus.sessionActiveRequests
+  const progressRemaining = progressData
+    ? Math.max(0, progressData.totalDays - progressData.currentDay)
+    : 0
+  const progressUncached = Math.max(0, progressData?.uncachedDays || 0)
+  const progressCached = Math.max(0, progressData?.cachedDays || 0)
+  const total = Math.max(
+    requestedRemaining ?? progressRemaining,
+    liveSessionRequests
+  )
+  const knownUncached = Math.min(total, Math.max(progressUncached, liveSessionRequests))
+  const knownCached = Math.min(Math.max(0, total - knownUncached), progressCached)
+  const unclassified = Math.max(0, total - knownUncached - knownCached)
+
+  return {
+    total,
+    uncached: knownUncached + unclassified,
+    cached: knownCached,
+  }
+}
+
+function calculateEstimatedTimeRemaining(
+  remainingWork: RemainingWork,
+  progressData: SearchProgressData | undefined,
+  queueStatus: ReturnType<typeof globalRateLimiter.getQueueStatus>
+): number {
+  if (progressData?.isComplete && remainingWork.total === 0) return 0
+
+  const workItems = Math.max(1, remainingWork.uncached)
+  const effectiveIntervalSeconds = Math.max(0.25, queueStatus.effectiveInterval / 1000)
+  const averageApiSeconds = Math.min(
+    Math.max((progressData?.averageUncachedResponseTime || 2000) / 1000, 0.5),
+    10
+  )
+  const sessionsSharingCapacity = Math.max(
+    1,
+    queueStatus.totalUsers + (queueStatus.hasOwnRequest ? 0 : 1)
+  )
+  const alreadyRunningForSession = Math.min(
+    workItems,
+    Math.max(0, queueStatus.sessionActiveRequests)
+  )
+  const remainingStarts = Math.max(0, workItems - Math.max(1, alreadyRunningForSession))
+  const fastStartsForSession = Math.min(
+    remainingStarts,
+    Math.floor(queueStatus.burstCapacity / sessionsSharingCapacity)
+  )
+  const pacedStartsForSession = Math.max(0, remainingStarts - fastStartsForSession)
+  const sustainedIntervalSeconds = Math.max(
+    effectiveIntervalSeconds,
+    queueStatus.sustainedInterval / 1000
+  )
+  const scheduledSeconds =
+    fastStartsForSession * effectiveIntervalSeconds * sessionsSharingCapacity +
+    pacedStartsForSession * sustainedIntervalSeconds * sessionsSharingCapacity
+  const cachedSeconds = remainingWork.cached * Math.max(
+    (progressData?.averageCachedResponseTime || 100) / 1000,
+    0.05
+  )
+
+  return Math.max(
+    2,
+    Math.ceil(queueStatus.estimatedWaitTime + scheduledSeconds + averageApiSeconds + cachedSeconds)
+  )
+}
 
 // GET - Progress-Daten abrufen
 export async function GET(request: NextRequest) {
@@ -31,89 +123,37 @@ export async function GET(request: NextRequest) {
     }
 
     const progressData = progressStorage.get(sessionId)
-    
-    if (!progressData) {
-      // Default-Werte wenn noch keine Daten vorhanden
-      return NextResponse.json({
-        currentDay: 0,
-        totalDays: 0,
-        isComplete: false,
-        estimatedTimeRemaining: 0,
-        currentDate: "",
-        queueSize: 0,
-        activeRequests: 0
-      })
+    if (!progressData?.isComplete) {
+      globalRateLimiter.registerSearchSession(
+        sessionId,
+        progressData
+          ? Math.max(0, progressData.totalDays - progressData.currentDay)
+          : parseRequestedRemainingRequests(url)
+      )
     }
-
     const queueStatus = globalRateLimiter.getQueueStatus(sessionId)
-
-    // Berechne Anzahl aktiver Suchanfragen (nicht abgeschlossene Sessions)
-    const activeSearchCount = Array.from(progressStorage.values()).filter(
-      session => !session.isComplete && (Date.now() - session.timestamp) < 30000 // Aktiv in letzten 30 Sekunden
-    ).length
-
-    // Berechne geschätzte verbleibende Zeit mit realistischer Logik
-    let estimatedTimeRemaining = 0
-    if (!progressData.isComplete) {
-      const remainingDays = Math.max(0, progressData.totalDays - progressData.currentDay)
-      const uncachedDays = progressData.uncachedDays || remainingDays
-      
-      if (uncachedDays > 0) {
-        // Durchschnittliche API-Zeit pro Request (Sekunden)
-        const avgApiTimeSec = Math.min((progressData.averageUncachedResponseTime || 1500) / 1000, 3)
-        
-        // Rate Limiter Parameter berücksichtigen
-        const currentIntervalMs = Math.max(0, queueStatus.currentInterval || 1200)
-        const sustainedIntervalSec = 2 // 30/min => mind. 2s Abstand
-        const burstMax = 15 // bis zu 15 Requests im 1s-Burst
-        
-        let scheduleSeconds = 0
-        let remaining = uncachedDays
-        
-        if (currentIntervalMs <= 1000) {
-          // Anfangs-Burst mit 1s Abstand für bis zu 15 Requests
-          const burstCount = Math.min(burstMax, remaining)
-          scheduleSeconds += burstCount * 1
-          remaining -= burstCount
-          
-          if (remaining > 0) {
-            // Danach konservativ mit sustained 2s weiter
-            scheduleSeconds += remaining * sustainedIntervalSec
-          }
-        } else if (currentIntervalMs < sustainedIntervalSec * 1000) {
-          // Intervall < 2s: gehe konservativ von 2s aus
-          scheduleSeconds += remaining * sustainedIntervalSec
-        } else {
-          // Aktuelles Intervall verwenden
-          scheduleSeconds += remaining * (currentIntervalMs / 1000)
-        }
-        
-        // Round-Robin Faktor: bei mehreren aktiven Suchen langsamer
-        const totalUsers = Math.max(1, activeSearchCount)
-        const roundRobinFactor = totalUsers > 1 ? Math.min(1 + (totalUsers - 1) * 0.25, 2.0) : 1.0
-        scheduleSeconds *= roundRobinFactor
-        
-        // Abschluss-Puffer: durchschnittliche API-Laufzeit nach letztem Start
-        scheduleSeconds += avgApiTimeSec
-        
-        // Grenzen setzen (1s bis 2 Minuten)
-        estimatedTimeRemaining = Math.min(Math.max(Math.round(scheduleSeconds), 1), 120)
-      } else if (remainingDays > 0) {
-        // Nur gecachte Tage verbleibend - sehr schnell
-        estimatedTimeRemaining = Math.min(remainingDays * 0.2, 5)
-      }
-    }
+    const remainingWork = getRemainingWork(url, progressData, queueStatus)
+    const estimatedTimeRemaining = calculateEstimatedTimeRemaining(
+      remainingWork,
+      progressData,
+      queueStatus
+    )
 
     return NextResponse.json({
-      currentDay: progressData.currentDay,
-      totalDays: progressData.totalDays,
-      currentDate: progressData.currentDate,
-      isComplete: progressData.isComplete,
+      currentDay: progressData?.currentDay || 0,
+      totalDays: progressData?.totalDays || 0,
+      currentDate: progressData?.currentDate || "",
+      isComplete: progressData?.isComplete || false,
       estimatedTimeRemaining,
-      queueSize: progressData.queueSize || 0,
-      activeRequests: progressData.activeRequests || 0,
-      // Verwende tatsächlich aktive Suchanfragen statt Queue-Status
-      totalUsers: activeSearchCount
+      queueSize: queueStatus.queueSize,
+      activeRequests: queueStatus.activeRequests,
+      totalUsers: queueStatus.totalUsers,
+      otherActiveSearches: queueStatus.otherActiveSearches,
+      otherRemainingRequests: queueStatus.otherRemainingRequests,
+      isContended: remainingWork.total > 0 && queueStatus.otherActiveSearches > 0,
+      isRateLimited: queueStatus.isRateLimited,
+      effectiveInterval: queueStatus.effectiveInterval,
+      remainingRequests: remainingWork.total,
     })
 
   } catch (error) {
@@ -132,6 +172,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "sessionId required" }, { status: 400 })
     }
 
+    if (data.isActiveSearch === false) {
+      globalRateLimiter.unregisterSearchSession(sessionId)
+      return NextResponse.json({ success: true })
+    }
+
     // Speichere Progress-Daten
     progressStorage.set(sessionId, {
       ...data,
@@ -144,6 +189,11 @@ export async function POST(request: NextRequest) {
       // Verwende die cancel-Funktion mit speziellem Grund für abgeschlossene Suchen
       globalRateLimiter.cancelSession(sessionId, 'search_completed')
       logDebug(LOG_SCOPE, "✅ Search session marked as completed", { sessionId })
+    } else {
+      globalRateLimiter.registerSearchSession(
+        sessionId,
+        Math.max(0, Number(data.totalDays || 0) - Number(data.currentDay || 0))
+      )
     }
 
     // Nur wichtige Meilensteine loggen
