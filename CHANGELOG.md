@@ -2,6 +2,19 @@
 
 ## [1.4.0](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.3.0...v1.4.0) (2026-08-04)
 
+### ⚠️ Wichtiger Hinweis zur Datenbankmigration
+
+Beim ersten Start wird die bestehende Datenbank automatisch migriert.
+Dabei wird standardmäßig die Datei
+`connection-cache.db.backup-v1-before-v2` angelegt.
+
+Dieses Backup wird nicht automatisch entfernt und kann erheblichen
+Speicherplatz belegen. Nach einem erfolgreichen Start und einem
+fehlerfreien `pnpm database:check` kann es manuell gelöscht werden,
+sofern kein Rollback mehr benötigt wird.
+
+Vor dem Upgrade sollte ausreichend freier Speicherplatz auf dem
+Daten-Volume vorhanden sein.
 
 ### Features
 
