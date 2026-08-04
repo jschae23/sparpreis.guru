@@ -561,6 +561,8 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'text/event-stream',
         'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Search-Session-Id': sessionId,
       },
     })
   } catch (error) {

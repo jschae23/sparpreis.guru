@@ -11,6 +11,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const LOG_SCOPE = "bestpreissuche.request"
+const MAX_DAYS_PER_DIRECTION = 30
+const MAX_TRAVEL_COMBINATIONS = 20
 
 function formatTimeWindow(abfahrtAb?: string, abfahrtBis?: string, ankunftAb?: string, ankunftBis?: string): string {
   if (!abfahrtAb && !abfahrtBis && !ankunftAb && !ankunftBis) return "beliebig"
@@ -55,6 +57,148 @@ interface TrainResults {
   [date: string]: TrainResult
 }
 
+interface JourneyLeg {
+  abfahrtsZeitpunkt: string
+  ankunftsZeitpunkt: string
+  abfahrtsOrt: string
+  ankunftsOrt: string
+  verkehrsmittel?: {
+    produktGattung?: string
+    kategorie?: string
+    name?: string
+    mittelText?: string
+  }
+}
+
+interface TravelCombination {
+  outwardDate: string
+  returnDate: string
+  nights: number
+  outwardPrice: number
+  returnPrice: number
+  totalPrice: number
+  outwardDeparture: string
+  outwardArrival: string
+  returnDeparture: string
+  returnArrival: string
+  outwardTransfers?: number
+  returnTransfers?: number
+  outwardLegs?: JourneyLeg[]
+  returnLegs?: JourneyLeg[]
+}
+
+function parseDateAtNoon(dateStr: string) {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day, 12))
+}
+
+function getNights(outwardDate: string, returnDate: string) {
+  const diffMs = parseDateAtNoon(returnDate).getTime() - parseDateAtNoon(outwardDate).getTime()
+  return Math.round(diffMs / 86_400_000)
+}
+
+function hasJourneyTimestamp(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0
+}
+
+function getDisplayInterval(data: TrainResult) {
+  const intervals = Array.isArray(data.allIntervals) ? data.allIntervals : []
+  if (intervals.length === 0) return undefined
+
+  const matchingPriceInterval = intervals.find(
+    (interval) =>
+      interval.preis === data.preis &&
+      hasJourneyTimestamp(interval.abfahrtsZeitpunkt) &&
+      hasJourneyTimestamp(interval.ankunftsZeitpunkt)
+  )
+
+  return (
+    matchingPriceInterval ||
+    intervals.find(
+      (interval) =>
+        hasJourneyTimestamp(interval.abfahrtsZeitpunkt) &&
+        hasJourneyTimestamp(interval.ankunftsZeitpunkt)
+    )
+  )
+}
+
+function getJourneyTimes(data: TrainResult) {
+  const displayInterval = getDisplayInterval(data)
+  const legs = Array.isArray(displayInterval?.abschnitte)
+    ? displayInterval.abschnitte.map((leg) => ({
+        abfahrtsZeitpunkt: leg.abfahrtsZeitpunkt,
+        ankunftsZeitpunkt: leg.ankunftsZeitpunkt,
+        abfahrtsOrt: leg.abfahrtsOrt,
+        ankunftsOrt: leg.ankunftsOrt,
+        verkehrsmittel: leg.verkehrsmittel,
+      }))
+    : []
+
+  return {
+    departure:
+      data.abfahrtsZeitpunkt ||
+      displayInterval?.abfahrtsZeitpunkt ||
+      legs[0]?.abfahrtsZeitpunkt ||
+      "",
+    arrival:
+      data.ankunftsZeitpunkt ||
+      displayInterval?.ankunftsZeitpunkt ||
+      legs[legs.length - 1]?.ankunftsZeitpunkt ||
+      "",
+    transfers: displayInterval?.umstiegsAnzahl || 0,
+    legs,
+  }
+}
+
+function buildTravelCombinations(
+  outwardResults: TrainResults,
+  returnResults: TrainResults,
+  minNights: number,
+  maxNights?: number
+): TravelCombination[] {
+  const combinations: TravelCombination[] = []
+
+  for (const [outwardDate, outwardData] of Object.entries(outwardResults)) {
+    if (!outwardData || outwardData.preis <= 0) continue
+
+    for (const [returnDate, returnData] of Object.entries(returnResults)) {
+      if (!returnData || returnData.preis <= 0) continue
+
+      const nights = getNights(outwardDate, returnDate)
+      if (nights < minNights) continue
+      if (typeof maxNights === "number" && nights > maxNights) continue
+
+      const outwardJourney = getJourneyTimes(outwardData)
+      const returnJourney = getJourneyTimes(returnData)
+
+      combinations.push({
+        outwardDate,
+        returnDate,
+        nights,
+        outwardPrice: outwardData.preis,
+        returnPrice: returnData.preis,
+        totalPrice: Math.round((outwardData.preis + returnData.preis) * 100) / 100,
+        outwardDeparture: outwardJourney.departure,
+        outwardArrival: outwardJourney.arrival,
+        returnDeparture: returnJourney.departure,
+        returnArrival: returnJourney.arrival,
+        outwardTransfers: outwardJourney.transfers,
+        returnTransfers: returnJourney.transfers,
+        outwardLegs: outwardJourney.legs.length > 0 ? outwardJourney.legs : undefined,
+        returnLegs: returnJourney.legs.length > 0 ? returnJourney.legs : undefined,
+      })
+    }
+  }
+
+  return combinations
+    .sort((a, b) => {
+      if (a.totalPrice !== b.totalPrice) return a.totalPrice - b.totalPrice
+      if (a.nights !== b.nights) return a.nights - b.nights
+      return a.outwardDate.localeCompare(b.outwardDate)
+    })
+    .slice(0, MAX_TRAVEL_COMBINATIONS)
+}
+
 export async function POST(request: NextRequest) {
   // Track search start time for metrics
   const searchStartTime = Date.now()
@@ -68,6 +212,7 @@ export async function POST(request: NextRequest) {
       reisezeitraumAb,
       reisezeitraumBis,
       wochentage, // Changed from 'tage' to 'wochentage'
+      returnWochentage,
       alter,
       ermaessigungArt,
       ermaessigungKlasse,
@@ -79,6 +224,13 @@ export async function POST(request: NextRequest) {
       abfahrtBis,
       ankunftAb,
       ankunftBis,
+      rueckfahrt,
+      minNaechte,
+      maxNaechte,
+      returnAbfahrtAb,
+      returnAbfahrtBis,
+      returnAnkunftAb,
+      returnAnkunftBis,
       umstiegszeit,
     } = body
 
@@ -88,9 +240,20 @@ export async function POST(request: NextRequest) {
       reisezeitraumBis,
       wochentage || [1, 2, 3, 4, 5, 6, 0]
     )
+    const returnSearchEnabled = rueckfahrt === "1" || rueckfahrt === true
+    const calculatedReturnDates = returnSearchEnabled
+      ? calculateDatesFromWeekdays(
+          reisezeitraumAb,
+          reisezeitraumBis,
+          returnWochentage || wochentage || [1, 2, 3, 4, 5, 6, 0]
+        )
+      : []
 
     // Count the search immediately; cache split is known after station resolution.
-    metricsCollector.recordUserSearch(calculatedDates.length)
+    metricsCollector.recordUserSearch(
+      Math.min(calculatedDates.length, MAX_DAYS_PER_DIRECTION) +
+        Math.min(calculatedReturnDates.length, MAX_DAYS_PER_DIRECTION)
+    )
     metricsCollector.recordStreamingConnection()
 
     logDebug(LOG_SCOPE, "📥 Bestpreissuche request received", {
@@ -99,8 +262,13 @@ export async function POST(request: NextRequest) {
       fromDate: reisezeitraumAb,
       toDate: reisezeitraumBis,
       plannedDays: calculatedDates.length,
+      plannedReturnDays: calculatedReturnDates.length,
       weekdays: wochentage,
+      returnWeekdays: returnSearchEnabled ? (returnWochentage || wochentage) : undefined,
       timeWindow: formatTimeWindow(abfahrtAb, abfahrtBis, ankunftAb, ankunftBis),
+      returnTimeWindow: returnSearchEnabled
+        ? formatTimeWindow(returnAbfahrtAb, returnAbfahrtBis, returnAnkunftAb, returnAnkunftBis)
+        : undefined,
       maxTransfers: maximaleUmstiege ?? "alle",
       travelClass: klasse,
     })
@@ -127,7 +295,11 @@ export async function POST(request: NextRequest) {
       fromDate: reisezeitraumAb,
       toDate: reisezeitraumBis,
       plannedDays: calculatedDates.length,
+      plannedReturnDays: calculatedReturnDates.length,
       timeWindow: formatTimeWindow(abfahrtAb, abfahrtBis, ankunftAb, ankunftBis),
+      returnTimeWindow: returnSearchEnabled
+        ? formatTimeWindow(returnAbfahrtAb, returnAbfahrtBis, returnAnkunftAb, returnAnkunftBis)
+        : undefined,
       maxTransfers: maximaleUmstiege ?? "alle",
       travelClass: klasse || "KLASSE_2",
       transferTimeMinutes: umstiegszeit && umstiegszeit !== "normal" ? umstiegszeit : undefined,
@@ -143,9 +315,22 @@ export async function POST(request: NextRequest) {
 
         // Diese Variablen müssen im gesamten Scope sichtbar sein!
         let datesToProcess: string[] = []
+        let returnDatesToProcess: string[] = []
         let maxDays = 0
         let metaData: any = undefined
         const results: TrainResults = {}
+        const returnResults: TrainResults = {}
+        const parsedMinNights = Number.parseInt(String(minNaechte || "1"), 10)
+        const parsedMaxNights = maxNaechte ? Number.parseInt(String(maxNaechte), 10) : undefined
+        const normalizedMinNights = Number.isFinite(parsedMinNights) && parsedMinNights > 0 ? parsedMinNights : 1
+        const normalizedMaxNights =
+          typeof parsedMaxNights === "number" && Number.isFinite(parsedMaxNights) && parsedMaxNights > 0
+            ? parsedMaxNights
+            : undefined
+        const getCurrentTravelCombinations = () =>
+          returnSearchEnabled
+            ? buildTravelCombinations(results, returnResults, normalizedMinNights, normalizedMaxNights)
+            : []
 
         // Helper function to safely enqueue data
         const safeEnqueue = (data: Uint8Array) => {
@@ -195,7 +380,7 @@ export async function POST(request: NextRequest) {
             ).length
           }
 
-          const processedDays = countProcessedDays(results)
+          const processedDays = countProcessedDays(results) + countProcessedDays(returnResults)
           const resultEntries = Object.entries(results).filter(([key]) => key !== "_meta")
           const successfulDays = resultEntries.filter(([, val]) => val?.preis > 0).length
           const cheapestPrice = Math.min(
@@ -206,11 +391,12 @@ export async function POST(request: NextRequest) {
           const cheapestDate = resultEntries.find(([, val]) => val?.preis === cheapestPrice)?.[0]
           const finalQueueStatus = globalRateLimiter.getQueueStatus()
           const finalAvgTimes = getAverageResponseTimes()
+          const allDatesToProcess = [...datesToProcess, ...returnDatesToProcess]
           await updateProgress(
             sessionId,
             processedDays,
             maxDays,
-            datesToProcess[maxDays - 1] || "",
+            allDatesToProcess[maxDays - 1] || "",
             true,
             0,
             0,
@@ -224,10 +410,13 @@ export async function POST(request: NextRequest) {
             ...results,
             _meta: metaData,
           }
+          const travelCombinations = getCurrentTravelCombinations()
 
           const completeResult = {
             type: 'complete',
             results: resultsWithStations,
+            returnResults,
+            travelCombinations,
             processedDays,
             plannedDays: maxDays
           }
@@ -238,6 +427,8 @@ export async function POST(request: NextRequest) {
             processedDays,
             plannedDays: maxDays,
             successfulDays,
+            returnSuccessfulDays: Object.values(returnResults).filter((val) => val?.preis > 0).length,
+            travelCombinations: travelCombinations.length,
             cheapestPrice: Number.isFinite(cheapestPrice) ? cheapestPrice : undefined,
             cheapestDate,
             durationMs: searchDuration,
@@ -254,11 +445,19 @@ export async function POST(request: NextRequest) {
             reisezeitraumAb,
             reisezeitraumBis,
             wochentage || [1, 2, 3, 4, 5, 6, 0]
-          ).slice(0, 30) // Limit to max 30 days
-          maxDays = datesToProcess.length
+          ).slice(0, MAX_DAYS_PER_DIRECTION)
+          returnDatesToProcess = returnSearchEnabled
+            ? calculateDatesFromWeekdays(
+                reisezeitraumAb,
+                reisezeitraumBis,
+                returnWochentage || wochentage || [1, 2, 3, 4, 5, 6, 0]
+              ).slice(0, MAX_DAYS_PER_DIRECTION)
+            : []
+          maxDays = datesToProcess.length + returnDatesToProcess.length
           logDebug(LOG_SCOPE, "📅 Bestpreissuche date processing started", {
             sessionId,
             plannedDays: datesToProcess.length,
+            plannedReturnDays: returnDatesToProcess.length,
             firstTravelDate: datesToProcess[0],
             lastTravelDate: datesToProcess[datesToProcess.length - 1],
             connectionCacheEntries: getCacheSize(),
@@ -270,7 +469,7 @@ export async function POST(request: NextRequest) {
           metricsCollector.updateCacheMetrics(getStationSearchCacheSize(), cacheSize)
 
           // Erstelle Liste aller Tage mit Cache-Status
-          const dayStatusList: { date: string; isCached: boolean; cacheKey: string }[] = []
+          const dayStatusList: { date: string; isCached: boolean; cacheKey: string; direction: "outward" | "return" }[] = []
           for (const dateStr of datesToProcess) {
             const cacheKey = generateCacheKey({
               startStationId: startStation.normalizedId,
@@ -285,7 +484,23 @@ export async function POST(request: NextRequest) {
             })
             const cacheState = getCachedResult(cacheKey)
             const isCached = !!cacheState.data && !cacheState.needsRefresh
-            dayStatusList.push({ date: dateStr, isCached, cacheKey })
+            dayStatusList.push({ date: dateStr, isCached, cacheKey, direction: "outward" })
+          }
+          for (const dateStr of returnDatesToProcess) {
+            const cacheKey = generateCacheKey({
+              startStationId: zielStation.normalizedId,
+              zielStationId: startStation.normalizedId,
+              date: dateStr,
+              alter: alter || "ERWACHSENER",
+              ermaessigungArt: ermaessigungArt || "KEINE_ERMAESSIGUNG",
+              ermaessigungKlasse: ermaessigungKlasse || "KLASSENLOS",
+              klasse: klasse || "KLASSE_2",
+              schnelleVerbindungen: Boolean(schnelleVerbindungen === true || schnelleVerbindungen === "true"),
+              umstiegszeit: (umstiegszeit && umstiegszeit !== "normal" && umstiegszeit !== "undefined") ? umstiegszeit : undefined,
+            })
+            const cacheState = getCachedResult(cacheKey)
+            const isCached = !!cacheState.data && !cacheState.needsRefresh
+            dayStatusList.push({ date: dateStr, isCached, cacheKey, direction: "return" })
           }
 
           // Gesamtanzahl der gecached und ungecachten Tage für die gesamte Suche
@@ -312,6 +527,15 @@ export async function POST(request: NextRequest) {
               abfahrtBis,
               ankunftAb,
               ankunftBis,
+              wochentage,
+              rueckfahrt: returnSearchEnabled ? "1" : undefined,
+              minNaechte,
+              maxNaechte,
+              returnAbfahrtAb,
+              returnAbfahrtBis,
+              returnAnkunftAb,
+              returnAnkunftBis,
+              returnWochentage: returnSearchEnabled ? (returnWochentage || wochentage) : undefined,
               umstiegszeit,
             },
             sessionId,
@@ -333,15 +557,16 @@ export async function POST(request: NextRequest) {
             queueStatus.activeRequests
           )
 
-          // Starte alle Requests parallel (nicht sequenziell!)
-          const requestPromises = datesToProcess.map(async (currentDateStr, dayCount) => {
+          // Requests zunächst als Tasks anlegen, damit Hin- und Rückfahrten
+          // anschließend abwechselnd in derselben Session-Queue landen.
+          const outwardRequestTasks = datesToProcess.map((currentDateStr, dayCount) => async () => {
             // Prüfe Session-Abbruch VOR jedem Request
             if (globalRateLimiter.isSessionCancelledSync(sessionId)) {
               if (!cancelLoggedForSession) {
                 logDebug(LOG_SCOPE, "Bestpreissuche session cancelled; stopping remaining dates", { sessionId })
                 cancelLoggedForSession = true
               }
-              return { currentDateStr, dayResponse: { result: null }, dayCount }
+              return { currentDateStr, dayResponse: { result: null }, dayCount, direction: "outward" as const }
             }
 
             const isCached = dayStatusList[dayCount].isCached
@@ -392,7 +617,7 @@ export async function POST(request: NextRequest) {
             // Prüfe Session-Abbruch NACH dem Request aber VOR der Verarbeitung
             if (globalRateLimiter.isSessionCancelledSync(sessionId)) {
               // Nur einmal loggen, nicht für jeden Tag
-              return { currentDateStr, dayResponse: { result: null }, dayCount }
+              return { currentDateStr, dayResponse: { result: null }, dayCount, direction: "outward" as const }
             }
 
             // Zeitfilter für Abfahrt/Ankunft anwenden (vereinheitlicht)
@@ -545,15 +770,84 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            return { currentDateStr, dayResponse, dayCount }
+            return { currentDateStr, dayResponse, dayCount, direction: "outward" as const, isCached }
+          })
+
+          const returnRequestTasks = returnDatesToProcess.map((currentDateStr, returnDayCount) => async () => {
+            if (globalRateLimiter.isSessionCancelledSync(sessionId)) {
+              if (!cancelLoggedForSession) {
+                logDebug(LOG_SCOPE, "Bestpreissuche session cancelled; stopping remaining return dates", { sessionId })
+                cancelLoggedForSession = true
+              }
+              return { currentDateStr, dayResponse: { result: null }, dayCount: datesToProcess.length + returnDayCount, direction: "return" as const }
+            }
+
+            const statusIndex = datesToProcess.length + returnDayCount
+            const isCached = dayStatusList[statusIndex]?.isCached ?? false
+            const currentDate = new Date(currentDateStr)
+            const t0 = Date.now()
+
+            let processedMaxUmstiege: number | string | undefined = undefined
+            if (maximaleUmstiege === "0" || maximaleUmstiege === 0) {
+              processedMaxUmstiege = 0
+            } else if (maximaleUmstiege !== undefined && maximaleUmstiege !== "alle" && maximaleUmstiege !== "" && maximaleUmstiege !== null) {
+              processedMaxUmstiege = Number.parseInt(String(maximaleUmstiege))
+            }
+
+            const dayResponse = await getBestPrice({
+              abfahrtsHalt: zielStation.id,
+              ankunftsHalt: startStation.id,
+              startStationNormalizedId: zielStation.normalizedId,
+              zielStationNormalizedId: startStation.normalizedId,
+              anfrageDatum: currentDate,
+              sessionId,
+              alter,
+              ermaessigungArt,
+              ermaessigungKlasse,
+              klasse,
+              maximaleUmstiege: processedMaxUmstiege,
+              schnelleVerbindungen: schnelleVerbindungen === true || schnelleVerbindungen === "1",
+              nurDeutschlandTicketVerbindungen:
+                nurDeutschlandTicketVerbindungen === true || nurDeutschlandTicketVerbindungen === "1",
+              abfahrtAb: returnAbfahrtAb,
+              abfahrtBis: returnAbfahrtBis,
+              ankunftAb: returnAnkunftAb,
+              ankunftBis: returnAnkunftBis,
+              umstiegszeit,
+            })
+
+            if (dayResponse.result && dayResponse.recordedAt) {
+              for (const dateKey of Object.keys(dayResponse.result)) {
+                const priceData = (dayResponse.result as any)[dateKey]
+                if (priceData) {
+                  (priceData as any).recordedAt = dayResponse.recordedAt
+                }
+              }
+            }
+
+            if (globalRateLimiter.isSessionCancelledSync(sessionId)) {
+              return { currentDateStr, dayResponse: { result: null }, dayCount: statusIndex, direction: "return" as const }
+            }
+
+            const duration = Date.now() - t0
+            updateAverageResponseTimes(duration, isCached)
+
+            return { currentDateStr, dayResponse, dayCount: statusIndex, direction: "return" as const, isCached }
           })
 
           // Verarbeite Ergebnisse sobald sie ankommen
           let completedRequests = 0
+          let completedUncachedRequests = 0
+          let completedCachedRequests = 0
           const processResult = async (resultPromise: Promise<any>) => {
             try {
-              const { currentDateStr, dayResponse, dayCount } = await resultPromise
+              const { currentDateStr, dayResponse, dayCount, direction, isCached } = await resultPromise
               completedRequests++
+              if (isCached) {
+                completedCachedRequests++
+              } else {
+                completedUncachedRequests++
+              }
 
               // Prüfe Session-Abbruch BEVOR Ergebnis verarbeitet wird
               if (globalRateLimiter.isSessionCancelledSync(sessionId)) {
@@ -561,20 +855,39 @@ export async function POST(request: NextRequest) {
               }
 
               if (dayResponse.result) {
-                Object.assign(results, dayResponse.result)
-                
-                // Stream einzelnes Tagesergebnis nur wenn Session noch aktiv
-                if (!globalRateLimiter.isSessionCancelledSync(sessionId)) {
-                  const dayResult = {
-                    type: 'dayResult',
-                    date: currentDateStr,
-                    result: Object.values(dayResponse.result)[0],
-                    meta: metaData
+                if (direction === "return") {
+                  Object.assign(returnResults, dayResponse.result)
+
+                  if (!globalRateLimiter.isSessionCancelledSync(sessionId)) {
+                    const returnDayResult = {
+                      type: 'returnDayResult',
+                      date: currentDateStr,
+                      result: Object.values(dayResponse.result)[0],
+                      meta: metaData,
+                      travelCombinations: getCurrentTravelCombinations()
+                    }
+
+                    if (!safeEnqueue(encoder.encode(JSON.stringify(returnDayResult) + '\n'))) {
+                      return false
+                    }
                   }
-                  
-                  if (!safeEnqueue(encoder.encode(JSON.stringify(dayResult) + '\n'))) {
-                    // User disconnected - stop processing but don't log multiple times
-                    return false
+                } else {
+                  Object.assign(results, dayResponse.result)
+
+                  // Stream einzelnes Tagesergebnis nur wenn Session noch aktiv
+                  if (!globalRateLimiter.isSessionCancelledSync(sessionId)) {
+                    const dayResult = {
+                      type: 'dayResult',
+                      date: currentDateStr,
+                      result: Object.values(dayResponse.result)[0],
+                      meta: metaData,
+                      travelCombinations: getCurrentTravelCombinations()
+                    }
+
+                    if (!safeEnqueue(encoder.encode(JSON.stringify(dayResult) + '\n'))) {
+                      // User disconnected - stop processing but don't log multiple times
+                      return false
+                    }
                   }
                 }
               }
@@ -589,8 +902,8 @@ export async function POST(request: NextRequest) {
                   maxDays,
                   currentDateStr,
                   false,
-                  Math.max(0, totalUncachedDays - completedRequests),
-                  Math.max(0, totalCachedDays - completedRequests),
+                  Math.max(0, totalUncachedDays - completedUncachedRequests),
+                  Math.max(0, totalCachedDays - completedCachedRequests),
                   updatedAvgTimes.uncached,
                   updatedAvgTimes.cached,
                   updatedQueueStatus.queueSize,
@@ -621,8 +934,17 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // Warte auf alle Requests, aber verarbeite sie sobald sie fertig sind
-          await Promise.all(requestPromises.map(processResult))
+          const interleavedRequestPromises: Promise<any>[] = []
+          const taskCount = Math.max(outwardRequestTasks.length, returnRequestTasks.length)
+          for (let taskIndex = 0; taskIndex < taskCount; taskIndex++) {
+            const outwardTask = outwardRequestTasks[taskIndex]
+            const returnTask = returnRequestTasks[taskIndex]
+            if (outwardTask) interleavedRequestPromises.push(outwardTask())
+            if (returnTask) interleavedRequestPromises.push(returnTask())
+          }
+
+          // Warte auf alle Requests, aber verarbeite sie sobald sie fertig sind.
+          await Promise.all(interleavedRequestPromises.map(processResult))
 
           // Falls aus irgendeinem Grund noch nicht gesendet, jetzt senden
           if (!completeSent && !globalRateLimiter.isSessionCancelledSync(sessionId)) {

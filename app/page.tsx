@@ -18,12 +18,20 @@ interface SearchParams {
   abfahrtBis?: string
   ankunftAb?: string
   ankunftBis?: string
+  rueckfahrt?: string
+  minNaechte?: string
+  maxNaechte?: string
+  returnAbfahrtAb?: string
+  returnAbfahrtBis?: string
+  returnAnkunftAb?: string
+  returnAnkunftBis?: string
   klasse?: string
   schnelleVerbindungen?: string
   nurDeutschlandTicketVerbindungen?: string
   maximaleUmstiege?: string
   umstiegszeit?: string
   wochentage?: string
+  returnWochentage?: string
 }
 
 // Helper function to get tomorrow's date in YYYY-MM-DD format
@@ -31,6 +39,19 @@ function getTomorrowISO() {
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
   return tomorrow.toISOString().split("T")[0]
+}
+
+function createClassicModeHref(params: SearchParams) {
+  const classicParams = new URLSearchParams()
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) {
+      classicParams.set(key, value)
+    }
+  })
+
+  const query = classicParams.toString()
+  return query ? `/klassik?${query}` : "/klassik"
 }
 
 export default async function Page({
@@ -81,6 +102,7 @@ export default async function Page({
   const hasSearch = params.start && params.ziel
   const urlaubsfinderEnabled = isUrlaubsfinderEnabled()
   const footerEnabled = isFooterEnabled()
+  const classicModeHref = createClassicModeHref(params)
 
   return (
     <div className="min-h-screen bg-white">
@@ -100,7 +122,7 @@ export default async function Page({
         </header>
 
         <section className="mb-8">
-          <TrainSearchForm searchParams={params} />
+          <TrainSearchForm searchParams={params} classicModeHref={classicModeHref} />
         </section>
 
           <section className="mb-8">

@@ -22,6 +22,9 @@ import {
   JourneyTimelineVertical,
   type JourneyLeg,
 } from "@/components/bestpreissuche/journey-timeline"
+import { SearchQueueStatus } from "@/components/search/search-queue-status"
+import { SearchCancelButton } from "@/components/search/search-cancel-button"
+import { useSearchQueueStatus } from "@/hooks/use-search-queue-status"
 
 const DynamicLeaflet = dynamic(
   () =>
@@ -127,6 +130,9 @@ interface UrlauberfinderResultsProps {
   homeStation: string
   homeCoords?: { lat: number; lon: number }
   progress?: { processed: number; total: number; destination: string } | null
+  sessionId?: string | null
+  plannedDestinations?: number
+  requestsPerDestination?: number
   searchParams?: SearchParams | null
   onCancel?: () => void
 }
@@ -484,6 +490,9 @@ export function UrlauberfinderResults({
   homeStation,
   homeCoords,
   progress,
+  sessionId,
+  plannedDestinations = 0,
+  requestsPerDestination = 1,
   searchParams,
   onCancel,
 }: UrlauberfinderResultsProps) {
@@ -505,6 +514,14 @@ export function UrlauberfinderResults({
   const hasResults = results.length > 0
   const hasUnavailable = unavailableResults.length > 0
   const hasMapData = results.some((r) => r.lat && r.lon)
+  const remainingDestinations = progress
+    ? Math.max(0, progress.total - progress.processed)
+    : Math.max(1, plannedDestinations - results.length - unavailableResults.length)
+  const queueStatus = useSearchQueueStatus({
+    sessionId,
+    isActive: isLoading,
+    remainingRequests: remainingDestinations * requestsPerDestination,
+  })
 
   useEffect(() => {
     if (!mapSelected) return
@@ -526,11 +543,7 @@ export function UrlauberfinderResults({
               <p className="text-sm font-semibold text-gray-700 truncate">
                 {progress ? (
                   <>
-                    Suche{" "}
-                    <span className="text-blue-600">
-                      {progress.destination.replace(" Hbf", "")}
-                    </span>
-                    {"  "}
+                    Prüfe Reiseziele{" "}
                     <span className="text-gray-400 font-normal text-xs">
                       ({progress.processed}/{progress.total})
                     </span>
@@ -541,12 +554,7 @@ export function UrlauberfinderResults({
               </p>
             </div>
             {onCancel && (
-              <button
-                onClick={onCancel}
-                className="ml-3 flex-shrink-0 text-xs text-red-500 hover:text-red-700 font-semibold underline underline-offset-2 transition-colors"
-              >
-                Abbrechen
-              </button>
+              <SearchCancelButton className="ml-3" onClick={onCancel} />
             )}
           </div>
           <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
@@ -555,6 +563,7 @@ export function UrlauberfinderResults({
               style={{ width: `${progressPercent || (isLoading ? 2 : 0)}%` }}
             />
           </div>
+          <SearchQueueStatus status={queueStatus} className="mt-3" />
           {hasResults && (
             <p className="text-[11px] text-gray-400 mt-1.5">
               {results.length} Ziel{results.length !== 1 ? "e" : ""} gefunden

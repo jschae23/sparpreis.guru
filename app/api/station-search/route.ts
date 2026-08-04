@@ -10,7 +10,7 @@ import {
 import { globalRateLimiter } from '@/app/api/search-prices/rate-limiter'
 import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logError, logWarn } from '@/lib/shared/logger'
-import { fetchBahn } from '@/app/api/search-prices/bahn-http'
+import { fetchBahn, isTemporaryBahnNetworkError } from '@/app/api/search-prices/bahn-http'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -160,6 +160,20 @@ export async function GET(request: NextRequest) {
           }
         )
       }
+
+      if (isTemporaryBahnNetworkError(error)) {
+        logWarn(LOG_SCOPE, "Bahn station search is temporarily unavailable", {
+          query: normalizedQuery,
+        })
+        return NextResponse.json(
+          { results: [], error: 'Bahn API temporarily unavailable', retryAfter: 5000 },
+          {
+            status: 503,
+            headers: { 'Retry-After': '5' }
+          }
+        )
+      }
+
       throw error
     }
   } catch (error) {

@@ -116,7 +116,11 @@ export const PriceHistoryChart = memo(function PriceHistoryChart({ history, titl
                   fontSize: '12px',
                 }}
                 labelStyle={{ fontWeight: 'bold' }}
-                formatter={(value: number) => [`${Number(value).toFixed(2)}€`, 'Preis']}
+                formatter={(value) => {
+                  const numericValue = typeof value === 'number' ? value : Number(value)
+
+                  return [Number.isFinite(numericValue) ? `${numericValue.toFixed(2)}€` : '–', 'Preis']
+                }}
               />
               <Line type="monotone" dataKey="preis" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
               {history.length > 1 && (

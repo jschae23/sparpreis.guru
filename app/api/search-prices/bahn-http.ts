@@ -1,4 +1,4 @@
-import { Agent, type Dispatcher } from "undici"
+import { Agent, fetch as undiciFetch } from "undici"
 
 interface BahnHttpOptions {
   method?: "GET" | "POST"
@@ -14,8 +14,36 @@ interface BahnHttpResponse {
   json: <T = unknown>() => Promise<T>
 }
 
+const TEMPORARY_NETWORK_ERROR_CODES = new Set([
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+])
+
+export function isTemporaryBahnNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  if (error.name === "AbortError") return true
+
+  const cause = (error as Error & { cause?: unknown }).cause
+  if (!cause || typeof cause !== "object" || !("code" in cause)) return false
+
+  const code = (cause as { code?: unknown }).code
+  return typeof code === "string" && TEMPORARY_NETWORK_ERROR_CODES.has(code)
+}
+
 const bahnAgent = new Agent({
+  // Undici 8 enables HTTP/2 by default. Preserve the previous HTTP/1.1-only
+  // behavior used by the scoped bahn.de TLS workaround.
+  allowH2: false,
   connect: {
+    // Some local Windows/Node setups select an unreachable Akamai IPv6 route
+    // for bahn.de and never fall back to the working IPv4 addresses.
+    family: 4,
     maxVersion: "TLSv1.2",
   },
   keepAliveTimeout: 10_000,
@@ -32,7 +60,10 @@ export async function fetchBahn(url: string, options: BahnHttpOptions = {}): Pro
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 45_000)
 
   try {
-    const response = await fetch(parsedUrl, {
+    // Keep fetch and its dispatcher on the same Undici major. Node's built-in
+    // fetch can still use the legacy v1 handler API, while Undici 8 dispatchers
+    // require the v2 API.
+    const response = await undiciFetch(parsedUrl, {
       method: options.method || "GET",
       headers: options.headers,
       body: options.body,
@@ -41,7 +72,7 @@ export async function fetchBahn(url: string, options: BahnHttpOptions = {}): Pro
       // OPS_BLOCKED, while the same request succeeds with TLS 1.2. Keep this
       // scoped to bahn.de instead of lowering TLS globally for the process.
       dispatcher: bahnAgent,
-    } as RequestInit & { dispatcher: Dispatcher })
+    })
 
     return {
       status: response.status,

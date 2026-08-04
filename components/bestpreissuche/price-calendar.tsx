@@ -5,6 +5,9 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
 import { logWarn } from "@/lib/shared/logger"
+import { SearchQueueStatus } from "@/components/search/search-queue-status"
+import { SearchCancelButton } from "@/components/search/search-cancel-button"
+import { useSearchQueueStatus } from "@/hooks/use-search-queue-status"
 
 const LOG_SCOPE = "bestpreissuche.price-calendar"
 
@@ -262,217 +265,43 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onNavigateDay])
 
-  // Fortschritt und Zeitmessung mit Progress-API
-  const [elapsed, setElapsed] = useState(0)
-  const [startTime] = useState(Date.now())
-  const [progressData, setProgressData] = useState<{
-    queueSize?: number
-    estimatedTimeRemaining?: number
-    totalUsers?: number
-  }>({})
-
-  // Ref to control polling state
-  const pollingRef = React.useRef<boolean>(false)
-
-  // Popup bei Tab-Wechsel/-Schließen während Suche
-  const [showAbortModal, setShowAbortModal] = useState(false)
-  const [cancelNotificationSent, setCancelNotificationSent] = useState(false)
-  const [userCancelled, setUserCancelled] = useState(false)
-  
-  useEffect(() => {
-    if (!isStreaming || !sessionId) return
-
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = ''
-      // Sofort Backend informieren (nur einmal)
-      if (!cancelNotificationSent) {
-        setCancelNotificationSent(true)
-        navigator.sendBeacon(`/api/search-prices/cancel-search`, JSON.stringify({ 
-          sessionId, 
-          reason: 'page_unload' 
-        }))
-      }
-      setShowAbortModal(true)
-      return ''
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.hidden && isStreaming && sessionId && !cancelNotificationSent) {
-        // Sofort Backend informieren (nur einmal)
-        setCancelNotificationSent(true)
-        fetch(`/api/search-prices/cancel-search`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId, reason: 'page_hidden' }),
-          keepalive: true
-        }).catch(() => {})
-        setShowAbortModal(true)
-      }
-    }
-
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [isStreaming, sessionId])
-
-  // Wenn das Abbruch-Popup angezeigt wird, Suche abbrechen (wie bei manuellem Abbruch)
-  useEffect(() => {
-    if (showAbortModal && onCancelSearch) {
-      onCancelSearch()
-    }
-  }, [showAbortModal, onCancelSearch])
-
-  // Timer für vergangene Zeit
-  useEffect(() => {
-    if (!isStreaming) return
-    setElapsed(0)
-    const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startTime) / 1000))
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [isStreaming, startTime])
-
-  
-  useEffect(() => {
-    if (!sessionId || !isStreaming) {
-      pollingRef.current = false
-      return
-    }
-
-    pollingRef.current = true
-
-    const pollProgress = async () => {
-      if (!pollingRef.current) return
-
-      try {
-        const response = await fetch(`/api/search-progress?sessionId=${sessionId}`)
-        if (response.ok) {
-          const data = await response.json()
-          setProgressData({
-            queueSize: data.queueSize,
-            estimatedTimeRemaining: data.estimatedTimeRemaining,
-            totalUsers: data.totalUsers
-          })
-        }
-      } catch (error) {
-        logWarn(LOG_SCOPE, "Could not fetch search progress data", {
-          sessionId,
-          error: error instanceof Error ? error.message : error,
-        })
-      }
-
-      // Schedule next poll only if still polling
-      if (pollingRef.current) {
-        setTimeout(pollProgress, 1000)
-      }
-    }
-
-    // Start initial poll
-    pollProgress()
-
-    return () => {
-      pollingRef.current = false
-    }
-  }, [sessionId, isStreaming, startTime])
-
   const totalDays = expectedDateRange.length > 0 ? expectedDateRange.length : (expectedDays || (searchParams?.dayLimit ? parseInt(searchParams.dayLimit) : resultDates.length))
   const completedDays = Object.values(results).filter(r => r && r.preis !== undefined).length
   const isCompleteNow = totalDays > 0 && completedDays >= totalDays
-  const progressPercentage = totalDays > 0 ? Math.round((completedDays / totalDays) * 100) : 0
-  const displayProgress = (!isStreaming || isCompleteNow) ? 100 : progressPercentage
-
-  // Stoppe Polling sofort, wenn alle Tage fertig sind (auch wenn isStreaming noch true ist)
-  useEffect(() => {
-    if (isStreaming && isCompleteNow) {
-      pollingRef.current = false
-    }
-  }, [isStreaming, isCompleteNow])
-
-  // Verwende echte ETA von Progress-API oder realistischen Fallback
-  const estimatedTimeRemaining = isStreaming ? (
-    progressData.estimatedTimeRemaining || 
-    // Fallback: Realistische Schätzung basierend auf verbleibenden Tagen
-    Math.max(1, Math.min((totalDays - completedDays) * 1.5, 60)) // Max 1 Minute als Fallback
-  ) : 0
-
-  const formatTime = (seconds: number) => {
-    if (seconds < 60) return `${seconds}s`
-    const minutes = Math.floor(seconds / 60)
-    const remainingSeconds = seconds % 60
-    return `${minutes}m ${remainingSeconds}s`
-  }
+  const progressPercentage = totalDays > 0 ? Math.min(100, Math.round((completedDays / totalDays) * 100)) : 0
+  const queueStatus = useSearchQueueStatus({
+    sessionId,
+    isActive: Boolean(isStreaming && !isCompleteNow),
+    remainingRequests: Math.max(0, totalDays - completedDays),
+  })
 
   return (
     <>
-      {/* Fortschritt und Zeit */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-2 pb-0">
-        <div className="flex items-center gap-2 text-sm text-blue-800">
-          {/* <span className="text-2xl">🚂</span> */}
-          <span className="font-semibold">Suche Bestpreise</span>
-          {startStation && zielStation && (
-            <span className="text-blue-600">{startStation.name} → {zielStation.name}</span>
-          )}
-        </div>
-        <div className="flex flex-row items-center justify-between text-sm text-gray-600">
-          <div className="flex items-center gap-2">
-            <span>Vergangene Zeit: {formatTime(elapsed)}</span>
-            {isStreaming && !isCompleteNow && estimatedTimeRemaining > 0 && (
-              <span className="text-blue-600">noch ca. {formatTime(estimatedTimeRemaining)}</span>
-            )}
-            {(!isStreaming || isCompleteNow) && (
-              <span className="text-green-600">✓ Abgeschlossen</span>
-            )}
-            {userCancelled && isStreaming && !isCompleteNow && (
-              <span className="text-orange-600">🛑 Wird abgebrochen...</span>
-            )}
-          </div>
-          {isStreaming && !isCompleteNow && onCancelSearch && (
-            <button
-              onClick={() => {
-                setUserCancelled(true)
-                onCancelSearch()
-              }}
-              className="px-3 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors ml-2"
-            >
-              🛑 Abbrechen
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Fortschrittsbalken */}
-      <div className="px-2 pt-0">
-        <div className="flex justify-between text-xs text-gray-600 mb-1">
-          <span>Tag {completedDays} von {totalDays}</span>
-          <span>{displayProgress}%</span>
-        </div>
-        <div className="w-full h-2 bg-blue-100 rounded">
-          <div
-            className={`h-2 rounded transition-all ${(!isStreaming || isCompleteNow) ? 'bg-green-500' : 'bg-blue-500'}`}
-            style={{width: `${displayProgress}%`}}
-          />
-        </div>
-      </div>
-      
-      {/* Rate Limiting Info */}
-      {isStreaming && typeof progressData.totalUsers === 'number' && progressData.totalUsers > 1 && (
-        <div className="bg-yellow-50 border border-yellow-200 p-3 rounded text-sm mx-2 mb-2 mt-3">
-          <div className="flex items-center gap-2">
-            <div className="text-yellow-600">⏳</div>
-            <div className="text-yellow-800">
-              <span className="font-medium">Mehrere Nutzer suchen gerade</span>
-              <br />
-              <span className="text-yellow-700">{progressData.totalUsers} aktive Suchanfragen laufen parallel</span>
+      {isStreaming && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-lg font-bold text-blue-950">Reisezeitraum-Analyse</h2>
+              <div className="mt-1 text-sm text-blue-800">
+                {startStation?.name || "Start"} nach {zielStation?.name || "Ziel"}
+              </div>
             </div>
+            {onCancelSearch && (
+              <SearchCancelButton onClick={onCancelSearch} />
+            )}
           </div>
-          <div className="text-xs text-yellow-700 mt-1">
-            Um die DB-API zu schonen, werden viele gleichzeitige Anfragen nacheinander abgearbeitet.
-            Deine Suche kann daher etwas länger dauern. Ergebnisse werden gecacht, eine Wiederholung der Suche ist dadurch schneller.
+          <div className="mt-4">
+            <div className="mb-1 flex justify-between text-xs text-blue-800">
+              <span>{completedDays} von {totalDays} Reisetagen geprüft</span>
+              <span>{progressPercentage}%</span>
+            </div>
+            <div className="h-2 rounded bg-blue-100">
+              <div
+                className="h-2 rounded bg-blue-600 transition-all"
+                style={{ width: `${progressPercentage}%` }}
+              />
+            </div>
+            <SearchQueueStatus status={queueStatus} className="mt-3" />
           </div>
         </div>
       )}
@@ -677,30 +506,6 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
         )}
       </div>
 
-      {/* Popup bei Tab-Wechsel/-Schließen während Suche */}
-      {showAbortModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-          <div className="bg-white rounded-lg shadow-lg p-4 max-w-sm w-full text-center">
-            <div className="text-lg font-semibold mb-2">
-              Suche abgebrochen
-            </div>
-            <div className="text-sm text-gray-600 mb-4">
-              Die Suche wurde abgebrochen, weil der Tab geschlossen oder gewechselt wurde.<br/>
-              Bitte lasse das Fenster aktiv, bis die Suche abgeschlossen ist.
-            </div>
-            <div className="flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAbortModal(false)}
-                className="flex-1"
-              >
-                OK
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }
