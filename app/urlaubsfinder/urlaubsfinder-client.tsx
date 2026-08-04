@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { UrlauberfinderSearchForm, UrlauberfinderSearchParams } from '@/components/urlaubsfinder/urlaubsfinder-search-form'
 import { UrlauberfinderResults } from '@/components/urlaubsfinder/urlaubsfinder-results'
+import { IncompleteSearchNotice } from '@/components/search/incomplete-search-notice'
 import { AlertCircle } from 'lucide-react'
 import { Footer } from '@/components/layout/footer'
 import { BrandLogo } from '@/components/layout/brand-logo'
@@ -12,6 +13,7 @@ import { ICE_STATIONS } from '@/lib/stations/ice-stations'
 import { logError, logWarn } from '@/lib/shared/logger'
 
 const LOG_SCOPE = "urlaubsfinder.client"
+const BACKGROUND_SEARCH_NOTICE = 'Suchen können nicht im Hintergrund ausgeführt werden, um zu viele Anfragen an die Bahn-API zu vermeiden.'
 
 interface DestinationResult {
   destination: string
@@ -168,6 +170,10 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
   const [showAbortModal, setShowAbortModal] = useState(false)
   const [abortModalMessage, setAbortModalMessage] = useState<string>('')
   const [progress, setProgress] = useState<{ processed: number; total: number; destination: string } | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [plannedDestinations, setPlannedDestinations] = useState(0)
+  const [requestsPerDestination, setRequestsPerDestination] = useState(1)
+  const [searchWasCancelled, setSearchWasCancelled] = useState(false)
   const [bookingSearchParams, setBookingSearchParams] = useState<{
     klasse: string
     alter: string
@@ -190,8 +196,12 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
       setShowAbortModal(false)
       setAbortModalMessage('')
       setResults([])
-  setUnavailableResults([])
+      setUnavailableResults([])
       setProgress(null)
+      setSessionId(null)
+      setSearchWasCancelled(false)
+      setPlannedDestinations(params.destinations.length)
+      setRequestsPerDestination(params.returnDate ? 2 : 1)
       setIsLoading(true)
       const homeStationName = params.homeStationLabel || params.homeStation
       setHomeStation(homeStationName)
@@ -232,6 +242,8 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
         const errorData = await response.json()
         throw new Error(errorData.error || `HTTP ${response.status}`)
       }
+
+      setSessionId(response.headers.get('X-Search-Session-Id'))
 
       // Parse streaming response
       const reader = response.body?.getReader()
@@ -296,8 +308,9 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
       abortControllerRef.current = null
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
+        setSearchWasCancelled(true)
         if (abortReasonRef.current === 'auto') {
-          setAbortModalMessage('Die Suche wurde automatisch abgebrochen, weil der Tab gewechselt oder die Seite verlassen wurde. Bitte lasse das Fenster aktiv, bis die Suche abgeschlossen ist.')
+          setAbortModalMessage(`Die Suche wurde automatisch abgebrochen, weil der Tab gewechselt oder die Seite verlassen wurde. ${BACKGROUND_SEARCH_NOTICE}`)
           setShowAbortModal(true)
         } else {
           setAbortModalMessage('Die Suche wurde abgebrochen.')
@@ -319,6 +332,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
       abortControllerRef.current.abort()
       abortControllerRef.current = null
       setIsLoading(false)
+      setSearchWasCancelled(true)
       setAbortModalMessage('Die Suche wurde abgebrochen.')
       setShowAbortModal(true)
     }
@@ -334,7 +348,8 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
         abortControllerRef.current = null
       }
       setIsLoading(false)
-      setAbortModalMessage('Die Suche wurde automatisch abgebrochen, weil der Tab gewechselt oder die Seite verlassen wurde. Bitte lasse das Fenster aktiv, bis die Suche abgeschlossen ist.')
+      setSearchWasCancelled(true)
+      setAbortModalMessage(`Die Suche wurde automatisch abgebrochen, weil der Tab gewechselt oder die Seite verlassen wurde. ${BACKGROUND_SEARCH_NOTICE}`)
       setShowAbortModal(true)
     }
 
@@ -407,6 +422,10 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
           />
         </section>
 
+        {searchWasCancelled && (
+          <IncompleteSearchNotice className="mb-6" />
+        )}
+
         {/* Results */}
         {(results.length > 0 || unavailableResults.length > 0 || isLoading) && (
           <section className="mb-8">
@@ -417,6 +436,9 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
               homeStation={homeStation}
               homeCoords={homeCoords}
               progress={progress}
+              sessionId={sessionId}
+              plannedDestinations={plannedDestinations}
+              requestsPerDestination={requestsPerDestination}
               searchParams={bookingSearchParams}
               onCancel={handleCancel}
             />
