@@ -134,6 +134,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const [travelCombinations, setTravelCombinations] = useState<TravelCombination[]>([])
   const activeSessionIdRef = useRef<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const startedSearchKeyRef = useRef<string | null>(null)
+  const unmountCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const calendarRef = useRef<HTMLDivElement>(null)
   const [hasScrolledToCalendar, setHasScrolledToCalendar] = useState(false)
   const [showAbortModal, setShowAbortModal] = useState(false)
@@ -239,6 +241,11 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
   // Cleanup bei Component Unmount oder Navigation
   useEffect(() => {
+    if (unmountCleanupTimerRef.current) {
+      clearTimeout(unmountCleanupTimerRef.current)
+      unmountCleanupTimerRef.current = null
+    }
+
     const notifyPageUnload = (reason: 'page_unload' | 'component_unmount') => {
       const activeSessionId = activeSessionIdRef.current
       if (activeSessionId) {
@@ -267,10 +274,16 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-      notifyPageUnload('component_unmount')
-      abortControllerRef.current?.abort()
-      activeSessionIdRef.current = null
-      abortControllerRef.current = null
+
+      // React startet Effects im Dev-Modus einmal testweise neu. Der verzögerte
+      // Cleanup wird bei diesem direkten Reconnect oben wieder verworfen.
+      unmountCleanupTimerRef.current = setTimeout(() => {
+        notifyPageUnload('component_unmount')
+        abortControllerRef.current?.abort()
+        activeSessionIdRef.current = null
+        abortControllerRef.current = null
+        unmountCleanupTimerRef.current = null
+      }, 0)
     }
   }, [cancelSearchWithReason])
 
@@ -308,6 +321,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     if (!searchParams.start || !searchParams.ziel || currentSearchKey === "") {
       return
     }
+    if (startedSearchKeyRef.current === currentSearchKey) {
+      return
+    }
+    startedSearchKeyRef.current = currentSearchKey
 
     const searchPrices = async () => {
       setLoading(true)
