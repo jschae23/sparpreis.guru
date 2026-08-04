@@ -6,72 +6,121 @@ import { Button } from "@/components/ui/button"
 import { FAQPopup } from "@/components/layout/faq-popup"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue} from "@/components/ui/select"
-import { ArrowLeftRight, Train, User, Percent, Shuffle, ArrowRight, Ticket, Settings, MapPin, Calendar, Baby, Clock, Zap, AlertTriangle, Lightbulb, CheckCircle, Map, Info, X } from "lucide-react"
+import { ArrowLeftRight, Ticket, MapPin, Calendar, AlertTriangle, CheckCircle, Moon, Sparkles } from "lucide-react"
 import { logError } from "@/lib/shared/logger"
+import {
+  ConnectionOptionsModule,
+  DateTimeControlStyle,
+  DirectionTimeFiltersModule,
+  TravelerOptionsModule,
+  dateTimeControlClass,
+  searchControlClass,
+} from "@/components/search/train-search-modules"
 
 const LOG_SCOPE = "bestpreissuche.search-form"
+const ctrl = searchControlClass
+const dateTimeCtrl = dateTimeControlClass
 
-/**
- * \u26a0\ufe0f WHY inputs looked huge on mobile (esp. iOS Safari)
- * - Native <input type="date"|"time"> impose their own minimum height and UI.
- * - iOS zooms inputs whose font-size < 16px.
- * - Radix SelectTrigger / shadcn Input had differing default heights.
- *
- * FIX STRATEGY
- * - Use a unified control class ("ctrl"): consistent height (h-11), padding, text-base (>=16px), leading-tight.
- * - Neutralize native date/time chrome via appearance-none; normalize internal value box height.
- * - Apply the same height to SelectTrigger.
- * - Avoid container min-heights that force extra space.
- */
+const ALL_WEEKDAYS = [1, 2, 3, 4, 5, 6, 0]
+const WEEKDAY_OPTIONS = [
+  { label: "Mo", value: 1 },
+  { label: "Di", value: 2 },
+  { label: "Mi", value: 3 },
+  { label: "Do", value: 4 },
+  { label: "Fr", value: 5 },
+  { label: "Sa", value: 6 },
+  { label: "So", value: 0 },
+]
 
-// 1) Reusable class names for uniform sizing
-const ctrl = "h-11 w-full min-w-0 max-w-full box-border px-3 text-base leading-tight rounded-md border border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
-const dateTimeCtrl =
-  `${ctrl} px-2 text-[16px] appearance-none [-webkit-appearance:none] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left [&::-webkit-date-and-time-value]:p-0`
-const ctrlGhost = "bg-gray-100 text-gray-500";
+function parseWeekdaysParam(value?: string) {
+  if (!value) return [...ALL_WEEKDAYS]
 
-// 2) Global tweaks for date/time controls (Tailwind JIT via arbitrary variants)
-//    Put this <style> once in your app (e.g., here or in globals.css under @layer components)
-const DateTimeStyle = () => (
-  <style jsx global>{`
-    /* Normalize native date/time fields across mobile browsers */
-    input[type="date"], input[type="time"] { 
-      -webkit-appearance: none; appearance: none; 
-      font-size: 16px; /* prevent iOS zoom */
-      line-height: 1.2;
+  try {
+    const decoded = decodeURIComponent(value)
+    const parsed = decoded.startsWith("[")
+      ? JSON.parse(decoded)
+      : decoded.split(",").map(Number)
+
+    if (Array.isArray(parsed)) {
+      const weekdays = parsed.filter(
+        (weekday): weekday is number =>
+          typeof weekday === "number" &&
+          Number.isInteger(weekday) &&
+          weekday >= 0 &&
+          weekday <= 6
+      )
+      if (weekdays.length > 0) return [...new Set(weekdays)]
     }
-    /* Remove extra inner box height in WebKit */
-    input[type="date"]::-webkit-date-and-time-value,
-    input[type="time"]::-webkit-date-and-time-value { 
-      min-height: 0; 
-      height: auto; 
-    }
-    /* Keep picker icon but don't let it inflate the field */
-    input[type="date"]::-webkit-calendar-picker-indicator,
-    input[type="time"]::-webkit-clear-button {
-      margin: 0; padding: 0;
-    }
-  `}</style>
-);
+  } catch {}
 
-function TimeFilterInfoButton() {
+  return [...ALL_WEEKDAYS]
+}
+
+function sortWeekdays(weekdays: number[]) {
+  return [...weekdays].sort(
+    (left, right) => ALL_WEEKDAYS.indexOf(left) - ALL_WEEKDAYS.indexOf(right)
+  )
+}
+
+function formatWeekdaySelection(count: number) {
+  if (count === 7) return "alle Tage"
+  return `${count} ${count === 1 ? "Tag" : "Tage"}`
+}
+
+function addDaysISO(dateValue: string, days: number) {
+  const date = new Date(`${dateValue}T12:00:00`)
+  date.setDate(date.getDate() + days)
+  return date.toISOString().split("T")[0]
+}
+
+interface WeekdaySelectorProps {
+  direction: "Hinfahrt" | "Rückfahrt"
+  selected: number[]
+  onChange: (weekdays: number[]) => void
+}
+
+function WeekdaySelector({ direction, selected, onChange }: WeekdaySelectorProps) {
   return (
-    <Popover>
-      <PopoverTrigger asChild>
+    <fieldset>
+      <legend className="mb-2 text-sm font-medium text-gray-700">
+        Wochentage der {direction}
+      </legend>
+      <div className="flex flex-wrap gap-2" role="group" aria-label={`Wochentage der ${direction} auswählen`}>
         <button
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:border-blue-200 hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          aria-label="Hinweis zu Zeitfiltern"
+          className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            selected.length === 7
+              ? "bg-blue-600 text-white shadow-sm"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+          onClick={() => onChange([...ALL_WEEKDAYS])}
+          aria-pressed={selected.length === 7}
         >
-          <Info className="h-3.5 w-3.5" />
+          Alle
         </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 text-xs leading-relaxed text-gray-700">
-        Ankunftszeiten gelten für den Abfahrtstag. Für Nachtfahrten z.B. Abfahrt frühestens 22:00 und Ankunft spätestens 06:00 setzen.
-      </PopoverContent>
-    </Popover>
+        {WEEKDAY_OPTIONS.map((weekday) => (
+          <button
+            key={weekday.value}
+            type="button"
+            className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              selected.includes(weekday.value)
+                ? "bg-blue-600 text-white shadow-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+            onClick={() => {
+              onChange(
+                selected.includes(weekday.value)
+                  ? selected.filter((value) => value !== weekday.value)
+                  : [...selected, weekday.value]
+              )
+            }}
+            aria-pressed={selected.includes(weekday.value)}
+          >
+            {weekday.label}
+          </button>
+        ))}
+      </div>
+    </fieldset>
   )
 }
 
@@ -91,12 +140,21 @@ interface SearchParams {
   abfahrtBis?: string
   ankunftAb?: string
   ankunftBis?: string
+  rueckfahrt?: string
+  minNaechte?: string
+  maxNaechte?: string
+  returnAbfahrtAb?: string
+  returnAbfahrtBis?: string
+  returnAnkunftAb?: string
+  returnAnkunftBis?: string
   wochentage?: string // Only weekdays, not individual dates
+  returnWochentage?: string
   umstiegszeit?: string
 }
 
 interface TrainSearchFormProps {
   searchParams: SearchParams
+  classicModeHref?: string
 }
 
 interface StationSuggestion {
@@ -105,7 +163,7 @@ interface StationSuggestion {
   name: string
 }
 
-export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
+export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: TrainSearchFormProps) {
   // Helper function to check if a string is a station ID (numeric)
   const isStationId = (value: string): boolean => {
     return /^\d+$/.test(value)
@@ -175,6 +233,25 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
   const [abfahrtBis, setAbfahrtBis] = useState(searchParams.abfahrtBis || "")
   const [ankunftAb, setAnkunftAb] = useState(searchParams.ankunftAb || "")
   const [ankunftBis, setAnkunftBis] = useState(searchParams.ankunftBis || "")
+  const hasReturnSearchParams = searchParams.rueckfahrt === "1"
+  const [rueckfahrtAktiv, setRueckfahrtAktiv] = useState(hasReturnSearchParams)
+  const [timeFiltersOpen, setTimeFiltersOpen] = useState(Boolean(
+    searchParams.abfahrtAb || searchParams.abfahrtBis || searchParams.ankunftAb || searchParams.ankunftBis ||
+    searchParams.returnAbfahrtAb || searchParams.returnAbfahrtBis || searchParams.returnAnkunftAb || searchParams.returnAnkunftBis ||
+    searchParams.wochentage || searchParams.returnWochentage
+  ))
+  const [travelerOpen, setTravelerOpen] = useState(false)
+  const [connectionOptionsOpen, setConnectionOptionsOpen] = useState(Boolean(
+    (searchParams.maximaleUmstiege && searchParams.maximaleUmstiege !== "0") ||
+    searchParams.umstiegszeit ||
+    searchParams.schnelleVerbindungen === "0"
+  ))
+  const [minNaechte, setMinNaechte] = useState(searchParams.minNaechte || "3")
+  const [maxNaechte, setMaxNaechte] = useState(searchParams.maxNaechte || "")
+  const [returnAbfahrtAb, setReturnAbfahrtAb] = useState(searchParams.returnAbfahrtAb || "")
+  const [returnAbfahrtBis, setReturnAbfahrtBis] = useState(searchParams.returnAbfahrtBis || "")
+  const [returnAnkunftAb, setReturnAnkunftAb] = useState(searchParams.returnAnkunftAb || "")
+  const [returnAnkunftBis, setReturnAnkunftBis] = useState(searchParams.returnAnkunftBis || "")
   
   const [umstiegsOption, setUmstiegsOption] = useState<string>(() => {
     if (searchParams.maximaleUmstiege === "0") return "direkt"
@@ -182,12 +259,9 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     return searchParams.maximaleUmstiege
   })
   
-  const [nurDirektverbindungen, setNurDirektverbindungen] = useState(false) // Wird nicht mehr verwendet, nur für Backward-Compatibility
   const [reisezeitraumBis, setReisezeitraumBis] = useState(() => {
     if (searchParams.reisezeitraumBis) return searchParams.reisezeitraumBis
-    const ab = new Date(reisezeitraumAb)
-    ab.setDate(ab.getDate() + 2)
-    return ab.toISOString().split("T")[0]
+    return addDaysISO(reisezeitraumAb, hasReturnSearchParams ? 6 : 2)
   })
 
   const switchStations = () => {
@@ -199,51 +273,46 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     setZielId(tempId)
   }
 
-  const weekdayLabels = [
-    { label: "Mo", value: 1 },
-    { label: "Di", value: 2 },
-    { label: "Mi", value: 3 },
-    { label: "Do", value: 4 },
-    { label: "Fr", value: 5 },
-    { label: "Sa", value: 6 },
-    { label: "So", value: 0 },
-  ]
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>(() =>
+    parseWeekdaysParam(searchParams.wochentage)
+  )
+  const [selectedReturnWeekdays, setSelectedReturnWeekdays] = useState<number[]>(() =>
+    searchParams.returnWochentage
+      ? parseWeekdaysParam(searchParams.returnWochentage)
+      : parseWeekdaysParam(searchParams.wochentage)
+  )
 
-  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>(() => {
-    if (searchParams.wochentage) {
-      try {
-        // Parse readable format: "1,2,3,4,5" or JSON array "[1,2,3,4,5]"
-        const decoded = decodeURIComponent(searchParams.wochentage)
-        if (decoded.startsWith('[')) {
-          // Old JSON format
-          const arr = JSON.parse(decoded)
-          if (Array.isArray(arr) && arr.every(v => typeof v === 'number')) {
-            return arr
-          }
-        } else {
-          // New readable format: "1,2,3,4,5"
-          const arr = decoded.split(',').map(Number).filter(n => !isNaN(n) && n >= 0 && n <= 6)
-          if (arr.length > 0) {
-            return arr
-          }
-        }
-      } catch {}
-    }
-    return [1,2,3,4,5,6,0] // All days by default
-  })
-
-  const selectedDates = useMemo(() => {
+  const eligibleDates = useMemo(() => {
     const dates: string[] = []
     const start = new Date(reisezeitraumAb)
     const end = new Date(reisezeitraumBis)
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       if (selectedWeekdays.includes(d.getDay())) {
         dates.push(d.toISOString().split("T")[0])
-        if (dates.length >= 30) break
       }
     }
     return dates
   }, [reisezeitraumAb, reisezeitraumBis, selectedWeekdays])
+
+  const eligibleReturnDates = useMemo(() => {
+    const dates: string[] = []
+    const start = new Date(reisezeitraumAb)
+    const end = new Date(reisezeitraumBis)
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (selectedReturnWeekdays.includes(d.getDay())) {
+        dates.push(d.toISOString().split("T")[0])
+      }
+    }
+    return dates
+  }, [reisezeitraumAb, reisezeitraumBis, selectedReturnWeekdays])
+
+  const selectedDates = useMemo(() => eligibleDates.slice(0, 30), [eligibleDates])
+  const tooManyOutwardDates = eligibleDates.length > 30
+  const tooManyReturnDates = rueckfahrtAktiv && eligibleReturnDates.length > 30
+  const hasNoOutwardDates = eligibleDates.length === 0
+  const hasNoReturnDates = rueckfahrtAktiv && eligibleReturnDates.length === 0
+  const tooManyDates = tooManyOutwardDates || tooManyReturnDates
+  const hasNoDates = hasNoOutwardDates || hasNoReturnDates
 
   // Fetch station suggestions with retry logic
   const fetchStationSuggestions = useCallback(async (query: string, type: 'start' | 'ziel', retryCount = 0) => {
@@ -453,8 +522,13 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     }
   }, [startId, zielId, start, ziel])
   
+  const returnDetailsInvalid = rueckfahrtAktiv && (
+    !minNaechte || (Boolean(maxNaechte) && Number(maxNaechte) < Number(minNaechte))
+  )
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (tooManyDates || hasNoDates || returnDetailsInvalid) return
     const params = new URLSearchParams()
     
     // Use station ID if available, otherwise fallback to name
@@ -484,6 +558,16 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     if (umstiegszeit && umstiegszeit !== "normal") {
       params.set("umstiegszeit", umstiegszeit)
     }
+    if (rueckfahrtAktiv) {
+      params.set("rueckfahrt", "1")
+      params.set("minNaechte", minNaechte || "1")
+      if (maxNaechte) params.set("maxNaechte", maxNaechte)
+      if (returnAbfahrtAb) params.set("returnAbfahrtAb", returnAbfahrtAb)
+      if (returnAbfahrtBis) params.set("returnAbfahrtBis", returnAbfahrtBis)
+      if (returnAnkunftAb) params.set("returnAnkunftAb", returnAnkunftAb)
+      if (returnAnkunftBis) params.set("returnAnkunftBis", returnAnkunftBis)
+      params.set("returnWochentage", sortWeekdays(selectedReturnWeekdays).join(","))
+    }
     
     // Umstiegs-Logik basierend auf umstiegsOption
     if (umstiegsOption === "direkt") {
@@ -496,29 +580,26 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     }
     
     // Only send weekdays if not all days are selected
-    const allDays = [1, 2, 3, 4, 5, 6, 0]
-    const isAllDaysSelected = allDays.every(day => selectedWeekdays.includes(day)) && selectedWeekdays.length === allDays.length
+    const isAllDaysSelected = ALL_WEEKDAYS.every(day => selectedWeekdays.includes(day)) && selectedWeekdays.length === ALL_WEEKDAYS.length
     
     if (!isAllDaysSelected) {
       // Use readable format: "1,2,3,4,5" instead of JSON
-      const sortedWeekdays = [...selectedWeekdays].sort((a, b) => {
-        // Sort Monday-Sunday (1,2,3,4,5,6,0)
-        if (a === 0) return 1
-        if (b === 0) return -1
-        return a - b
-      })
-      params.set("wochentage", sortedWeekdays.join(','))
+      params.set("wochentage", sortWeekdays(selectedWeekdays).join(","))
     }
     
     window.location.href = `/?${params.toString()}`
   }
 
   const handleReset = () => {
+    const resetStart = getTomorrowISO()
+    const resetEndDate = new Date(`${resetStart}T12:00:00`)
+    resetEndDate.setDate(resetEndDate.getDate() + 2)
     setStart("")
     setStartId("")
     setZiel("")
     setZielId("")
-    setReisezeitraumAb(new Date().toISOString().split("T")[0])
+    setReisezeitraumAb(resetStart)
+    setReisezeitraumBis(resetEndDate.toISOString().split("T")[0])
     setAlter("ERWACHSENER")
     setErmaessigungArt("KEINE_ERMAESSIGUNG")
     setErmaessigungKlasse("KLASSENLOS")
@@ -529,8 +610,19 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
     setAbfahrtBis("")
     setAnkunftAb("")
     setAnkunftBis("")
+    setRueckfahrtAktiv(false)
+    setTimeFiltersOpen(false)
+    setTravelerOpen(false)
+    setConnectionOptionsOpen(false)
+    setMinNaechte("3")
+    setMaxNaechte("")
+    setReturnAbfahrtAb("")
+    setReturnAbfahrtBis("")
+    setReturnAnkunftAb("")
+    setReturnAnkunftBis("")
     setUmstiegszeit("normal")
-    setSelectedWeekdays([1,2,3,4,5,6,0])
+    setSelectedWeekdays([...ALL_WEEKDAYS])
+    setSelectedReturnWeekdays([...ALL_WEEKDAYS])
     window.history.replaceState({}, document.title, window.location.pathname)
   }
 
@@ -545,28 +637,76 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
 
   const [umstiegszeit, setUmstiegszeit] = useState(searchParams.umstiegszeit || "normal")
 
+  const hasTimeRestriction = Boolean(
+    abfahrtAb || abfahrtBis || ankunftAb || ankunftBis ||
+    (rueckfahrtAktiv && (returnAbfahrtAb || returnAbfahrtBis || returnAnkunftAb || returnAnkunftBis))
+  )
+  const scheduleSummary = `${
+    rueckfahrtAktiv
+      ? `Hin: ${formatWeekdaySelection(selectedWeekdays.length)} · Rück: ${formatWeekdaySelection(selectedReturnWeekdays.length)}`
+      : formatWeekdaySelection(selectedWeekdays.length)
+  } · ${hasTimeRestriction ? "Zeitfilter aktiv" : "ganztägig"}`
   return (
-    <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-2 sm:p-4 rounded-xl shadow-lg border border-gray-200">
-      <DateTimeStyle />
-      <div className="mb-3 flex items-center justify-between gap-3 sm:mb-4">
-        <h2 className="text-lg font-bold text-gray-800 sm:text-xl">
-          Bestpreissuche
-        </h2>
+    <div className="w-full rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:p-5">
+      <DateTimeControlStyle />
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h2 className="text-xl font-bold text-gray-900 sm:text-2xl">Bestpreise finden</h2>
+            <a
+              href={classicModeHref}
+              className="group inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-gradient-to-r from-red-50 via-orange-50 to-amber-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:-translate-y-0.5 hover:border-red-300 hover:shadow-md"
+              aria-label="Zeitreise zum bahn.guru-Klassikmodus"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-amber-500 transition-transform group-hover:rotate-12" />
+              <span>Zeitreise: bahn.guru-Klassikmodus</span>
+              <span className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
+            </a>
+          </div>
+          <p className="mt-1 text-sm text-gray-600">Strecke und Zeitraum wählen – den günstigsten Reisetag finden.</p>
+        </div>
         <FAQPopup context="bestpreissuche" />
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
-        <div className="bg-white p-2 sm:p-4 rounded-lg shadow-sm border border-gray-100">
-          <h3 className="text-md font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
-            <Map className="w-4 h-4 text-blue-600" />
-            Reisedaten
-          </h3>
-          <div className="flex flex-row gap-2 items-end flex-nowrap mb-3">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="flex flex-col rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4">
+          <fieldset className="order-1 mb-4">
+            <legend className="mb-2 text-sm font-medium text-gray-700">Reiseart</legend>
+            <div className="grid grid-cols-2 rounded-lg bg-gray-200/70 p-1" role="group" aria-label="Reiseart wählen">
+              <button
+                type="button"
+                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${!rueckfahrtAktiv ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                onClick={() => setRueckfahrtAktiv(false)}
+                aria-pressed={!rueckfahrtAktiv}
+              >
+                Einfache Fahrt
+              </button>
+              <button
+                type="button"
+                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${rueckfahrtAktiv ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                onClick={() => {
+                  if (!rueckfahrtAktiv) {
+                    setSelectedReturnWeekdays([...selectedWeekdays])
+                    const currentDefaultEnd = addDaysISO(reisezeitraumAb, 2)
+                    if (!searchParams.reisezeitraumBis && reisezeitraumBis === currentDefaultEnd) {
+                      setReisezeitraumBis(addDaysISO(reisezeitraumAb, 6))
+                    }
+                  }
+                  setRueckfahrtAktiv(true)
+                }}
+                aria-pressed={rueckfahrtAktiv}
+              >
+                Hin &amp; Rückfahrt
+              </button>
+            </div>
+          </fieldset>
+
+          <div className="order-2 mb-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-end">
             <div className="flex-1 min-w-0 relative">
               <Label htmlFor="start" className="text-sm font-medium text-gray-600 mb-2 block">
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="w-4 h-4 text-blue-500" />
-                  Von (Startbahnhof)
+                  Von
                 </span>
               </Label>
               <Input
@@ -580,6 +720,10 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 required
                 className={ctrl}
                 autoComplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={showStartSuggestions}
+                aria-controls="start-suggestions"
               />
               {startError && (
                 <div className="absolute z-50 w-full mt-1 bg-amber-50 border border-amber-300 rounded-md shadow-sm p-2">
@@ -589,10 +733,12 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                   </p>
                 </div>
               )}
-              {showStartSuggestions && startSuggestions.length > 0 && (
-                <div 
+              {showStartSuggestions && (loadingStart || startSuggestions.length > 0) && (
+                <div
+                  id="start-suggestions"
                   ref={startSuggestionsRef}
                   className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto"
+                  role="listbox"
                 >
                   {loadingStart && (
                     <div className="p-2 text-sm text-gray-500 text-center flex items-center justify-center gap-2">
@@ -606,6 +752,8 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                       type="button"
                       className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm border-b border-gray-100 last:border-b-0"
                       onClick={() => selectStartSuggestion(suggestion)}
+                      role="option"
+                      aria-selected="false"
                     >
                       <div className="font-medium text-gray-900">{suggestion.name}</div>
                     </button>
@@ -613,16 +761,14 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 </div>
               )}
             </div>
-            <div className="flex items-end flex-shrink-0" style={{height: '44px'}}>
+            <div className="-my-1 flex justify-end pr-3 sm:my-0 sm:h-11 sm:items-end sm:pr-0">
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 onClick={switchStations}
-                className="bg-white hover:bg-gray-50 border-gray-300 h-11 w-11 flex items-center justify-center p-0"
-                tabIndex={-1}
+                className="h-11 w-11 rounded-full border-gray-300 bg-white p-0 hover:bg-gray-50 sm:rounded-md"
                 aria-label="Bahnhöfe tauschen"
-                style={{height: '44px', width: '44px'}}
               >
                 <ArrowLeftRight className="h-5 w-5" />
               </Button>
@@ -631,7 +777,7 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
               <Label htmlFor="ziel" className="text-sm font-medium text-gray-600 mb-2 block">
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="w-4 h-4 text-blue-500" />
-                  Nach (Zielbahnhof)
+                  Nach
                 </span>
               </Label>
               <Input
@@ -645,6 +791,10 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                 required
                 className={ctrl}
                 autoComplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={showZielSuggestions}
+                aria-controls="ziel-suggestions"
               />
               {zielError && (
                 <div className="absolute z-50 w-full mt-1 bg-amber-50 border border-amber-300 rounded-md shadow-sm p-2">
@@ -654,10 +804,12 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                   </p>
                 </div>
               )}
-              {showZielSuggestions && zielSuggestions.length > 0 && (
-                <div 
+              {showZielSuggestions && (loadingZiel || zielSuggestions.length > 0) && (
+                <div
+                  id="ziel-suggestions"
                   ref={zielSuggestionsRef}
                   className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto"
+                  role="listbox"
                 >
                   {loadingZiel && (
                     <div className="p-2 text-sm text-gray-500 text-center flex items-center justify-center gap-2">
@@ -671,6 +823,8 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
                       type="button"
                       className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm border-b border-gray-100 last:border-b-0"
                       onClick={() => selectZielSuggestion(suggestion)}
+                      role="option"
+                      aria-selected="false"
                     >
                       <div className="font-medium text-gray-900">{suggestion.name}</div>
                     </button>
@@ -679,463 +833,226 @@ export function TrainSearchForm({ searchParams }: TrainSearchFormProps) {
               )}
             </div>
           </div>
-          {/* Restliche Felder im grid */}
-          <div className="flex flex-col gap-3">
-            <div>
-              <Label className="text-sm font-medium text-gray-600 mb-2 block">
-                <span className="inline-flex items-center gap-1">
-                  <Calendar className="w-4 h-4 text-blue-500" />
-                  Reisezeitraum
+          <div className={`order-3 grid gap-4 ${rueckfahrtAktiv ? "sm:grid-cols-2" : ""}`}>
+            <div className="min-w-0 rounded-lg border border-gray-200 bg-white p-3">
+              <div className="mb-3 flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                  <Calendar className="h-4 w-4" />
                 </span>
-              </Label>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-                <Input 
-                  id="reisezeitraumAb" 
-                  type="date" 
-                  value={reisezeitraumAb} 
-                  onChange={handleReisezeitraumAbChange} 
-                  min={getTomorrowISO()} // Verhindert Eingabe von Daten in der Vergangenheit
-                  className={dateTimeCtrl}
-                />
-                <span className="text-gray-500 text-sm">bis</span>
-                <Input
-                  id="reisezeitraumBis"
-                  type="date"
-                  min={reisezeitraumAb}
-                  value={reisezeitraumBis}
-                  onChange={e => setReisezeitraumBis(e.target.value)}
-                  className={dateTimeCtrl}
-                />
-              </div>
-            </div>
-            {/* Zeitfilter - Optional */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-medium text-gray-600">Zeiten eingrenzen</div>
-                <TimeFilterInfoButton />
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="min-w-0 rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
-                <div className="text-sm font-medium text-gray-600 mb-2 block">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-4 h-4 text-blue-500" />
-                    Abfahrt (optional)
-                  </span>
-                </div>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-                  <div className="min-w-0">
-                    <Label htmlFor="abfahrtAb" className="mb-1 block text-xs font-medium text-gray-600">frühestens</Label>
-                    <div className="relative">
-                      <Input 
-                        id="abfahrtAb" 
-                        type="time" 
-                        value={abfahrtAb} 
-                        onChange={(e) => setAbfahrtAb(e.target.value)} 
-                        className={dateTimeCtrl}
-                        aria-label="Abfahrt frühestens"
-                      />
-                      {abfahrtAb && (
-                        <button
-                          type="button"
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
-                          onClick={() => setAbfahrtAb("")}
-                          tabIndex={-1}
-                          aria-label="Abfahrt ab zurücksetzen"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <span className="mt-6 text-sm font-medium text-gray-500">-</span>
-                  <div className="min-w-0">
-                    <Label htmlFor="abfahrtBis" className="mb-1 block text-xs font-medium text-gray-600">spätestens</Label>
-                    <div className="relative">
-                      <Input 
-                        id="abfahrtBis" 
-                        type="time" 
-                        value={abfahrtBis} 
-                        onChange={(e) => setAbfahrtBis(e.target.value)} 
-                        className={dateTimeCtrl}
-                        aria-label="Abfahrt spätestens"
-                      />
-                      {abfahrtBis && (
-                        <button
-                          type="button"
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
-                          onClick={() => setAbfahrtBis("")}
-                          tabIndex={-1}
-                          aria-label="Abfahrt bis zurücksetzen"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">Reisezeitraum</div>
+                  <p className="mt-0.5 text-xs text-gray-500">Wann möchtest du losfahren?</p>
                 </div>
               </div>
-              <div className="min-w-0 rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
-                <div className="text-sm font-medium text-gray-600 mb-2 block">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-4 h-4 text-blue-500" />
-                    Ankunft (optional)
-                  </span>
-                </div>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-                  <div className="min-w-0">
-                    <Label htmlFor="ankunftAb" className="mb-1 block text-xs font-medium text-gray-600">frühestens</Label>
-                    <div className="relative">
-                      <Input 
-                        id="ankunftAb" 
-                        type="time" 
-                        value={ankunftAb} 
-                        onChange={(e) => setAnkunftAb(e.target.value)} 
-                        className={dateTimeCtrl}
-                        aria-label="Ankunft frühestens"
-                      />
-                      {ankunftAb && (
-                        <button
-                          type="button"
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
-                          onClick={() => setAnkunftAb("")}
-                          tabIndex={-1}
-                          aria-label="Ankunft ab zurücksetzen"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <span className="mt-6 text-sm font-medium text-gray-500">-</span>
-                  <div className="min-w-0">
-                    <Label htmlFor="ankunftBis" className="mb-1 block text-xs font-medium text-gray-600">spätestens</Label>
-                    <div className="relative">
-                      <Input 
-                        id="ankunftBis" 
-                        type="time" 
-                        value={ankunftBis} 
-                        onChange={(e) => setAnkunftBis(e.target.value)} 
-                        className={dateTimeCtrl}
-                        aria-label="Ankunft spätestens"
-                      />
-                      {ankunftBis && (
-                        <button
-                          type="button"
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
-                          onClick={() => setAnkunftBis("")}
-                          tabIndex={-1}
-                          aria-label="Ankunft bis zurücksetzen"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              </div>
-            </div>
-          </div>
-          {/* Wochentagsauswahl */}
-          <div className="mt-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex-1">
-                <Label className="text-sm font-medium text-gray-600 mb-2 block">Nur diese Wochentage:</Label>
-                <div className="flex flex-wrap gap-2">
-                  {weekdayLabels.map(wd => (
-                    <button
-                      key={wd.value}
-                      type="button"
-                      className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                        selectedWeekdays.includes(wd.value)
-                          ? 'bg-blue-600 text-white shadow-sm'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                      onClick={() => {
-                        setSelectedWeekdays(prev =>
-                          prev.includes(wd.value)
-                            ? prev.filter(v => v !== wd.value)
-                            : [...prev, wd.value]
-                        )
-                      }}
-                    >
-                      {wd.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Kompakte Info-Box neben den Wochentagen */}
-              <div className={`flex-shrink-0 text-xs p-2 rounded-lg border ${
-                selectedDates.length >= 30
-                  ? 'text-orange-800 bg-orange-50 border-orange-200'
-                  : selectedDates.length > 10
-                    ? 'text-amber-800 bg-amber-50 border-amber-200'
-                    : 'text-green-800 bg-green-50 border-green-200'
-              }`}>
-                <div className="flex items-center gap-1 mb-1">
-                  <div className="flex-shrink-0">
-                    {selectedDates.length >= 30 ? (
-                      <AlertTriangle className="w-3 h-3 text-orange-600" />
-                    ) : selectedDates.length > 10 ? (
-                      <Lightbulb className="w-3 h-3 text-amber-600" />
-                    ) : (
-                      <CheckCircle className="w-3 h-3 text-green-600" />
-                    )}
-                  </div>
-                  <div className="font-semibold text-gray-900">
-                    {selectedDates.length >= 30 ? 'Maximum' : selectedDates.length > 10 ? 'Hinweis' : 'Optimal'} ({selectedDates.length} von max. 30 Tagen)
-                  </div>
-                </div>
-                <div className="text-gray-700 leading-tight">
-                  {selectedDates.length >= 30 ? (
-                    'Es werden nur die ersten 30 Tage gesucht.'
-                  ) : selectedDates.length > 10 ? (
-                    'Je weniger Tage, desto schneller die Suche.'
-                  ) : (
-                    'Optimale Auswahl für schnelle Ergebnisse!'
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-2 sm:p-4 rounded-lg shadow-sm border border-gray-100">
-          <h3 className="text-md font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
-            <User className="w-4 h-4 text-blue-600" />
-            Reisende & Ermäßigung
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <Label className="text-sm font-medium text-gray-600 mb-1 block">
-                <span className="inline-flex items-center gap-1">
-                  <Baby className="w-4 h-4 text-blue-500" />
-                  Alter
-                </span>
-              </Label>
-              <Select value={alter} onValueChange={setAlter}>
-                <SelectTrigger className={ctrl}>
-                  <SelectValue placeholder="Alter wählen" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="KIND">Kind (6–14 Jahre)</SelectItem>
-                  <SelectItem value="JUGENDLICHER">Jugendlicher (15–26 Jahre)</SelectItem>
-                  <SelectItem value="ERWACHSENER">Erwachsener (27–64 Jahre)</SelectItem>
-                  <SelectItem value="SENIOR">Senior (ab 65 Jahre)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-sm font-medium text-gray-600 mb-1 block">
-                <span className="inline-flex items-center gap-1">
-                  <Percent className="w-4 h-4 text-blue-500" />
-                  Ermäßigung
-                </span>
-              </Label>
-              <Select
-                value={JSON.stringify({ art: ermaessigungArt, klasse: ermaessigungKlasse })}
-                onValueChange={(val: string) => {
-                  try {
-                    const parsed = JSON.parse(val)
-                    setErmaessigungArt(parsed.art)
-                    setErmaessigungKlasse(parsed.klasse)
-                  } catch {}
-                }}
-              >
-                <SelectTrigger className={ctrl}>
-                  <SelectValue placeholder="Ermäßigung wählen" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={JSON.stringify({ art: "KEINE_ERMAESSIGUNG", klasse: "KLASSENLOS" })}>
-                    Keine Ermäßigung
-                  </SelectItem>
-                  <SelectItem value={JSON.stringify({ art: "BAHNCARD25", klasse: "KLASSE_2" })}>
-                    BahnCard 25, 2. Klasse
-                  </SelectItem>
-                  <SelectItem value={JSON.stringify({ art: "BAHNCARD25", klasse: "KLASSE_1" })}>
-                    BahnCard 25, 1. Klasse
-                  </SelectItem>
-                  <SelectItem value={JSON.stringify({ art: "BAHNCARD50", klasse: "KLASSE_2" })}>
-                    BahnCard 50, 2. Klasse
-                  </SelectItem>
-                  <SelectItem value={JSON.stringify({ art: "BAHNCARD50", klasse: "KLASSE_1" })}>
-                    BahnCard 50, 1. Klasse
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="mt-3">
-            <Label className="text-sm font-medium text-gray-600 mb-2 block">
-              <span className="inline-flex items-center gap-1">
-                <Train className="w-4 h-4 text-blue-500" />
-                Klasse
-              </span>
-            </Label>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all border-2 ${
-                  klasse === "KLASSE_1"
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                }`}
-                onClick={() => setKlasse("KLASSE_1")}
-              >
-                <div className="flex items-center justify-center gap-2">
-                  <Train className="w-4 h-4" />
-                  1. Klasse
-                </div>
-              </button>
-              <button
-                type="button"
-                className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all border-2 ${
-                  klasse === "KLASSE_2"
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                }`}
-                onClick={() => setKlasse("KLASSE_2")}
-              >
-                <div className="flex items-center justify-center gap-2">
-                  <Train className="w-4 h-4" />
-                  2. Klasse
-                </div>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-2 sm:p-4 rounded-lg shadow-sm border border-gray-100">
-          <h3 className="text-md font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
-            <Settings className="w-4 h-4 text-blue-600" />
-            Optionen
-          </h3>
-          <div className="space-y-3">
-            {/* Schnellste Verbindungen und Direktverbindungen nebeneinander */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-sm font-medium text-gray-600 mb-2 block">
-                  <span className="inline-flex items-center gap-1">
-                    <Zap className="w-4 h-4 text-blue-500" />
-                    Schnellste Verbindungen bevorzugen
-                  </span>
-                </Label>
-                <button
-                  type="button"
-                  className={`w-full px-4 py-3 rounded-lg text-sm font-medium transition-all border-2 ${
-                    schnelleVerbindungen
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                  }`}
-                  onClick={() => setSchnelleVerbindungen(!schnelleVerbindungen)}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <Zap className="w-4 h-4" />
-                    {schnelleVerbindungen ? 'Aktiviert' : 'Deaktiviert'}
-                  </div>
-                </button>
-              </div>
-              
-              <div>
-                <Label className="text-sm font-medium text-gray-600 mb-2 block">
-                  <span className="inline-flex items-center gap-1">
-                    <ArrowRight className="w-4 h-4 text-blue-500" />
-                    Nur Direktverbindungen
-                  </span>
-                </Label>
-                <button
-                  type="button"
-                  className={`w-full px-4 py-3 rounded-lg text-sm font-medium transition-all border-2 ${
-                    umstiegsOption === "direkt"
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                  }`}
-                  onClick={() => setUmstiegsOption(umstiegsOption === "direkt" ? "alle" : "direkt")}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <ArrowRight className="w-4 h-4" />
-                    {umstiegsOption === "direkt" ? 'Aktiviert' : 'Deaktiviert'}
-                  </div>
-                </button>
-              </div>
-            </div>
-            
-            {/* Maximale Umstiege und Mindest-Umstiegszeit nebeneinander */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
-              <div className="flex flex-col h-full">
-                <Label htmlFor="maxUmstiege" className="text-sm font-medium text-gray-600 mb-2 block min-h-[22px]">
-                  <span className="inline-flex items-center gap-1">
-                    <Shuffle className="w-4 h-4 text-blue-500" />
-                    Maximale Umstiege
-                  </span>
-                </Label>
-                <div className="flex-1 flex flex-col">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label htmlFor="reisezeitraumAb" className="mb-1 block text-xs font-medium text-gray-600">
+                    Frühestens
+                  </Label>
                   <Input
-                    id="maxUmstiege"
-                    type="number"
-                    min="0"
-                    max="10"
-                    placeholder="Unbegrenzt"
-                    value={umstiegsOption === "direkt" ? "0" : (umstiegsOption === "alle" ? "" : umstiegsOption)}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value === "" || value === "unbegrenzt") {
-                        setUmstiegsOption("alle");
-                      } else if (value === "0") {
-                        setUmstiegsOption("direkt");
-                      } else {
-                        setUmstiegsOption(value);
-                      }
-                    }}
-                    disabled={umstiegsOption === "direkt"}
-                    className={`${ctrl} ${umstiegsOption === "direkt" ? "opacity-50 cursor-not-allowed" : ""}`}
+                    id="reisezeitraumAb"
+                    type="date"
+                    value={reisezeitraumAb}
+                    onChange={handleReisezeitraumAbChange}
+                    min={getTomorrowISO()}
+                    className={dateTimeCtrl}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="reisezeitraumBis" className="mb-1 block text-xs font-medium text-gray-600">
+                    Spätestens
+                  </Label>
+                  <Input
+                    id="reisezeitraumBis"
+                    type="date"
+                    min={reisezeitraumAb}
+                    value={reisezeitraumBis}
+                    onChange={(event) => setReisezeitraumBis(event.target.value)}
+                    className={dateTimeCtrl}
                   />
                 </div>
               </div>
-              
-              <div className="flex flex-col h-full">
-                <Label htmlFor="umstiegszeit" className="text-sm font-medium text-gray-600 mb-2 block min-h-[22px]">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-4 h-4 text-blue-500" />
-                    Mindest-Umstiegszeit
-                  </span>
-                </Label>
-                <div className="flex-1 flex flex-col">
-                  <Select 
-                    value={umstiegszeit} 
-                    onValueChange={setUmstiegszeit}
-                    disabled={umstiegsOption === "direkt"}
-                  >
-                    <SelectTrigger className={`${ctrl} ${umstiegsOption === "direkt" ? "opacity-50 cursor-not-allowed" : ""}`}>
-                      <SelectValue placeholder="Normal" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="normal">Normal</SelectItem>
-                      <SelectItem value="10">10 Minuten</SelectItem>
-                      <SelectItem value="15">15 Minuten</SelectItem>
-                      <SelectItem value="20">20 Minuten</SelectItem>
-                      <SelectItem value="25">25 Minuten</SelectItem>
-                      <SelectItem value="30">30 Minuten</SelectItem>
-                      <SelectItem value="35">35 Minuten</SelectItem>
-                      <SelectItem value="40">40 Minuten</SelectItem>
-                      <SelectItem value="45">45 Minuten</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
             </div>
+
+            {rueckfahrtAktiv && (
+              <fieldset className="min-w-0 rounded-lg border border-gray-200 bg-white p-3">
+                <legend className="sr-only">Aufenthaltsdauer</legend>
+                <div className="mb-3 flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                    <Moon className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">Aufenthaltsdauer</div>
+                    <p className="mt-0.5 text-xs text-gray-500">Wie lange möchtest du am Ziel bleiben?</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="minNaechte" className="mb-1 block text-xs font-medium text-gray-600">
+                      Mindestens
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="minNaechte"
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={minNaechte}
+                        onChange={(event) => setMinNaechte(event.target.value)}
+                        className={`${ctrl} pr-16`}
+                        required={rueckfahrtAktiv}
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">Nächte</span>
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="maxNaechte" className="mb-1 block text-xs font-medium text-gray-600">
+                      Höchstens
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="maxNaechte"
+                        type="number"
+                        min={minNaechte || "1"}
+                        max="365"
+                        placeholder="offen"
+                        value={maxNaechte}
+                        onChange={(event) => setMaxNaechte(event.target.value)}
+                        className={`${ctrl} pr-16`}
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">Nächte</span>
+                    </div>
+                  </div>
+                </div>
+                <p className={`mt-1.5 text-xs ${returnDetailsInvalid ? "text-amber-700" : "text-gray-500"}`}>
+                  {returnDetailsInvalid
+                    ? (!minNaechte
+                        ? "Bitte gib die gewünschte Mindestdauer an."
+                        : "Die maximale Dauer muss mindestens der minimalen entsprechen.")
+                    : `Rückfahrt nach ${minNaechte}${maxNaechte ? ` bis ${maxNaechte}` : " oder mehr"} Nächten.`}
+                </p>
+              </fieldset>
+            )}
+          </div>
+
+          <div
+            className={`order-4 mt-3 flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+              tooManyDates || hasNoDates ? "bg-amber-50 text-amber-900" : "bg-blue-50 text-blue-800"
+            }`}
+            role={tooManyDates || hasNoDates ? "alert" : "status"}
+          >
+            {tooManyDates || hasNoDates
+              ? <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              : <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+            <span>
+              {tooManyOutwardDates
+                ? `Die Hinfahrt enthält ${eligibleDates.length} Reisetage. Bitte auf maximal 30 Tage begrenzen.`
+                : tooManyReturnDates
+                  ? `Die Rückfahrt enthält ${eligibleReturnDates.length} Reisetage. Bitte auf maximal 30 Tage begrenzen.`
+                  : hasNoOutwardDates
+                    ? "Für die Hinfahrt liegt kein gewählter Wochentag im Reisezeitraum."
+                    : hasNoReturnDates
+                      ? "Für die Rückfahrt liegt kein gewählter Wochentag im Reisezeitraum."
+                      : rueckfahrtAktiv
+                        ? `${eligibleDates.length} Hinfahrts- und ${eligibleReturnDates.length} Rückfahrtstage werden verglichen.`
+                        : `${eligibleDates.length} ${eligibleDates.length === 1 ? "Reisetag wird" : "Reisetage werden"} verglichen.`}
+            </span>
+          </div>
+
+          <div className="order-5 mt-3">
+            <DirectionTimeFiltersModule
+              open={timeFiltersOpen}
+              onOpenChange={setTimeFiltersOpen}
+              includeReturn={rueckfahrtAktiv}
+              title="Reisezeiten"
+              summary={scheduleSummary}
+              outboundContext={formatWeekdaySelection(selectedWeekdays.length)}
+              returnContext={formatWeekdaySelection(selectedReturnWeekdays.length)}
+              outboundValues={{
+                departureFrom: abfahrtAb,
+                departureUntil: abfahrtBis,
+                arrivalFrom: ankunftAb,
+                arrivalUntil: ankunftBis,
+              }}
+              onOutboundChange={(values) => {
+                setAbfahrtAb(values.departureFrom)
+                setAbfahrtBis(values.departureUntil)
+                setAnkunftAb(values.arrivalFrom)
+                setAnkunftBis(values.arrivalUntil)
+              }}
+              returnValues={{
+                departureFrom: returnAbfahrtAb,
+                departureUntil: returnAbfahrtBis,
+                arrivalFrom: returnAnkunftAb,
+                arrivalUntil: returnAnkunftBis,
+              }}
+              onReturnChange={(values) => {
+                setReturnAbfahrtAb(values.departureFrom)
+                setReturnAbfahrtBis(values.departureUntil)
+                setReturnAnkunftAb(values.arrivalFrom)
+                setReturnAnkunftBis(values.arrivalUntil)
+              }}
+              outboundBefore={(
+                <WeekdaySelector
+                  direction="Hinfahrt"
+                  selected={selectedWeekdays}
+                  onChange={setSelectedWeekdays}
+                />
+              )}
+              returnBefore={(
+                <WeekdaySelector
+                  direction="Rückfahrt"
+                  selected={selectedReturnWeekdays}
+                  onChange={setSelectedReturnWeekdays}
+                />
+              )}
+            />
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Button type="submit" className="w-full sm:flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-lg shadow-sm">
-            <Ticket className="w-4 h-4 mr-2" />
-            Bestpreise suchen
+        <TravelerOptionsModule
+          open={travelerOpen}
+          onOpenChange={setTravelerOpen}
+          age={alter}
+          onAgeChange={setAlter}
+          discountType={ermaessigungArt}
+          discountClass={ermaessigungKlasse}
+          onDiscountChange={(type, discountClass) => {
+            setErmaessigungArt(type)
+            setErmaessigungKlasse(discountClass)
+          }}
+          travelClass={klasse}
+          onTravelClassChange={setKlasse}
+        />
+
+        <ConnectionOptionsModule
+          open={connectionOptionsOpen}
+          onOpenChange={setConnectionOptionsOpen}
+          fastConnections={schnelleVerbindungen}
+          onFastConnectionsChange={setSchnelleVerbindungen}
+          transferOption={umstiegsOption}
+          onTransferOptionChange={setUmstiegsOption}
+          transferTime={umstiegszeit}
+          onTransferTimeChange={setUmstiegszeit}
+        />
+
+        <div className="sticky bottom-2 z-30 rounded-xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
+          <Button
+            type="submit"
+            disabled={tooManyDates || hasNoDates || returnDetailsInvalid}
+            className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700"
+          >
+            <Ticket className="mr-2 h-4 w-4" />
+            {rueckfahrtAktiv
+              ? "Günstigste Kombinationen suchen"
+              : `Bestpreise für ${eligibleDates.length} ${eligibleDates.length === 1 ? "Tag" : "Tage"} suchen`}
           </Button>
-          <Button type="button" variant="outline" onClick={handleReset} className="w-full sm:w-auto border-gray-300 hover:bg-gray-50 px-6 py-3 rounded-lg">
-            Zurücksetzen
-          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-xs">
+          <button type="button" onClick={handleReset} className="text-gray-500 underline-offset-4 hover:text-gray-800 hover:underline">
+            Angaben zurücksetzen
+          </button>
         </div>
       </form>
     </div>
