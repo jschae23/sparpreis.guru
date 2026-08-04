@@ -74,7 +74,7 @@ export const PriceHistoryChart = memo(function PriceHistoryChart({ history, titl
   ]
 
   return (
-    <div className="p-4 border rounded-lg bg-gray-50/50">
+    <div className="w-full min-w-0 p-4 border rounded-lg bg-gray-50/50">
       <div className="flex justify-between items-center mb-4">
         <h4 className="font-semibold text-gray-800">{title}</h4>
         <div className={`flex items-center gap-1 text-sm font-medium ${trend.color}`}>
@@ -90,8 +90,8 @@ export const PriceHistoryChart = memo(function PriceHistoryChart({ history, titl
           Nur ein Datenpunkt vorhanden: {history[0].preis.toFixed(2)}€ am {new Date(history[0].recorded_at).toLocaleString('de-DE')}
         </div>
       ) : (
-        <div style={{ width: '100%', height: 150 }}>
-          <ResponsiveContainer>
+        <div className="h-[150px] w-full min-w-0">
+          <ResponsiveContainer width="100%" height={150} minWidth={1}>
             <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
               <XAxis 
