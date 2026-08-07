@@ -9,6 +9,7 @@ import { AlertCircle } from 'lucide-react'
 import { Footer } from '@/components/layout/footer'
 import { BrandLogo } from '@/components/layout/brand-logo'
 import { MainNavigation } from '@/components/layout/main-navigation'
+import { PageContainer } from '@/components/layout/page-container'
 import { ICE_STATIONS } from '@/lib/stations/ice-stations'
 import { logError, logWarn } from '@/lib/shared/logger'
 
@@ -393,7 +394,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
 
   return (
     <div className="min-h-screen bg-white">
-      <div className="container mx-auto px-4 py-6 max-w-6xl">
+      <PageContainer>
         <header className="mb-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
@@ -467,7 +468,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
         )}
 
         <Footer show={showFooter} />
-      </div>
+      </PageContainer>
     </div>
   )
 }
