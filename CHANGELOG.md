@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.1](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.4.0...v1.4.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* **dev:** support configured development origins ([dc62e92](https://github.com/XLixl4snSU/sparpreis.guru/commit/dc62e92ecc2dcbc82c3d48be59067b0e2bf6aa15))
+* **layout:** prevent mobile content overflow ([e459065](https://github.com/XLixl4snSU/sparpreis.guru/commit/e459065ef3fc3b27b488e9428b8ec87f329e02cc))
+* **metrics:** keep queue snapshots in sync ([f55aee6](https://github.com/XLixl4snSU/sparpreis.guru/commit/f55aee625906c30207fb07abd502dbbba4ea9c65))
+* **search:** prevent invalid travel date searches ([1705026](https://github.com/XLixl4snSU/sparpreis.guru/commit/1705026b37f49ec522a9e8232a8a091660479089))
+
 ## [1.4.0](https://github.com/XLixl4snSU/sparpreis.guru/compare/v1.3.0...v1.4.0) (2026-08-04)
 
 ### ⚠️ Wichtiger Hinweis zur Datenbankmigration
