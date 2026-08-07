@@ -73,7 +73,58 @@ class GlobalRateLimiter {
     this.cleanupTimer = setInterval(() => {
       this.cleanupCancelledSessions()
       this.cleanupStaleSearchSessions()
+      this.updateQueueMetricsSnapshot()
     }, this.config.cleanupInterval)
+  }
+
+  private getTotalQueueSize(): number {
+    return Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
+  }
+
+  private getVisibleActiveSearchSessionIds(now = Date.now()): Set<string> {
+    const activeSearchSessionIds = new Set<string>()
+
+    for (const [registeredSessionId, lastActivity] of this.activeSearchSessions.entries()) {
+      if (now - lastActivity > this.activeSearchHeartbeatTimeout) {
+        this.activeSearchSessions.delete(registeredSessionId)
+        this.remainingRequestsBySession.delete(registeredSessionId)
+        this.rateLimitedRemainingRequestsBySession.delete(registeredSessionId)
+        continue
+      }
+
+      const reportedRemainingRequests = this.remainingRequestsBySession.get(registeredSessionId) || 0
+      const liveRemainingRequests =
+        (this.sessionQueues.get(registeredSessionId)?.length || 0) +
+        (this.activeRequestsBySession.get(registeredSessionId) || 0)
+      const clientHeartbeat = this.clientSearchHeartbeats.get(registeredSessionId) || 0
+      const hasFreshClientHeartbeat = now - clientHeartbeat <= this.visibleSearchHeartbeatTimeout
+
+      if (liveRemainingRequests > 0 || (reportedRemainingRequests > 0 && hasFreshClientHeartbeat)) {
+        activeSearchSessionIds.add(registeredSessionId)
+      }
+    }
+
+    for (const [queuedSessionId, queue] of this.sessionQueues.entries()) {
+      if (queuedSessionId !== 'default' && queue.length > 0) {
+        activeSearchSessionIds.add(queuedSessionId)
+      }
+    }
+
+    for (const [activeSessionId, count] of this.activeRequestsBySession.entries()) {
+      if (activeSessionId !== 'default' && count > 0) {
+        activeSearchSessionIds.add(activeSessionId)
+      }
+    }
+
+    return activeSearchSessionIds
+  }
+
+  private updateQueueMetricsSnapshot(now = Date.now()): void {
+    metricsCollector.updateQueueMetrics(
+      this.getTotalQueueSize(),
+      this.activeRequests,
+      this.getVisibleActiveSearchSessionIds(now).size
+    )
   }
 
   async addToQueue<T>(requestId: string, apiCall: () => Promise<T>, sessionId?: string): Promise<T> {
@@ -110,6 +161,7 @@ class GlobalRateLimiter {
         queueSize: totalRequests,
         activeSessions: this.sessionQueues.size,
       })
+      this.updateQueueMetricsSnapshot()
       
       // Starte Verarbeitung falls noch nicht aktiv
       this.scheduleNextProcessing()
@@ -200,6 +252,7 @@ class GlobalRateLimiter {
           if (this.currentSessionIndex >= this.sessionRoundRobin.length && this.sessionRoundRobin.length > 0) {
             this.currentSessionIndex = 0
           }
+          this.updateQueueMetricsSnapshot()
           attempts++
           continue
         }
@@ -224,6 +277,7 @@ class GlobalRateLimiter {
     // Prüfe Session-Abbruch vor Ausführung (finale Prüfung)
     if (request.sessionId && this.isSessionCancelledSync(request.sessionId)) {
       request.reject(new Error(`Session ${request.sessionId} was cancelled`))
+      this.updateQueueMetricsSnapshot()
       // Verarbeite nächsten Request
       this.scheduleNextProcessing()
       return
@@ -245,6 +299,7 @@ class GlobalRateLimiter {
       effectiveSessionId,
       (this.activeRequestsBySession.get(effectiveSessionId) || 0) + 1
     )
+    this.updateQueueMetricsSnapshot()
 
     // Tracking für Rate Limit Logik
     this.trackRequest(this.lastApiCallStart)
@@ -281,6 +336,7 @@ class GlobalRateLimiter {
           queueSize: totalRequestsCompleted,
           activeRequests: this.activeRequests,
         })
+        this.updateQueueMetricsSnapshot()
         
         // Plane nächsten Request falls Queue nicht leer
         this.scheduleNextProcessing()
@@ -333,6 +389,7 @@ class GlobalRateLimiter {
       logDebug(LOG_SCOPE, "Cancelled sessions cleanup completed", {
         removedSessions: sessionsToRemove.length,
       })
+      this.updateQueueMetricsSnapshot()
     }
   }
 
@@ -410,6 +467,7 @@ class GlobalRateLimiter {
                 sessionId: effectiveSessionId,
                 queueSize: totalRequests,
               })
+              this.updateQueueMetricsSnapshot()
               this.scheduleNextProcessing()
             }, retryDelay)
             return
@@ -484,6 +542,7 @@ class GlobalRateLimiter {
               sessionId: effectiveSessionId,
               queueSize: totalRequests,
             })
+            this.updateQueueMetricsSnapshot()
             this.scheduleNextProcessing()
           }, retryDelay)
           return
@@ -677,6 +736,7 @@ class GlobalRateLimiter {
         Math.max(0, Math.ceil(rateLimitedRemainingRequests))
       )
     }
+    this.updateQueueMetricsSnapshot()
   }
 
   public unregisterSearchSession(sessionId: string): void {
@@ -684,6 +744,7 @@ class GlobalRateLimiter {
     this.remainingRequestsBySession.delete(sessionId)
     this.rateLimitedRemainingRequestsBySession.delete(sessionId)
     this.clientSearchHeartbeats.delete(sessionId)
+    this.updateQueueMetricsSnapshot()
   }
 
   public heartbeatSearchSession(
@@ -702,11 +763,13 @@ class GlobalRateLimiter {
       liveRemainingRequests === 0
     ) {
       this.unregisterSearchSession(sessionId)
+      this.updateQueueMetricsSnapshot()
       return
     }
 
     this.registerSearchSession(sessionId, remainingRequests, rateLimitedRemainingRequests)
     this.clientSearchHeartbeats.set(sessionId, Date.now())
+    this.updateQueueMetricsSnapshot()
   }
 
   private cleanupStaleSearchSessions(now = Date.now()): void {
@@ -763,7 +826,7 @@ class GlobalRateLimiter {
       setTimeout(() => {
         this.cancelledSessions.delete(sessionId)
       }, this.config.completedSessionTimeout)
-      
+      this.updateQueueMetricsSnapshot()
       return
     }
     
@@ -773,6 +836,7 @@ class GlobalRateLimiter {
         sessionId,
         reason,
       })
+      this.updateQueueMetricsSnapshot()
       return
     }
     
@@ -811,6 +875,7 @@ class GlobalRateLimiter {
         cancelledRequests: requestCount,
       })
     }
+    this.updateQueueMetricsSnapshot()
     
     // Auto-cleanup nach 5 Minuten (nur für das cancelled-Set)
     setTimeout(() => {
@@ -835,7 +900,7 @@ class GlobalRateLimiter {
     this.cleanupStaleSearchSessions()
 
     // Berechne Gesamt-Queue-Größe über alle Sessions
-    const totalQueueSize = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
+    const totalQueueSize = this.getTotalQueueSize()
     
     // Finde Position des Users in der Round-Robin Abarbeitung
     let ownPosition: number | null = null
@@ -861,35 +926,7 @@ class GlobalRateLimiter {
     }
     
     const now = Date.now()
-    const activeSearchSessionIds = new Set<string>()
-    for (const [registeredSessionId, lastHeartbeat] of this.activeSearchSessions.entries()) {
-      if (now - lastHeartbeat <= this.activeSearchHeartbeatTimeout) {
-        const reportedRemainingRequests = this.remainingRequestsBySession.get(registeredSessionId) || 0
-        const liveRemainingRequests =
-          (this.sessionQueues.get(registeredSessionId)?.length || 0) +
-          (this.activeRequestsBySession.get(registeredSessionId) || 0)
-        const clientHeartbeat = this.clientSearchHeartbeats.get(registeredSessionId) || 0
-        const hasFreshClientHeartbeat = now - clientHeartbeat <= this.visibleSearchHeartbeatTimeout
-
-        if (liveRemainingRequests > 0 || (reportedRemainingRequests > 0 && hasFreshClientHeartbeat)) {
-          activeSearchSessionIds.add(registeredSessionId)
-        }
-      } else {
-        this.activeSearchSessions.delete(registeredSessionId)
-        this.remainingRequestsBySession.delete(registeredSessionId)
-        this.rateLimitedRemainingRequestsBySession.delete(registeredSessionId)
-      }
-    }
-    for (const [queuedSessionId, queue] of this.sessionQueues.entries()) {
-      if (queuedSessionId !== 'default' && queue.length > 0) {
-        activeSearchSessionIds.add(queuedSessionId)
-      }
-    }
-    for (const [activeSessionId, count] of this.activeRequestsBySession.entries()) {
-      if (activeSessionId !== 'default' && count > 0) {
-        activeSearchSessionIds.add(activeSessionId)
-      }
-    }
+    const activeSearchSessionIds = this.getVisibleActiveSearchSessionIds(now)
 
     const sessionActiveRequests = sessionId
       ? this.activeRequestsBySession.get(sessionId) || 0
