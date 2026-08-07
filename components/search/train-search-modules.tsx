@@ -299,17 +299,17 @@ export function DirectionTimeFiltersModule({
         onClick={() => onOpenChange(!open)}
         aria-expanded={open}
       >
-        <span className="flex min-w-0 items-center gap-3">
+        <span className="flex min-w-0 flex-1 items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
             <Clock className="h-4 w-4" />
           </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold text-gray-800">{title}</span>
-            <span className="mt-0.5 block truncate text-xs text-gray-500">{summary}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block break-words text-sm font-semibold leading-5 text-gray-800">{title}</span>
+            <span className="mt-0.5 block break-words text-xs leading-4 text-gray-500 sm:truncate">{summary}</span>
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2 text-xs font-medium text-blue-700">
-          Optional
+          <span className="hidden sm:inline">Optional</span>
           <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
         </span>
       </button>
@@ -440,19 +440,19 @@ export function TravelerOptionsModule({
         onClick={() => onOpenChange(!open)}
         aria-expanded={open}
       >
-        <span className="flex min-w-0 items-center gap-3">
+        <span className="flex min-w-0 flex-1 items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
             <User className="h-4 w-4" />
           </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold text-gray-800">Reisender &amp; Rabatt</span>
-            <span className="mt-0.5 block truncate text-xs text-gray-500">
+          <span className="min-w-0 flex-1">
+            <span className="block break-words text-sm font-semibold leading-5 text-gray-800">Reisender &amp; Rabatt</span>
+            <span className="mt-0.5 block break-words text-xs leading-4 text-gray-500 sm:truncate">
               {travelerSummary(age, discountType, travelClass)}
             </span>
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2 text-xs font-medium text-blue-700">
-          Ändern
+          <span className="hidden sm:inline">Ändern</span>
           <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
         </span>
       </button>
@@ -583,19 +583,19 @@ export function ConnectionOptionsModule({
         onClick={() => onOpenChange(!open)}
         aria-expanded={open}
       >
-        <span className="flex min-w-0 items-center gap-3">
+        <span className="flex min-w-0 flex-1 items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
             <Settings className="h-4 w-4" />
           </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold text-gray-800">Verbindungseinstellungen</span>
-            <span className="mt-0.5 block truncate text-xs text-gray-500">
+          <span className="min-w-0 flex-1">
+            <span className="block break-words text-sm font-semibold leading-5 text-gray-800">Verbindungseinstellungen</span>
+            <span className="mt-0.5 block break-words text-xs leading-4 text-gray-500 sm:truncate">
               {connectionSummary}{fastConnections ? " · schnellste bevorzugt" : ""}
             </span>
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-blue-700">
-          Weitere Optionen
+          <span className="hidden sm:inline">Weitere Optionen</span>
           <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
         </span>
       </button>

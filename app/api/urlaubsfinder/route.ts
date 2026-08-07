@@ -5,6 +5,7 @@ import { metricsCollector } from '@/app/api/metrics/collector'
 import { ICE_STATIONS } from '@/lib/stations/ice-stations'
 import { isUrlaubsfinderEnabled } from '@/lib/shared/feature-flags'
 import { logDebug, logError, logInfo } from '@/lib/shared/logger'
+import { getEarliestSearchDateKey } from '@/lib/shared/berlin-date'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -180,6 +181,23 @@ export async function POST(request: NextRequest) {
       returnAnkunftBis,
       umstiegszeit,
     } = body
+
+    const earliestSearchDate = getEarliestSearchDateKey()
+    if (typeof outwardDate !== "string" || outwardDate < earliestSearchDate) {
+      return NextResponse.json(
+        {
+          error: `Der früheste Reisetag ist ${earliestSearchDate} (Europe/Berlin).`,
+          earliestSearchDate,
+        },
+        { status: 400 }
+      )
+    }
+    if (returnDate && returnDate < outwardDate) {
+      return NextResponse.json(
+        { error: "Die Rückfahrt darf nicht vor der Hinfahrt liegen." },
+        { status: 400 }
+      )
+    }
 
     if (!homeStation || !destinations || destinations.length === 0) {
       return NextResponse.json(

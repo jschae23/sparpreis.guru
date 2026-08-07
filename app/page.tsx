@@ -3,8 +3,15 @@ import { TrainResults } from "@/components/bestpreissuche/train-results"
 import { Footer } from "@/components/layout/footer"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { MainNavigation } from "@/components/layout/main-navigation"
+import { PageContainer } from "@/components/layout/page-container"
 import { isFooterEnabled, isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
+import {
+  getEligibleDateKeys,
+  getReturnSearchFeasibility,
+  parseSearchWeekdays,
+} from "@/lib/search/return-search-feasibility"
 import { redirect } from "next/navigation"
+import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 
 interface SearchParams {
   start?: string
@@ -34,13 +41,6 @@ interface SearchParams {
   returnWochentage?: string
 }
 
-// Helper function to get tomorrow's date in YYYY-MM-DD format
-function getTomorrowISO() {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  return tomorrow.toISOString().split("T")[0]
-}
-
 function createClassicModeHref(params: SearchParams) {
   const classicParams = new URLSearchParams()
 
@@ -63,7 +63,8 @@ export default async function Page({
   
   // Validate and correct dates if they're in the past
   if (params.start && params.ziel) {
-    const tomorrow = getTomorrowISO()
+    const tomorrow = getEarliestSearchDateKey()
+    const defaultSearchStart = addDaysToDateKey(tomorrow, 6)
     let needsRedirect = false
     const correctedParams = new URLSearchParams()
     
@@ -75,21 +76,22 @@ export default async function Page({
     })
     
     // Check and correct reisezeitraumAb
-    if (params.reisezeitraumAb && params.reisezeitraumAb < tomorrow) {
+    if (!params.reisezeitraumAb) {
+      correctedParams.set('reisezeitraumAb', defaultSearchStart)
+      needsRedirect = true
+    } else if (params.reisezeitraumAb < tomorrow) {
       correctedParams.set('reisezeitraumAb', tomorrow)
       needsRedirect = true
     }
     
     // Check and correct reisezeitraumBis if it's before reisezeitraumAb
-    const effectiveAb = params.reisezeitraumAb && params.reisezeitraumAb >= tomorrow 
-      ? params.reisezeitraumAb 
-      : tomorrow
+    const effectiveAb = correctedParams.get('reisezeitraumAb') || defaultSearchStart
     
-    if (params.reisezeitraumBis && params.reisezeitraumBis < effectiveAb) {
-      // Set reisezeitraumBis to 2 days after effectiveAb
-      const abDate = new Date(effectiveAb)
-      abDate.setDate(abDate.getDate() + 2)
-      correctedParams.set('reisezeitraumBis', abDate.toISOString().split("T")[0])
+    if (!params.reisezeitraumBis) {
+      correctedParams.set('reisezeitraumBis', addDaysToDateKey(effectiveAb, 6))
+      needsRedirect = true
+    } else if (params.reisezeitraumBis < effectiveAb) {
+      correctedParams.set('reisezeitraumBis', addDaysToDateKey(effectiveAb, 6))
       needsRedirect = true
     }
     
@@ -99,14 +101,33 @@ export default async function Page({
     }
   }
   
-  const hasSearch = params.start && params.ziel
+  const returnSearchIsFeasible = (() => {
+    if (params.rueckfahrt !== "1" || !params.reisezeitraumAb || !params.reisezeitraumBis) return true
+
+    const outwardWeekdays = parseSearchWeekdays(params.wochentage)
+    const returnWeekdays = params.returnWochentage
+      ? parseSearchWeekdays(params.returnWochentage)
+      : outwardWeekdays
+    const minimumNights = Number(params.minNaechte || "3")
+    const maximumNights = params.maxNaechte ? Number(params.maxNaechte) : undefined
+    if (!Number.isInteger(minimumNights) || minimumNights < 1) return false
+    if (maximumNights !== undefined && (!Number.isInteger(maximumNights) || maximumNights < minimumNights)) return false
+
+    return getReturnSearchFeasibility({
+      outwardDates: getEligibleDateKeys(params.reisezeitraumAb, params.reisezeitraumBis, outwardWeekdays),
+      returnDates: getEligibleDateKeys(params.reisezeitraumAb, params.reisezeitraumBis, returnWeekdays),
+      minNights: minimumNights,
+      maxNights: maximumNights,
+    }).hasCombination
+  })()
+  const hasSearch = Boolean(params.start && params.ziel && returnSearchIsFeasible)
   const urlaubsfinderEnabled = isUrlaubsfinderEnabled()
   const footerEnabled = isFooterEnabled()
   const classicModeHref = createClassicModeHref(params)
 
   return (
     <div className="min-h-screen bg-white">
-      <div className="container mx-auto px-4 py-6 max-w-6xl">
+      <PageContainer>
         <header className="mb-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
@@ -133,7 +154,7 @@ export default async function Page({
         
         {/* Footer */}
         <Footer show={footerEnabled} />
-      </div>
+      </PageContainer>
     </div>
   )
 }

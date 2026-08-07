@@ -6,6 +6,7 @@ import { DayDetailsModal } from "./day-details-modal"
 import { TravelCombinations, type TravelCombination } from "./travel-combinations"
 import { IncompleteSearchNotice } from "@/components/search/incomplete-search-notice"
 import { logError, logInfo, logWarn } from "@/lib/shared/logger"
+import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 
 const LOG_SCOPE = "bestpreissuche.client"
 const BACKGROUND_SEARCH_NOTICE = "Suchen können nicht im Hintergrund ausgeführt werden, um zu viele Anfragen an die Bahn-API zu vermeiden."
@@ -356,8 +357,11 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             sessionId: newSessionId,
             start: searchParams.start,
             ziel: searchParams.ziel,
-            reisezeitraumAb: searchParams.reisezeitraumAb || new Date().toISOString().split("T")[0],
-            reisezeitraumBis: searchParams.reisezeitraumBis,
+            reisezeitraumAb: searchParams.reisezeitraumAb || addDaysToDateKey(getEarliestSearchDateKey(), 6),
+            reisezeitraumBis: searchParams.reisezeitraumBis || addDaysToDateKey(
+              searchParams.reisezeitraumAb || addDaysToDateKey(getEarliestSearchDateKey(), 6),
+              6
+            ),
             wochentage: outwardWeekdays,
             returnWochentage: returnWeekdays,
             alter: searchParams.alter || "ERWACHSENER",

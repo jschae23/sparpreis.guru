@@ -6,6 +6,7 @@ import { generateCacheKey, getCachedResult, getCacheSize, getStationSearchCacheS
 import { recommendBestPrice } from '@/lib/train-search/recommendation-engine'
 import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logError, logInfo } from '@/lib/shared/logger'
+import { getEarliestSearchDateKey } from '@/lib/shared/berlin-date'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -233,6 +234,17 @@ export async function POST(request: NextRequest) {
       returnAnkunftBis,
       umstiegszeit,
     } = body
+
+    const earliestSearchDate = getEarliestSearchDateKey()
+    if (typeof reisezeitraumAb !== "string" || reisezeitraumAb < earliestSearchDate) {
+      return NextResponse.json(
+        {
+          error: `Der früheste Reisetag ist ${earliestSearchDate} (Europe/Berlin).`,
+          earliestSearchDate,
+        },
+        { status: 400 }
+      )
+    }
 
     // Calculate dates first
     const calculatedDates = calculateDatesFromWeekdays(
