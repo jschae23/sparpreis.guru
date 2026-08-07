@@ -18,6 +18,8 @@ import {
 import { AlertTriangle, MapPin, Calendar, Ticket } from "lucide-react"
 import { ICE_STATIONS, getDefaultStations } from "@/lib/stations/ice-stations"
 import { logError } from "@/lib/shared/logger"
+import { addDaysToDateKey } from "@/lib/shared/berlin-date"
+import { useBerlinEarliestSearchDate } from "@/hooks/use-berlin-earliest-search-date"
 import {
   ConnectionOptionsModule,
   DateTimeControlStyle,
@@ -111,6 +113,8 @@ export function UrlauberfinderSearchForm({
   isSearching,
   initialParams,
 }: UrlauberfinderSearchFormProps) {
+  const earliestSearchDate = useBerlinEarliestSearchDate()
+  const defaultOutwardDate = addDaysToDateKey(earliestSearchDate, 6)
   const hasInitialParams = !!initialParams && Object.keys(initialParams).length > 0
   const initialDestinationNames = (initialParams?.destinations ?? []).filter(destination =>
     ICE_STATIONS.some(station => station.name === destination)
@@ -122,21 +126,17 @@ export function UrlauberfinderSearchForm({
   )
 
   const initialOutwardDate = (() => {
-    if (initialParams?.outwardDate) {
+    if (initialParams?.outwardDate && initialParams.outwardDate >= earliestSearchDate) {
       return initialParams.outwardDate
     }
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    return tomorrow.toISOString().split("T")[0]
+    return defaultOutwardDate
   })()
 
   const initialReturnDate = (() => {
-    if (initialParams?.returnDate) {
+    if (initialParams?.returnDate && initialParams.returnDate >= initialOutwardDate) {
       return initialParams.returnDate
     }
-    const dateIn3Days = new Date()
-    dateIn3Days.setDate(dateIn3Days.getDate() + 3)
-    return dateIn3Days.toISOString().split("T")[0]
+    return addDaysToDateKey(initialOutwardDate, 7)
   })()
 
   const initialUmstiegsOption = (() => {
@@ -344,12 +344,17 @@ export function UrlauberfinderSearchForm({
       setSelectedDestinations(hydratedDestinations)
     }
 
-    if (initialParams.outwardDate) {
-      setOutwardDate(initialParams.outwardDate)
-    }
+    const hydratedOutwardDate = initialParams.outwardDate && initialParams.outwardDate >= earliestSearchDate
+      ? initialParams.outwardDate
+      : defaultOutwardDate
+    setOutwardDate(hydratedOutwardDate)
 
     if (initialParams.returnDate) {
-      setReturnDate(initialParams.returnDate)
+      setReturnDate(
+        initialParams.returnDate >= hydratedOutwardDate
+          ? initialParams.returnDate
+          : addDaysToDateKey(hydratedOutwardDate, 7)
+      )
       setIncludeReturnDate(true)
     } else {
       setIncludeReturnDate(false)
@@ -407,12 +412,29 @@ export function UrlauberfinderSearchForm({
     }
   }, [initialParams])
 
+  useEffect(() => {
+    if (outwardDate < earliestSearchDate) {
+      setOutwardDate(defaultOutwardDate)
+    }
+  }, [outwardDate, earliestSearchDate, defaultOutwardDate])
+
+  useEffect(() => {
+    if (returnDate < outwardDate) {
+      setReturnDate(addDaysToDateKey(outwardDate, 7))
+    }
+  }, [outwardDate, returnDate])
+
   const submitSearch = (params: UrlauberfinderSearchParams) => {
     onSearch(params)
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (outwardDate < earliestSearchDate) {
+      setOutwardDate(defaultOutwardDate)
+      return
+    }
 
     if (!homeStation.trim() && !homeStationId) {
       setHomeError("Bitte wähle einen Heimatbahnhof aus")
@@ -772,12 +794,10 @@ export function UrlauberfinderSearchForm({
                 onChange={e => {
                   setOutwardDate(e.target.value)
                   if (e.target.value > returnDate) {
-                    const newReturnDate = new Date(e.target.value)
-                    newReturnDate.setDate(newReturnDate.getDate() + 2)
-                    setReturnDate(newReturnDate.toISOString().split("T")[0])
+                    setReturnDate(addDaysToDateKey(e.target.value, 7))
                   }
                 }}
-                min={new Date().toISOString().split("T")[0]}
+                min={earliestSearchDate}
                 className={dateTimeCtrl}
               />
             </div>

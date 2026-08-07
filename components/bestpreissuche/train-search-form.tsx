@@ -6,8 +6,15 @@ import { Button } from "@/components/ui/button"
 import { FAQPopup } from "@/components/layout/faq-popup"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowLeftRight, Ticket, MapPin, Calendar, AlertTriangle, CheckCircle, Moon, Sparkles } from "lucide-react"
+import { ArrowLeftRight, Ticket, MapPin, Calendar, AlertTriangle, CheckCircle, Lightbulb, Moon, Sparkles } from "lucide-react"
 import { logError } from "@/lib/shared/logger"
+import { useBerlinEarliestSearchDate } from "@/hooks/use-berlin-earliest-search-date"
+import {
+  ALL_SEARCH_WEEKDAYS,
+  getEligibleDateKeys,
+  getReturnSearchFeasibility,
+  parseSearchWeekdays,
+} from "@/lib/search/return-search-feasibility"
 import {
   ConnectionOptionsModule,
   DateTimeControlStyle,
@@ -21,7 +28,7 @@ const LOG_SCOPE = "bestpreissuche.search-form"
 const ctrl = searchControlClass
 const dateTimeCtrl = dateTimeControlClass
 
-const ALL_WEEKDAYS = [1, 2, 3, 4, 5, 6, 0]
+const ALL_WEEKDAYS = ALL_SEARCH_WEEKDAYS
 const WEEKDAY_OPTIONS = [
   { label: "Mo", value: 1 },
   { label: "Di", value: 2 },
@@ -31,30 +38,6 @@ const WEEKDAY_OPTIONS = [
   { label: "Sa", value: 6 },
   { label: "So", value: 0 },
 ]
-
-function parseWeekdaysParam(value?: string) {
-  if (!value) return [...ALL_WEEKDAYS]
-
-  try {
-    const decoded = decodeURIComponent(value)
-    const parsed = decoded.startsWith("[")
-      ? JSON.parse(decoded)
-      : decoded.split(",").map(Number)
-
-    if (Array.isArray(parsed)) {
-      const weekdays = parsed.filter(
-        (weekday): weekday is number =>
-          typeof weekday === "number" &&
-          Number.isInteger(weekday) &&
-          weekday >= 0 &&
-          weekday <= 6
-      )
-      if (weekdays.length > 0) return [...new Set(weekdays)]
-    }
-  } catch {}
-
-  return [...ALL_WEEKDAYS]
-}
 
 function sortWeekdays(weekdays: number[]) {
   return [...weekdays].sort(
@@ -213,14 +196,13 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   const startDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const zielDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
   
-  function getTomorrowISO() {
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    return tomorrow.toISOString().split("T")[0]
-  }
+  const earliestSearchDate = useBerlinEarliestSearchDate()
+  const defaultSearchStart = addDaysISO(earliestSearchDate, 6)
 
   const [reisezeitraumAb, setReisezeitraumAb] = useState(
-    searchParams.reisezeitraumAb || getTomorrowISO()
+    searchParams.reisezeitraumAb && searchParams.reisezeitraumAb >= earliestSearchDate
+      ? searchParams.reisezeitraumAb
+      : defaultSearchStart
   )
   const [alter, setAlter] = useState(searchParams.alter || "ERWACHSENER")
   const [ermaessigungArt, setErmaessigungArt] = useState(searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG")
@@ -260,9 +242,20 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   })
   
   const [reisezeitraumBis, setReisezeitraumBis] = useState(() => {
-    if (searchParams.reisezeitraumBis) return searchParams.reisezeitraumBis
-    return addDaysISO(reisezeitraumAb, hasReturnSearchParams ? 6 : 2)
+    if (searchParams.reisezeitraumBis && searchParams.reisezeitraumBis >= reisezeitraumAb) {
+      return searchParams.reisezeitraumBis
+    }
+    return addDaysISO(reisezeitraumAb, 6)
   })
+
+  useEffect(() => {
+    setReisezeitraumAb((currentStart) => currentStart < earliestSearchDate ? earliestSearchDate : currentStart)
+    setReisezeitraumBis((currentEnd) =>
+      currentEnd < earliestSearchDate
+        ? addDaysISO(earliestSearchDate, 6)
+        : currentEnd
+    )
+  }, [earliestSearchDate])
 
   const switchStations = () => {
     const tempName = start
@@ -274,37 +267,23 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   }
 
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>(() =>
-    parseWeekdaysParam(searchParams.wochentage)
+    parseSearchWeekdays(searchParams.wochentage)
   )
   const [selectedReturnWeekdays, setSelectedReturnWeekdays] = useState<number[]>(() =>
     searchParams.returnWochentage
-      ? parseWeekdaysParam(searchParams.returnWochentage)
-      : parseWeekdaysParam(searchParams.wochentage)
+      ? parseSearchWeekdays(searchParams.returnWochentage)
+      : parseSearchWeekdays(searchParams.wochentage)
   )
 
-  const eligibleDates = useMemo(() => {
-    const dates: string[] = []
-    const start = new Date(reisezeitraumAb)
-    const end = new Date(reisezeitraumBis)
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      if (selectedWeekdays.includes(d.getDay())) {
-        dates.push(d.toISOString().split("T")[0])
-      }
-    }
-    return dates
-  }, [reisezeitraumAb, reisezeitraumBis, selectedWeekdays])
+  const eligibleDates = useMemo(
+    () => getEligibleDateKeys(reisezeitraumAb, reisezeitraumBis, selectedWeekdays),
+    [reisezeitraumAb, reisezeitraumBis, selectedWeekdays]
+  )
 
-  const eligibleReturnDates = useMemo(() => {
-    const dates: string[] = []
-    const start = new Date(reisezeitraumAb)
-    const end = new Date(reisezeitraumBis)
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      if (selectedReturnWeekdays.includes(d.getDay())) {
-        dates.push(d.toISOString().split("T")[0])
-      }
-    }
-    return dates
-  }, [reisezeitraumAb, reisezeitraumBis, selectedReturnWeekdays])
+  const eligibleReturnDates = useMemo(
+    () => getEligibleDateKeys(reisezeitraumAb, reisezeitraumBis, selectedReturnWeekdays),
+    [reisezeitraumAb, reisezeitraumBis, selectedReturnWeekdays]
+  )
 
   const selectedDates = useMemo(() => eligibleDates.slice(0, 30), [eligibleDates])
   const tooManyOutwardDates = eligibleDates.length > 30
@@ -522,13 +501,34 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     }
   }, [startId, zielId, start, ziel])
   
+  const parsedMinNights = Number(minNaechte)
+  const parsedMaxNights = maxNaechte ? Number(maxNaechte) : undefined
   const returnDetailsInvalid = rueckfahrtAktiv && (
-    !minNaechte || (Boolean(maxNaechte) && Number(maxNaechte) < Number(minNaechte))
+    !Number.isInteger(parsedMinNights) ||
+    parsedMinNights < 1 ||
+    (parsedMaxNights !== undefined && (
+      !Number.isInteger(parsedMaxNights) || parsedMaxNights < parsedMinNights
+    ))
   )
+  const returnFeasibility = useMemo(
+    () => getReturnSearchFeasibility({
+      outwardDates: eligibleDates,
+      returnDates: eligibleReturnDates,
+      minNights: parsedMinNights,
+      maxNights: parsedMaxNights,
+    }),
+    [eligibleDates, eligibleReturnDates, parsedMinNights, parsedMaxNights]
+  )
+  const hasImpossibleStay = rueckfahrtAktiv && !returnDetailsInvalid && !hasNoDates && !returnFeasibility.hasCombination
+  const hasSearchConfigurationError = tooManyDates || hasNoDates || hasImpossibleStay
+  const impossibleStayMessage = returnFeasibility.maximumAvailableNights !== null &&
+    returnFeasibility.maximumAvailableNights < parsedMinNights
+      ? `Der Reisezeitraum ermöglicht höchstens ${returnFeasibility.maximumAvailableNights} ${returnFeasibility.maximumAvailableNights === 1 ? "Nacht" : "Nächte"}. Verlängere den Zeitraum oder reduziere die Mindestdauer.`
+      : "Mit den gewählten Reisetagen und der Aufenthaltsdauer ist keine Hin- und Rückfahrt möglich."
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (tooManyDates || hasNoDates || returnDetailsInvalid) return
+    if (hasSearchConfigurationError || returnDetailsInvalid) return
     const params = new URLSearchParams()
     
     // Use station ID if available, otherwise fallback to name
@@ -591,15 +591,13 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   }
 
   const handleReset = () => {
-    const resetStart = getTomorrowISO()
-    const resetEndDate = new Date(`${resetStart}T12:00:00`)
-    resetEndDate.setDate(resetEndDate.getDate() + 2)
+    const resetStart = defaultSearchStart
     setStart("")
     setStartId("")
     setZiel("")
     setZielId("")
     setReisezeitraumAb(resetStart)
-    setReisezeitraumBis(resetEndDate.toISOString().split("T")[0])
+    setReisezeitraumBis(addDaysISO(resetStart, 6))
     setAlter("ERWACHSENER")
     setErmaessigungArt("KEINE_ERMAESSIGUNG")
     setErmaessigungKlasse("KLASSENLOS")
@@ -646,6 +644,27 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
       ? `Hin: ${formatWeekdaySelection(selectedWeekdays.length)} · Rück: ${formatWeekdaySelection(selectedReturnWeekdays.length)}`
       : formatWeekdaySelection(selectedWeekdays.length)
   } · ${hasTimeRestriction ? "Zeitfilter aktiv" : "ganztägig"}`
+  const largestDirectionDayCount = Math.max(
+    eligibleDates.length,
+    rueckfahrtAktiv ? eligibleReturnDates.length : 0
+  )
+  const isSmallSearch = largestDirectionDayCount <= 14
+  const isLargeSearch = rueckfahrtAktiv
+    ? eligibleDates.length >= 20 && eligibleReturnDates.length >= 20
+    : eligibleDates.length >= 20
+  const searchSize = isLargeSearch ? "large" : isSmallSearch ? "small" : "medium"
+  const searchSizeClasses = hasSearchConfigurationError
+    ? "border-amber-200 bg-amber-50 text-amber-900"
+    : searchSize === "large"
+      ? "border-orange-200 bg-orange-50 text-orange-900"
+      : searchSize === "medium"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
+        : "border-green-200 bg-green-50 text-green-900"
+  const searchSizeHint = searchSize === "large"
+    ? "Große Abfrage – die Suche kann deutlich länger dauern."
+    : largestDirectionDayCount > 10
+      ? "Je weniger Tage du vergleichst, desto schneller erhältst du Ergebnisse."
+      : "Optimale Auswahl für schnelle Ergebnisse."
   return (
     <div className="w-full rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:p-5">
       <DateTimeControlStyle />
@@ -687,10 +706,6 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                 onClick={() => {
                   if (!rueckfahrtAktiv) {
                     setSelectedReturnWeekdays([...selectedWeekdays])
-                    const currentDefaultEnd = addDaysISO(reisezeitraumAb, 2)
-                    if (!searchParams.reisezeitraumBis && reisezeitraumBis === currentDefaultEnd) {
-                      setReisezeitraumBis(addDaysISO(reisezeitraumAb, 6))
-                    }
                   }
                   setRueckfahrtAktiv(true)
                 }}
@@ -841,7 +856,11 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                 </span>
                 <div>
                   <div className="text-sm font-semibold text-gray-900">Reisezeitraum</div>
-                  <p className="mt-0.5 text-xs text-gray-500">Wann möchtest du losfahren?</p>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {rueckfahrtAktiv
+                      ? "In welchem Zeitraum sollen Hin- und Rückfahrt liegen?"
+                      : "Wann möchtest du losfahren?"}
+                  </p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -854,7 +873,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                     type="date"
                     value={reisezeitraumAb}
                     onChange={handleReisezeitraumAbChange}
-                    min={getTomorrowISO()}
+                    min={earliestSearchDate}
                     className={dateTimeCtrl}
                   />
                 </div>
@@ -924,40 +943,46 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                     </div>
                   </div>
                 </div>
-                <p className={`mt-1.5 text-xs ${returnDetailsInvalid ? "text-amber-700" : "text-gray-500"}`}>
+                <p className={`mt-1.5 text-xs ${returnDetailsInvalid || hasImpossibleStay ? "text-amber-700" : "text-gray-500"}`}>
                   {returnDetailsInvalid
                     ? (!minNaechte
                         ? "Bitte gib die gewünschte Mindestdauer an."
                         : "Die maximale Dauer muss mindestens der minimalen entsprechen.")
+                    : hasImpossibleStay
+                      ? impossibleStayMessage
                     : `Rückfahrt nach ${minNaechte}${maxNaechte ? ` bis ${maxNaechte}` : " oder mehr"} Nächten.`}
                 </p>
               </fieldset>
             )}
           </div>
 
-          <div
-            className={`order-4 mt-3 flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
-              tooManyDates || hasNoDates ? "bg-amber-50 text-amber-900" : "bg-blue-50 text-blue-800"
-            }`}
-            role={tooManyDates || hasNoDates ? "alert" : "status"}
-          >
-            {tooManyDates || hasNoDates
-              ? <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              : <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
-            <span>
-              {tooManyOutwardDates
-                ? `Die Hinfahrt enthält ${eligibleDates.length} Reisetage. Bitte auf maximal 30 Tage begrenzen.`
-                : tooManyReturnDates
-                  ? `Die Rückfahrt enthält ${eligibleReturnDates.length} Reisetage. Bitte auf maximal 30 Tage begrenzen.`
-                  : hasNoOutwardDates
-                    ? "Für die Hinfahrt liegt kein gewählter Wochentag im Reisezeitraum."
-                    : hasNoReturnDates
-                      ? "Für die Rückfahrt liegt kein gewählter Wochentag im Reisezeitraum."
-                      : rueckfahrtAktiv
-                        ? `${eligibleDates.length} Hinfahrts- und ${eligibleReturnDates.length} Rückfahrtstage werden verglichen.`
-                        : `${eligibleDates.length} ${eligibleDates.length === 1 ? "Reisetag wird" : "Reisetage werden"} verglichen.`}
-            </span>
-          </div>
+          {!hasImpossibleStay && (
+            <div
+              className={`order-4 mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${searchSizeClasses}`}
+              role={hasSearchConfigurationError ? "alert" : "status"}
+            >
+              {hasSearchConfigurationError
+                ? <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                : searchSize === "small"
+                  ? <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  : searchSize === "medium"
+                    ? <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    : <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+              <span>
+                {tooManyOutwardDates
+                  ? `Die Hinfahrt enthält ${eligibleDates.length} Reisetage. Bitte auf maximal 30 Tage begrenzen.`
+                  : tooManyReturnDates
+                    ? `Die Rückfahrt enthält ${eligibleReturnDates.length} Reisetage. Bitte auf maximal 30 Tage begrenzen.`
+                    : hasNoOutwardDates
+                      ? "Für die Hinfahrt liegt kein gewählter Wochentag im Reisezeitraum."
+                      : hasNoReturnDates
+                        ? "Für die Rückfahrt liegt kein gewählter Wochentag im Reisezeitraum."
+                        : rueckfahrtAktiv
+                          ? `${eligibleDates.length} Hinfahrts- und ${eligibleReturnDates.length} Rückfahrtstage werden verglichen. ${searchSizeHint}`
+                          : `${eligibleDates.length} ${eligibleDates.length === 1 ? "Reisetag wird" : "Reisetage werden"} verglichen. ${searchSizeHint}`}
+              </span>
+            </div>
+          )}
 
           <div className="order-5 mt-3">
             <DirectionTimeFiltersModule
@@ -1038,8 +1063,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
 
         <div className="sticky bottom-2 z-30 rounded-xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
           <Button
+            key={rueckfahrtAktiv ? "return-search" : "single-search"}
             type="submit"
-            disabled={tooManyDates || hasNoDates || returnDetailsInvalid}
+            disabled={hasSearchConfigurationError || returnDetailsInvalid}
             className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700"
           >
             <Ticket className="mr-2 h-4 w-4" />
