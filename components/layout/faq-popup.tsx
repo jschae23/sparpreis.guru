@@ -30,6 +30,10 @@ const bestpreissucheFaqs: FAQItem[] = [
     answer: "Jeder Reisetag löst eigene Preisabfragen aus. Damit die Suche schnell bleibt und die Bahn-API nicht unnötig belastet wird, werden maximal 30 ausgewählte Tage gesucht. Wenn du Wochentage abwählst, zählen nur die übrig gebliebenen Tage."
   },
   {
+    question: "Kann ich weitere Tage oder Kombinationen nachladen?",
+    answer: "Ja. In der einfachen Suche kannst du einzelne noch nicht geladene Kalendertage bis zu vier Wochen vor oder nach dem ursprünglichen Zeitraum abfragen, frühestens ab morgen. Bei Hin- und Rückfahrt lassen sich zusätzliche Kombinationen direkt in der Preismatrix abfragen. Kombinationen außerhalb der gewählten Aufenthaltsdauer werden dort entsprechend gekennzeichnet."
+  },
+  {
     question: "Sind die Preise verbindlich?",
     answer: "Nein. Die Preise kommen aus der Bahn-Suche und können sich ändern, bis du bei der Bahn buchst. sparpreis.guru ist eine Suchhilfe, kein Verkaufssystem. Der verbindliche Preis ist der Preis, der dir beim Öffnen des Buchungslinks bei der Bahn angezeigt wird."
   },
@@ -114,6 +118,10 @@ const direktverbindungenFaqs: FAQItem[] = [
   {
     question: "Was zeigen die Filter?",
     answer: "Du kannst alle Direktverbindungen anzeigen oder auf Fernverkehr beziehungsweise Nahverkehr eingrenzen. Zusätzlich kannst du nach maximaler Fahrtdauer und nach einer Mindestanzahl direkter Fahrten pro Tag filtern."
+  },
+  {
+    question: "Was zeigen die Fahrtdauer-Zonen auf der Karte?",
+    answer: "Die farbigen Flächen fassen die sichtbaren Direktziele nach der schnellsten gefundenen Fahrtdauer zusammen, zum Beispiel bis zwei, vier oder acht Stunden. Sie dienen als Orientierung und sind keine exakten geografischen Reichweiten. Über den Schalter oberhalb der Karte kannst du die Zonen ausblenden."
   },
   {
     question: "Was bedeuten Fahrten pro Tag und typische Fahrtdauer?",
