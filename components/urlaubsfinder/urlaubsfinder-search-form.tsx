@@ -35,6 +35,7 @@ interface UrlauberfinderSearchFormProps {
   onSearch: (params: UrlauberfinderSearchParams) => void
   isSearching: boolean
   initialParams?: Partial<UrlauberfinderSearchParams>
+  autoStartFromInitialParams?: boolean
 }
 
 export interface UrlauberfinderSearchParams {
@@ -112,6 +113,7 @@ export function UrlauberfinderSearchForm({
   onSearch,
   isSearching,
   initialParams,
+  autoStartFromInitialParams = false,
 }: UrlauberfinderSearchFormProps) {
   const earliestSearchDate = useBerlinEarliestSearchDate()
   const defaultOutwardDate = addDaysToDateKey(earliestSearchDate, 6)
@@ -197,6 +199,7 @@ export function UrlauberfinderSearchForm({
   const [umstiegszeit, setUmstiegszeit] = useState(initialParams?.umstiegszeit || "normal")
   const [showLargeRequestDialog, setShowLargeRequestDialog] = useState(false)
   const [pendingSearchParams, setPendingSearchParams] = useState<UrlauberfinderSearchParams | null>(null)
+  const initialSearchStartedRef = useRef(false)
 
   const togglePreset = useCallback((presetNames: string[]) => {
     setSelectedDestinations(prev => {
@@ -349,12 +352,14 @@ export function UrlauberfinderSearchForm({
       : defaultOutwardDate
     setOutwardDate(hydratedOutwardDate)
 
-    if (initialParams.returnDate) {
-      setReturnDate(
-        initialParams.returnDate >= hydratedOutwardDate
-          ? initialParams.returnDate
-          : addDaysToDateKey(hydratedOutwardDate, 7)
-      )
+    const hydratedReturnDate = initialParams.returnDate
+      ? initialParams.returnDate >= hydratedOutwardDate
+        ? initialParams.returnDate
+        : addDaysToDateKey(hydratedOutwardDate, 7)
+      : undefined
+
+    if (hydratedReturnDate) {
+      setReturnDate(hydratedReturnDate)
       setIncludeReturnDate(true)
     } else {
       setIncludeReturnDate(false)
@@ -410,7 +415,59 @@ export function UrlauberfinderSearchForm({
     ) {
       setTimeFiltersOpen(true)
     }
-  }, [initialParams])
+
+    const hydratedHomeStation = initialParams.homeStationLabel || initialParams.homeStation || ""
+    if (
+      !autoStartFromInitialParams ||
+      initialSearchStartedRef.current ||
+      (!hydratedHomeStation.trim() && !initialParams.homeStationExtId) ||
+      hydratedDestinations.length === 0
+    ) {
+      return
+    }
+
+    initialSearchStartedRef.current = true
+    const initialSearchParams: UrlauberfinderSearchParams = {
+      homeStation: initialParams.homeStationExtId || hydratedHomeStation.trim(),
+      homeStationLabel: hydratedHomeStation.trim(),
+      homeStationExtId: initialParams.homeStationExtId,
+      destinations: hydratedDestinations,
+      outwardDate: hydratedOutwardDate,
+      ...(hydratedReturnDate && { returnDate: hydratedReturnDate }),
+      alter: initialParams.alter || "ERWACHSENER",
+      ermaessigungArt: normalizedDiscount.art,
+      ermaessigungKlasse: normalizedDiscount.klasse,
+      klasse: initialParams.klasse || "KLASSE_2",
+      schnelleVerbindungen: initialParams.schnelleVerbindungen ?? true,
+      maximaleUmstiege:
+        mappedUmstiegsOption === "alle"
+          ? undefined
+          : mappedUmstiegsOption === "direkt"
+            ? "0"
+            : mappedUmstiegsOption,
+      outwardAbfahrtAb: initialParams.outwardAbfahrtAb,
+      outwardAbfahrtBis: initialParams.outwardAbfahrtBis,
+      outwardAnkunftAb: initialParams.outwardAnkunftAb,
+      outwardAnkunftBis: initialParams.outwardAnkunftBis,
+      ...(hydratedReturnDate && {
+        returnAbfahrtAb: initialParams.returnAbfahrtAb,
+        returnAbfahrtBis: initialParams.returnAbfahrtBis,
+        returnAnkunftAb: initialParams.returnAnkunftAb,
+        returnAnkunftBis: initialParams.returnAnkunftBis,
+      }),
+      umstiegszeit: initialParams.umstiegszeit && initialParams.umstiegszeit !== "normal"
+        ? initialParams.umstiegszeit
+        : undefined,
+    }
+
+    if (hydratedDestinations.length > 25) {
+      setPendingSearchParams(initialSearchParams)
+      setShowLargeRequestDialog(true)
+      return
+    }
+
+    onSearch(initialSearchParams)
+  }, [autoStartFromInitialParams, initialParams])
 
   useEffect(() => {
     if (outwardDate < earliestSearchDate) {
@@ -499,7 +556,7 @@ export function UrlauberfinderSearchForm({
   }`
 
   return (
-    <div className="w-full rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:p-5">
+    <div className="w-full bg-white p-3 sm:rounded-xl sm:border sm:border-gray-200 sm:p-5 sm:shadow-sm">
       <DateTimeControlStyle />
       <div className="mb-5 flex items-start justify-between gap-3">
         <div>

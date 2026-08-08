@@ -1,28 +1,40 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   AlertCircle,
   MapPin,
-  TrendingDown,
   Train,
-  ChevronDown,
-  ChevronUp,
-  Trophy,
-  ArrowRight,
-  RotateCcw,
+  Loader2,
 } from "lucide-react"
 import { createBookingLink } from "@/lib/train-search/day-details-utils"
-import {
-  JourneyTimelineHorizontal,
-  JourneyTimelineVertical,
-  type JourneyLeg,
-} from "@/components/bestpreissuche/journey-timeline"
+import type { JourneyLeg } from "@/components/bestpreissuche/journey-timeline"
 import { SearchProgressPanel } from "@/components/search/search-progress-panel"
+import {
+  DirectJourneyBadge,
+  JourneyBookingButton,
+  JourneyBookingButtonGroup,
+  JourneyDisclosureButton,
+  JourneyResultActionBar,
+  OneWayJourneyDetails,
+  OneWayJourneySummary,
+  OneWayJourneySummaryPlaceholder,
+  RoundTripJourneyDetails,
+  RoundTripJourneySummary,
+  RoundTripJourneySummaryPlaceholder,
+} from "@/components/search/journey-result"
+import {
+  JourneySortControls,
+  type JourneySortDirection,
+  type JourneySortOption,
+} from "@/components/search/journey-sort-controls"
 import { useSearchQueueStatus } from "@/hooks/use-search-queue-status"
+import {
+  createPriceBandScale,
+  getPriceBandClasses,
+  type PriceBand,
+} from "@/lib/train-search/price-bands"
 
 const DynamicLeaflet = dynamic(
   () =>
@@ -41,48 +53,6 @@ const DynamicLeaflet = dynamic(
     ),
   }
 )
-
-function formatTime(iso: string): string {
-  if (!iso) return "–"
-  try {
-    return new Date(iso).toLocaleTimeString("de-DE", {
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "Europe/Berlin",
-    })
-  } catch {
-    return "–"
-  }
-}
-
-function formatDate(iso: string): string {
-  if (!iso) return "–"
-  try {
-    return new Date(iso).toLocaleDateString("de-DE", {
-      weekday: "short",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      timeZone: "Europe/Berlin",
-    })
-  } catch {
-    return "–"
-  }
-}
-
-function formatDuration(dep: string, arr: string): string {
-  if (!dep || !arr) return ""
-  try {
-    const mins = Math.round(
-      (new Date(arr).getTime() - new Date(dep).getTime()) / 60000
-    )
-    const h = Math.floor(mins / 60)
-    const m = mins % 60
-    return h > 0 ? `${h}h ${m}m` : `${m}m`
-  } catch {
-    return ""
-  }
-}
 
 interface DestinationResult {
   destination: string
@@ -140,143 +110,71 @@ interface UrlauberfinderResultsProps {
   searchParams?: SearchParams | null
   searchWasCancelled?: boolean
   onCancel?: () => void
+  onRestart?: () => void
 }
 
-function JourneyBlock({
-  direction,
-  departure,
-  arrival,
-  price,
-  transfers,
-  bookingHref,
-  legs,
-}: {
-  direction: "out" | "return"
-  departure: string
-  arrival: string
-  price: number
-  transfers?: number
-  bookingHref: string
-  legs?: JourneyLeg[]
-}) {
-  const isOut = direction === "out"
-  const accent = isOut ? "text-blue-600" : "text-orange-500"
-  const borderCls = isOut ? "border-blue-200" : "border-orange-200"
-  const bgCls = isOut ? "bg-blue-50/70" : "bg-orange-50/70"
+type DestinationSortKey =
+  | "price"
+  | "destination"
+  | "outward"
+  | "arrival"
+  | "duration"
+  | "transfers"
+  | "return"
 
-  return (
-    <div className={`min-w-0 rounded-lg border ${borderCls} ${bgCls} p-4 md:p-5`}>
-      <div className="flex items-center justify-between mb-2">
-        <Badge variant="outline" className={`${accent} border-current bg-white/70 rounded-full px-2 py-0.5`}>
-          {isOut ? "Hinfahrt" : "Rückfahrt"}
-        </Badge>
-        <span className={`text-lg font-bold px-2 py-1 rounded bg-white/70 ${accent}`}>
-          {price.toFixed(2)} €
-        </span>
-      </div>
-      <div className="flex items-center gap-2 text-lg font-bold text-gray-900 mb-2.5">
-        <span className="tabular-nums">{formatTime(departure)}</span>
-        <ArrowRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-        <span className="tabular-nums">{formatTime(arrival)}</span>
-        {departure && arrival && (
-          <span className="text-xs text-gray-500 font-medium ml-0.5">
-            ({formatDuration(departure, arrival)})
-          </span>
-        )}
-      </div>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-gray-500">
-          {transfers === 0
-            ? "✓ Direktverbindung"
-            : transfers !== undefined && transfers > 0
-            ? `${transfers} Umstieg${transfers > 1 ? "e" : ""}`
-            : ""}
-        </span>
-        <div className="flex items-center gap-2">
-          <Button asChild size="sm" className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm">
-            <a
-              href={bookingHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Train className="w-3.5 h-3.5" />
-              Buchen
-            </a>
-          </Button>
-        </div>
-      </div>
-      {legs && legs.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-white/80">
-          <div className="hidden min-w-0 overflow-x-auto md:block rounded-lg border border-gray-200 bg-white p-4 pb-5">
-            <JourneyTimelineHorizontal legs={legs} />
-          </div>
-          <div className="md:hidden rounded-lg border border-gray-200 bg-white p-3">
-            <JourneyTimelineVertical legs={legs} />
-          </div>
-        </div>
-      )}
-    </div>
-  )
+const ONE_WAY_SORT_OPTIONS: readonly JourneySortOption<DestinationSortKey>[] = [
+  { key: "price", label: "Preis" },
+  { key: "destination", label: "Reiseziel" },
+  { key: "outward", label: "Abfahrt" },
+  { key: "arrival", label: "Ankunft" },
+  { key: "duration", label: "Fahrzeit" },
+  { key: "transfers", label: "Umstiege" },
+]
+
+const ROUND_TRIP_SORT_OPTIONS: readonly JourneySortOption<DestinationSortKey>[] = [
+  { key: "price", label: "Gesamtpreis" },
+  { key: "destination", label: "Reiseziel" },
+  { key: "outward", label: "Hinfahrt" },
+  { key: "return", label: "Rückfahrt" },
+  { key: "duration", label: "Fahrzeit" },
+  { key: "transfers", label: "Umstiege gesamt" },
+]
+
+function getJourneyDuration(departure?: string, arrival?: string) {
+  if (!departure || !arrival) return Number.POSITIVE_INFINITY
+  return new Date(arrival).getTime() - new Date(departure).getTime()
+}
+
+function getTotalJourneyDuration(result: DestinationResult) {
+  const outwardDuration = getJourneyDuration(result.outwardDeparture, result.outwardArrival)
+  if (!result.returnDeparture || !result.returnArrival) return outwardDuration
+  return outwardDuration + getJourneyDuration(result.returnDeparture, result.returnArrival)
 }
 
 function ResultCard({
   result,
-  rank,
-  minPrice,
-  maxPrice,
-  averagePrice,
+  priceBand,
   searchParams,
   homeStation,
-  onMapFocus,
   isExpanded,
   onToggle,
 }: {
   result: DestinationResult
-  rank: number
-  minPrice: number
-  maxPrice: number
-  averagePrice: number
+  priceBand: PriceBand
   searchParams: SearchParams | null | undefined
   homeStation: string
-  onMapFocus: (r: DestinationResult) => void
   isExpanded: boolean
   onToggle: () => void
 }) {
-  const priceRange = maxPrice - minPrice
-  const deltaVsAverage =
-    averagePrice > 0
-      ? Math.round(((averagePrice - result.totalPrice) / averagePrice) * 100)
-      : 0
-  const isBest = rank === 1
-  const tier = priceRange > 0 ? (result.totalPrice - minPrice) / priceRange : 0
-  const cardBg = isBest ? "bg-green-50" : tier < 0.33 ? "bg-white" : tier < 0.66 ? "bg-amber-50" : "bg-red-50"
-  const leftBorder = isBest
-    ? "border-l-8 border-l-green-500"
-    : tier < 0.33
-    ? "border-l-8 border-l-gray-200"
-    : tier < 0.66
-    ? "border-l-8 border-l-amber-400"
-    : "border-l-8 border-l-red-400"
-  const priceTone =
-    tier < 0.33 ? "text-green-600 bg-green-50" : tier < 0.66 ? "text-orange-600 bg-orange-50" : "text-red-600 bg-red-50"
-  const outwardTransferLabel =
-    result.outwardTransfers === 0
-      ? "Direkt"
-      : result.outwardTransfers !== undefined
-      ? `${result.outwardTransfers} Umstieg${result.outwardTransfers > 1 ? "e" : ""}`
-      : "–"
-  const returnTransferLabel =
-    result.returnTransfers === 0
-      ? "Direkt"
-      : result.returnTransfers !== undefined
-      ? `${result.returnTransfers} Umstieg${result.returnTransfers > 1 ? "e" : ""}`
-      : "–"
+  const priceTone = getPriceBandClasses(priceBand)
+  const isRoundTrip = Boolean(result.returnDate && result.returnDeparture)
+  const isDirect = result.outwardTransfers === 0 && (!isRoundTrip || result.returnTransfers === 0)
+  const hasJourneyDetails = Boolean(result.outwardLegs?.length || result.returnLegs?.length)
 
   const outBooking = searchParams
     ? createBookingLink(
         result.outwardDeparture,
-        result.homeStationName || homeStation,
+        homeStation || result.homeStationName,
         result.destination,
         result.homeStationId,
         result.destinationId,
@@ -293,7 +191,7 @@ function ResultCard({
       ? createBookingLink(
           result.returnDeparture,
           result.destination,
-          result.homeStationName || homeStation,
+          homeStation || result.homeStationName,
           result.destinationId,
           result.homeStationId,
           searchParams.klasse,
@@ -306,185 +204,124 @@ function ResultCard({
 
   function handleToggle() {
     onToggle()
-    onMapFocus(result)
   }
 
+  const nights = result.returnDate
+    ? Math.max(1, Math.round((new Date(result.returnDate).getTime() - new Date(result.outwardDate).getTime()) / 86_400_000))
+    : undefined
+  const roundTripJourney = {
+    outwardDate: result.outwardDate,
+    returnDate: result.returnDate,
+    nights,
+    outwardPrice: result.outwardPrice,
+    returnPrice: result.returnPrice,
+    totalPrice: result.totalPrice,
+    outwardDeparture: result.outwardDeparture,
+    outwardArrival: result.outwardArrival,
+    returnDeparture: result.returnDeparture,
+    returnArrival: result.returnArrival,
+    outwardTransfers: result.outwardTransfers,
+    returnTransfers: result.returnTransfers,
+    outwardLegs: result.outwardLegs,
+    returnLegs: result.returnLegs,
+  }
+  const oneWayJourney = {
+    date: result.outwardDate,
+    price: result.totalPrice,
+    departure: result.outwardDeparture,
+    arrival: result.outwardArrival,
+    origin: homeStation || result.homeStationName,
+    destination: result.destination,
+    transfers: result.outwardTransfers,
+    legs: result.outwardLegs,
+  }
+  const metadataBadges = isDirect
+    ? <DirectJourneyBadge />
+    : undefined
+
   return (
-    <>
-      <div
-        id={`result-card-${encodeURIComponent(result.destination)}`}
-        className={`rounded-2xl relative text-sm shadow-sm transition-all hover:shadow-md border bg-white ${leftBorder} ${cardBg} ${
-          isExpanded ? "ring-2 ring-blue-200" : ""
-        }`}
-      >
-        <div className="md:hidden p-4">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <Badge className={isBest ? "bg-green-100 text-green-800 border border-green-400 rounded-full" : "bg-gray-100 text-gray-700 border border-gray-200 rounded-full"}>
-                {isBest ? <Trophy className="w-3 h-3 mr-1" /> : null}
-                #{rank}
-              </Badge>
-              <div className="min-w-0">
-                <div className="font-bold text-gray-900 text-base truncate">{result.destination.replace(" Hbf", "")}</div>
-                <div className="text-xs text-gray-500 truncate">{formatDate(result.outwardDeparture)}</div>
-              </div>
-            </div>
-            <div className={`text-2xl font-bold px-3 py-2 rounded-lg ${priceTone}`}>
-              {result.totalPrice.toFixed(0)}€
-            </div>
-          </div>
-
-          <div className="py-3 border-t border-b border-gray-200 space-y-2">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-xs text-gray-500 mb-1">Hinfahrt</div>
-                <div className="font-semibold text-sm text-gray-900">
-                  {formatTime(result.outwardDeparture)} <ArrowRight className="inline h-3 w-3 mx-1 text-gray-400" /> {formatTime(result.outwardArrival)}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">{formatDuration(result.outwardDeparture, result.outwardArrival)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500 mb-1">Rückfahrt</div>
-                <div className="font-semibold text-sm text-gray-900">
-                  {result.returnDeparture ? (
-                    <>
-                      {formatTime(result.returnDeparture)} <ArrowRight className="inline h-3 w-3 mx-1 text-gray-400" /> {formatTime(result.returnArrival ?? "")}
-                    </>
-                  ) : "–"}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {result.returnDeparture ? formatDuration(result.returnDeparture, result.returnArrival ?? "") : ""}
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <Badge variant="outline" className="text-blue-700 border-blue-200 bg-white/70">Hin: {outwardTransferLabel}</Badge>
-              {result.returnDate && <Badge variant="outline" className="text-orange-700 border-orange-200 bg-white/70">Rück: {returnTransferLabel}</Badge>}
-              {isBest && <Badge className="bg-green-100 text-green-800 border border-green-400 rounded-full">Bestpreis</Badge>}
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button variant={isExpanded ? "default" : "outline"} size="sm" onClick={handleToggle} className="h-9 text-xs">
-              <Train className="h-3.5 w-3.5 mr-1.5" />
-              {isExpanded ? "Weniger" : "Details"}
-            </Button>
-            <Button asChild size="sm" className="h-9 bg-blue-600 hover:bg-blue-700 text-white text-xs">
-              <a href={outBooking} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                Buchen
-              </a>
-            </Button>
-          </div>
+    <article
+      id={`result-card-${encodeURIComponent(result.destination)}`}
+      className={`overflow-hidden rounded-lg border border-gray-200 bg-white text-sm shadow-sm transition hover:shadow-md ${priceBand === "best" ? "border-l-4 border-l-green-500" : ""} ${isExpanded ? "ring-2 ring-blue-300 ring-offset-1" : ""}`}
+    >
+      <header className="border-b border-gray-200 bg-white/80 px-3 py-2.5 sm:px-4">
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-700">Reiseziel</div>
+          <h4 className="truncate text-base font-bold text-gray-950 sm:text-lg">{result.destination}</h4>
         </div>
+      </header>
 
-        <div className="hidden md:grid grid-cols-[minmax(190px,2.4fr)_minmax(150px,1.6fr)_minmax(150px,1.6fr)_minmax(105px,1fr)_minmax(95px,0.9fr)_minmax(115px,0.9fr)] gap-4 lg:gap-6 items-center min-h-[96px] p-6">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <div className="font-bold text-lg text-gray-900 leading-snug break-words">{result.destination.replace(" Hbf", "")}</div>
-              {isBest && (
-                <Badge className="bg-green-100 text-green-800 border border-green-400 rounded-full flex items-center gap-1 px-2 py-1 font-semibold shadow-sm">
-                  <Trophy className="h-3 w-3" />
-                  Bestpreis
-                </Badge>
-              )}
-            </div>
-            <div className="text-xs text-gray-500 mt-1 leading-snug">
-              {formatDate(result.outwardDeparture)}
-              {result.returnDate ? ` · Rück ${formatDate(result.returnDeparture || result.returnDate)}` : ""}
-            </div>
-          </div>
+      {isRoundTrip ? (
+        <RoundTripJourneySummary
+          journey={roundTripJourney}
+          mobileBadges={metadataBadges}
+          desktopBadges={metadataBadges}
+          priceTone={priceTone}
+        />
+      ) : (
+        <OneWayJourneySummary
+          journey={oneWayJourney}
+          mobileBadges={metadataBadges}
+          desktopBadges={metadataBadges}
+          priceTone={priceTone}
+          layout="table"
+        />
+      )}
 
-          <div>
-            <div className="font-bold text-lg text-gray-900">
-              {formatTime(result.outwardDeparture)}
-              <ArrowRight className="inline h-4 w-4 mx-2 text-gray-300" />
-              {formatTime(result.outwardArrival)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">{formatDuration(result.outwardDeparture, result.outwardArrival)} · {result.outwardPrice.toFixed(0)}€</div>
-          </div>
+      <JourneyResultActionBar
+        layout={isRoundTrip ? "default" : "table"}
+        bookingActions={searchParams ? (
+            <JourneyBookingButtonGroup>
+                <JourneyBookingButton direction={isRoundTrip ? "outward" : "one-way"} href={outBooking} />
+                {result.returnDeparture && (
+                  <JourneyBookingButton direction="return" href={retBooking} />
+                )}
+            </JourneyBookingButtonGroup>
+        ) : undefined}
+        secondaryActions={hasJourneyDetails ? (
+          <JourneyDisclosureButton
+            icon={<Train className="h-3.5 w-3.5" />}
+            label="Fahrtverlauf anzeigen"
+            expandedLabel="Fahrtverlauf schließen"
+            mobileLabel="Fahrtverlauf"
+            expanded={isExpanded}
+            onClick={handleToggle}
+            layout={isRoundTrip ? "default" : "table"}
+          />
+        ) : undefined}
+      />
 
-          <div>
-            <div className="font-bold text-lg text-gray-900">
-              {result.returnDeparture ? (
-                <>
-                  {formatTime(result.returnDeparture)}
-                  <ArrowRight className="inline h-4 w-4 mx-2 text-gray-300" />
-                  {formatTime(result.returnArrival ?? "")}
-                </>
-              ) : "–"}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              {result.returnDeparture ? `${formatDuration(result.returnDeparture, result.returnArrival ?? "")} · ${(result.returnPrice ?? 0).toFixed(0)}€` : "Keine Rückfahrt"}
-            </div>
-          </div>
+      {isExpanded && (
+        isRoundTrip
+          ? <RoundTripJourneyDetails journey={roundTripJourney} />
+          : <OneWayJourneyDetails journey={oneWayJourney} />
+      )}
+    </article>
+  )
+}
 
-          <div>
-            <div className="font-medium text-gray-900 flex items-center gap-1">
-              <RotateCcw className="h-3.5 w-3.5 text-gray-400" />
-              {outwardTransferLabel}
-            </div>
-            {result.returnDate && (
-              <div className="text-xs text-gray-500 mt-1">Rück: {returnTransferLabel}</div>
-            )}
-          </div>
-
-          <div>
-            <div className={`font-bold text-xl px-2 py-1 rounded inline-block ${priceTone}`}>
-              {result.totalPrice.toFixed(0)}€
-            </div>
-            {deltaVsAverage !== 0 && (
-              <div className={`text-xs font-medium mt-1 ${deltaVsAverage > 0 ? "text-green-600" : "text-red-600"}`}>
-                {deltaVsAverage > 0 ? `-${deltaVsAverage}% ggü. Ø` : `+${Math.abs(deltaVsAverage)}% ggü. Ø`}
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Button
-              size="default"
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm w-full"
-              onClick={handleToggle}
-            >
-              <Train className="h-4 w-4" />
-              {isExpanded ? "Schließen" : "Details"}
-            </Button>
-          </div>
+function ResultCardPlaceholder({ isRoundTrip }: { isRoundTrip: boolean }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm" aria-hidden="true">
+      <div className="flex animate-pulse items-center justify-between gap-3 border-b border-gray-200 px-3 py-2.5 sm:px-4">
+        <div className="space-y-1.5">
+          <div className="h-3 w-16 rounded bg-blue-100" />
+          <div className="h-5 w-36 rounded bg-gray-200" />
         </div>
-
-        {isExpanded && (
-          <div className="border-t border-gray-100 px-4 md:px-6 pb-4 md:pb-6 pt-4 md:pt-5 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="grid gap-3">
-              <JourneyBlock
-                direction="out"
-                departure={result.outwardDeparture}
-                arrival={result.outwardArrival}
-                price={result.outwardPrice}
-                transfers={result.outwardTransfers}
-                bookingHref={outBooking}
-                legs={result.outwardLegs}
-              />
-              {result.returnDate && result.returnPrice && result.returnPrice > 0 && (
-              <JourneyBlock
-                direction="return"
-                departure={result.returnDeparture ?? ""}
-                arrival={result.returnArrival ?? ""}
-                price={result.returnPrice}
-                transfers={result.returnTransfers}
-                bookingHref={retBooking}
-                legs={result.returnLegs}
-              />
-              )}
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
-              <span className="text-sm font-semibold text-gray-600">Gesamtpreis</span>
-              <span className="text-xl font-black text-gray-900 tabular-nums">
-                {result.totalPrice.toFixed(2)} €
-              </span>
-            </div>
+        <div className="h-4 w-24 rounded bg-gray-100" />
+      </div>
+      {isRoundTrip ? <RoundTripJourneySummaryPlaceholder /> : <OneWayJourneySummaryPlaceholder layout="table" />}
+      <JourneyResultActionBar
+        layout={isRoundTrip ? "default" : "table"}
+        bookingActions={(
+          <div className={`grid w-full gap-2 sm:flex sm:w-auto ${isRoundTrip ? "grid-cols-2" : "grid-cols-1"}`}>
+            <div className="h-8 rounded-md bg-blue-100 sm:w-28" />
+            {isRoundTrip && <div className="h-8 rounded-md border border-blue-100 bg-white sm:w-28" />}
           </div>
         )}
-      </div>
-    </>
+        secondaryActions={<div className="h-4 w-32 rounded bg-gray-100" />}
+      />
+    </div>
   )
 }
 
@@ -501,19 +338,18 @@ export function UrlauberfinderResults({
   searchParams,
   searchWasCancelled,
   onCancel,
+  onRestart,
 }: UrlauberfinderResultsProps) {
   const [mapSelected, setMapSelected] = useState<DestinationResult | null>(null)
   const [expandedDestination, setExpandedDestination] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<DestinationSortKey>("price")
+  const [sortDir, setSortDir] = useState<JourneySortDirection>("asc")
 
-  const minPrice =
-    results.length > 0 ? Math.min(...results.map((r) => r.totalPrice)) : 0
-  const maxPrice =
-    results.length > 0 ? Math.max(...results.map((r) => r.totalPrice)) : 0
-  const averagePrice =
-    results.length > 0
-      ? results.reduce((sum, r) => sum + r.totalPrice, 0) / results.length
-      : 0
+  const priceScale = createPriceBandScale(results.map((result) => result.totalPrice))
   const hasResults = results.length > 0
+  const minimumPrice = hasResults
+    ? Math.min(...results.map((result) => result.totalPrice))
+    : null
   const hasUnavailable = unavailableResults.length > 0
   const hasMapData = results.some((r) => r.lat && r.lon)
   const remainingDestinations = progress
@@ -522,6 +358,49 @@ export function UrlauberfinderResults({
   const remainingRequests = progress?.processedRequests !== undefined && progress.totalRequests !== undefined
     ? Math.max(0, progress.totalRequests - progress.processedRequests)
     : remainingDestinations * requestsPerDestination
+  const resultPlaceholderCount = isLoading ? Math.max(1, Math.min(3, remainingDestinations)) : 0
+  const isRoundTripSearch = requestsPerDestination > 1 || results.some((result) => Boolean(result.returnDate))
+  const sortOptions = isRoundTripSearch ? ROUND_TRIP_SORT_OPTIONS : ONE_WAY_SORT_OPTIONS
+  const activeSortLabel = sortOptions.find((option) => option.key === sortKey)?.label ?? "Preis"
+  const sortedResults = useMemo(() => {
+    return [...results].sort((left, right) => {
+      let difference = 0
+
+      switch (sortKey) {
+        case "destination":
+          difference = left.destination.localeCompare(right.destination, "de")
+          break
+        case "outward":
+          difference = new Date(left.outwardDeparture || left.outwardDate).getTime() -
+            new Date(right.outwardDeparture || right.outwardDate).getTime()
+          break
+        case "arrival":
+          difference = new Date(left.outwardArrival).getTime() - new Date(right.outwardArrival).getTime()
+          break
+        case "duration":
+          difference = getTotalJourneyDuration(left) - getTotalJourneyDuration(right)
+          break
+        case "transfers":
+          difference = ((left.outwardTransfers ?? 0) + (left.returnTransfers ?? 0)) -
+            ((right.outwardTransfers ?? 0) + (right.returnTransfers ?? 0))
+          break
+        case "return":
+          difference = new Date(left.returnDeparture || left.returnDate || 0).getTime() -
+            new Date(right.returnDeparture || right.returnDate || 0).getTime()
+          break
+        case "price":
+          difference = left.totalPrice - right.totalPrice
+          break
+      }
+
+      if (difference !== 0) return sortDir === "asc" ? difference : -difference
+
+      const priceDifference = left.totalPrice - right.totalPrice
+      if (priceDifference !== 0) return priceDifference
+      return getJourneyDuration(left.outwardDeparture, left.outwardArrival) -
+        getJourneyDuration(right.outwardDeparture, right.outwardArrival)
+    })
+  }, [results, sortDir, sortKey])
   const queueStatus = useSearchQueueStatus({
     sessionId,
     isActive: isLoading,
@@ -539,8 +418,24 @@ export function UrlauberfinderResults({
     card.scrollIntoView({ behavior: "smooth", block: "center" })
   }, [mapSelected])
 
+  useEffect(() => {
+    if (!sortOptions.some((option) => option.key === sortKey)) {
+      setSortKey("price")
+      setSortDir("asc")
+    }
+  }, [sortKey, sortOptions])
+
+  function handleSort(key: DestinationSortKey) {
+    if (sortKey === key) {
+      setSortDir((direction) => direction === "asc" ? "desc" : "asc")
+      return
+    }
+    setSortKey(key)
+    setSortDir("asc")
+  }
+
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${isLoading ? "min-h-[100dvh]" : ""}`}>
       <SearchProgressPanel
         isActive={isLoading}
         completedItems={progress?.processed ?? results.length + unavailableResults.length}
@@ -550,6 +445,7 @@ export function UrlauberfinderResults({
         completedUnit="Reiseziele"
         isCancelled={searchWasCancelled}
         onCancel={onCancel}
+        onRestart={onRestart}
         detail={hasResults ? `${results.length} Ziel${results.length !== 1 ? "e" : ""} gefunden` : undefined}
       />
 
@@ -565,7 +461,7 @@ export function UrlauberfinderResults({
       )}
 
       {(isLoading || hasMapData) && (
-        <div className="rounded-lg bg-blue-50 p-4">
+        <div className="bg-blue-50 p-4 sm:rounded-lg">
           <div className="mb-3 flex items-center gap-2">
             <MapPin className="h-4 w-4 text-blue-600" />
             <span className="text-sm font-semibold text-blue-800">Karte</span>
@@ -585,65 +481,78 @@ export function UrlauberfinderResults({
         </div>
       )}
 
-      {hasResults && (
-        <>
-          <div className="bg-blue-50 p-4 rounded-lg">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-2 md:gap-0">
-              <h3 className="font-semibold text-blue-800 flex items-center gap-2">
-                <TrendingDown className="w-4 h-4" />
-                Günstigste Ziele
-                <span className="text-blue-700">({results.length})</span>
+      {(hasResults || isLoading) && (
+        <section className="overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm">
+          <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-2 border-b border-blue-200 bg-blue-50 px-4 py-4 sm:gap-x-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Urlaubsfinder</div>
+              <h3 className="mt-1 flex min-w-0 items-center gap-1.5 text-base font-bold text-blue-950 sm:text-lg">
+                <MapPin className="h-4 w-4 shrink-0 text-blue-700" />
+                <span className="truncate">Ab {homeStation || "Startbahnhof"}</span>
               </h3>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-blue-700">
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-                  Bestpreis
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
-                  Mittel
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
-                  Teuer
-                </span>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-blue-700">
+                <span>{results.length} {results.length === 1 ? "Reiseziel" : "Reiseziele"}</span>
+                <span>·</span>
+                <span>Nach {activeSortLabel} {sortDir === "asc" ? "aufsteigend" : "absteigend"}</span>
+                {isLoading && (
+                  <span className="inline-flex items-center gap-1 font-medium">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Wird ergänzt
+                  </span>
+                )}
               </div>
             </div>
-
-            <div className="mb-2 hidden md:block">
-              <div className="grid grid-cols-[minmax(190px,2.4fr)_minmax(150px,1.6fr)_minmax(150px,1.6fr)_minmax(105px,1fr)_minmax(95px,0.9fr)_minmax(115px,0.9fr)] gap-4 lg:gap-6 text-xs font-semibold select-none sticky top-0 bg-blue-50 z-10 border-b border-blue-200 pb-2 px-5 text-gray-600">
-                <div>Ziel</div>
-                <div>Hinfahrt</div>
-                <div>Rückfahrt</div>
-                <div>Umstiege</div>
-                <div>Preis</div>
-                <div className="text-right">Details</div>
+            {minimumPrice !== null && (
+              <div className="shrink-0 self-start rounded-lg border border-green-200 bg-green-50 px-2 py-1.5 text-green-800 shadow-sm sm:px-4 sm:py-2 sm:text-right lg:col-start-3 lg:row-start-1 lg:self-center">
+                <div className="text-[10px] font-medium text-green-700 sm:text-xs">
+                  {isRoundTripSearch ? "Günstigster Gesamtpreis" : "Günstigster Preis"}
+                </div>
+                <div className="mt-0.5 flex items-baseline gap-1 sm:justify-end">
+                  <span className="text-xs font-semibold sm:text-sm">ab</span>
+                  <span className="text-xl font-bold tabular-nums sm:text-2xl">
+                    {minimumPrice.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} €
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
+            <JourneySortControls
+              options={sortOptions}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+              ariaLabel={isRoundTripSearch ? "Reiseziele mit Hin- und Rückfahrt sortieren" : "Reiseziele sortieren"}
+              embedded
+              className="col-span-2 mt-1 w-full border-t border-blue-200 pt-3 lg:col-span-1 lg:col-start-2 lg:row-start-1 lg:mt-0 lg:w-auto lg:border-t-0 lg:pt-0"
+            />
+          </header>
 
-            <div className="space-y-3">
-              {results.map((result, index) => (
-                <ResultCard
-                  key={result.destination}
-                  result={result}
-                  rank={index + 1}
-                  minPrice={minPrice}
-                  maxPrice={maxPrice}
-                  averagePrice={averagePrice}
-                  searchParams={searchParams}
-                  homeStation={homeStation}
-                  onMapFocus={setMapSelected}
-                  isExpanded={expandedDestination === result.destination}
-                  onToggle={() =>
-                    setExpandedDestination((prev) =>
-                      prev === result.destination ? null : result.destination
-                    )
-                  }
-                />
-              ))}
-            </div>
+          <div className="space-y-2 bg-gray-50 p-2.5 sm:p-3">
+            {sortedResults.map((result) => (
+              <ResultCard
+                key={result.destination}
+                result={result}
+                priceBand={priceScale.getBand(result.totalPrice)}
+                searchParams={searchParams}
+                homeStation={homeStation}
+                isExpanded={expandedDestination === result.destination}
+                onToggle={() =>
+                  setExpandedDestination((prev) =>
+                    prev === result.destination ? null : result.destination
+                  )
+                }
+              />
+            ))}
+            {Array.from({ length: resultPlaceholderCount }, (_, index) => (
+              <ResultCardPlaceholder
+                key={`result-placeholder-${index}`}
+                isRoundTrip={isRoundTripSearch}
+              />
+            ))}
           </div>
-        </>
+        </section>
       )}
 
       {hasUnavailable && (
