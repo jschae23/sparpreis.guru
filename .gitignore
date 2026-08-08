@@ -31,3 +31,4 @@ package-lock.json
 *.tsbuildinfo
 next-env.d.ts
 scripts/measure-bahn-rate-limit.mjs
+AGENTS.md
