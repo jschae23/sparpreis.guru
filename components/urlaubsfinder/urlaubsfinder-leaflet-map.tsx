@@ -3,8 +3,16 @@
 import { useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { logError, logWarn } from '@/lib/shared/logger'
+import { createPriceBandScale, type PriceBand } from '@/lib/train-search/price-bands'
 
 const LOG_SCOPE = "urlaubsfinder.map"
+const PRICE_BAND_MARKER_COLORS: Record<PriceBand, string> = {
+  best: '#16a34a',
+  low: '#059669',
+  medium: '#ca8a04',
+  elevated: '#ea580c',
+  high: '#dc2626',
+}
 
 // Dynamic import to avoid SSR issues with Leaflet
 const DynamicLeaflet = dynamic(async () => {
@@ -138,23 +146,17 @@ const DynamicLeaflet = dynamic(async () => {
         }
 
         if (destinations.length > 0) {
-          const minPrice = Math.min(...destinations.map((d: DestinationResult) => d.totalPrice))
-          const maxPrice = Math.max(...destinations.map((d: DestinationResult) => d.totalPrice))
-          const priceRange = maxPrice - minPrice
+          const priceScale = createPriceBandScale(destinations.map((destination) => destination.totalPrice))
 
           destinations.forEach((dest: DestinationResult) => {
             if (!dest.lat || !dest.lon) return
 
-            const pricePercent = priceRange > 0 ? ((dest.totalPrice - minPrice) / priceRange) * 100 : 50
-            let bgColor = '#22c55e' // green
-            if (pricePercent > 66) bgColor = '#ef4444' // red
-            else if (pricePercent > 33) bgColor = '#f59e0b' // amber
-
-            const label = pricePercent < 33 ? '💰' : pricePercent < 66 ? '⚖️' : '❌'
+            const priceBand = priceScale.getBand(dest.totalPrice)
+            const bgColor = PRICE_BAND_MARKER_COLORS[priceBand]
 
             const icon = L.divIcon({
               html: `<div style="position:relative;display:inline-flex;flex-direction:column;align-items:center;cursor:pointer">
-              <div style="background:${bgColor};color:white;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.35);line-height:1.4">${label} ${dest.totalPrice.toFixed(0)}€</div>
+              <div style="background:${bgColor};color:white;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.35);line-height:1.4">${dest.totalPrice.toFixed(0)}€</div>
               <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid ${bgColor};margin-top:-1px"></div>
             </div>`,
               className: '',

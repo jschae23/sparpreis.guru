@@ -190,6 +190,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
   } | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const abortReasonRef = useRef<'manual' | 'auto' | null>(null)
+  const lastSearchParamsRef = useRef<UrlauberfinderSearchParams | null>(null)
   const [initialFormParams, setInitialFormParams] = useState<Partial<UrlauberfinderSearchParams>>({})
 
   useEffect(() => {
@@ -198,6 +199,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
   }, [])
 
   const handleSearch = async (params: UrlauberfinderSearchParams) => {
+    lastSearchParamsRef.current = params
     try {
       setError(null)
       setShowAbortModal(false)
@@ -345,6 +347,12 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
     }
   }
 
+  const handleRestart = () => {
+    if (lastSearchParamsRef.current) {
+      void handleSearch(lastSearchParamsRef.current)
+    }
+  }
+
   useEffect(() => {
     if (!isLoading) return
 
@@ -395,7 +403,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
   return (
     <div className="min-h-screen bg-white">
       <PageContainer>
-        <header className="mb-6">
+        <header className="mb-6 px-3 sm:px-0">
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
               <MainNavigation active="urlaubsfinder" variant="mobile" />
@@ -426,6 +434,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
             onSearch={handleSearch}
             isSearching={isLoading}
             initialParams={initialFormParams}
+            autoStartFromInitialParams
           />
         </section>
 
@@ -449,6 +458,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
               searchParams={bookingSearchParams}
               searchWasCancelled={searchWasCancelled}
               onCancel={handleCancel}
+              onRestart={handleRestart}
             />
           </section>
         )}

@@ -1,13 +1,13 @@
 "use client"
 
-import React from "react"
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react"
+import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
 import { logWarn } from "@/lib/shared/logger"
 import { SearchProgressPanel } from "@/components/search/search-progress-panel"
 import { useSearchQueueStatus } from "@/hooks/use-search-queue-status"
 import { createPriceBandScale, PRICE_BAND_STYLES } from "@/lib/train-search/price-bands"
+import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 
 const LOG_SCOPE = "bestpreissuche.price-calendar"
 
@@ -44,9 +44,15 @@ interface PriceCalendarProps {
   expectedDays?: number
   sessionId?: string | null
   onCancelSearch?: () => void
+  onRestartSearch?: () => void
   searchWasCancelled?: boolean
-  onNavigateDay?: (direction: number) => void // Neue Prop für Tag-Navigation
-  selectedDay?: string // Neu: Ausgewählter Tag (YYYY-MM-DD)
+  selectedDay?: string
+  lazyDayRequest?: {
+    date: string
+    status: "loading" | "complete" | "error"
+    message?: string
+  } | null
+  onRequestDay?: (date: string) => void
 }
 
 // Wochentage so anpassen, dass Montag links steht
@@ -66,9 +72,40 @@ const months = [
   "Dezember",
 ]
 
-export function PriceCalendar({ results, onDayClick, startStation, zielStation, searchParams, isStreaming, expectedDays, sessionId, onCancelSearch, searchWasCancelled, onNavigateDay, selectedDay }: PriceCalendarProps) {
-  const today = new Date()
+export function PriceCalendar({
+  results,
+  onDayClick,
+  startStation,
+  zielStation,
+  searchParams,
+  isStreaming,
+  expectedDays,
+  sessionId,
+  onCancelSearch,
+  onRestartSearch,
+  searchWasCancelled,
+  selectedDay,
+  lazyDayRequest,
+  onRequestDay,
+}: PriceCalendarProps) {
   const resultDates = Object.keys(results).filter(key => key !== '_meta').sort()
+  const tomorrow = getEarliestSearchDateKey()
+  const originalStartDate = searchParams?.reisezeitraumAb || resultDates[0] || tomorrow
+  const originalEndDate = searchParams?.reisezeitraumBis || resultDates[resultDates.length - 1] || originalStartDate
+  const earliestRequestableDate = [addDaysToDateKey(originalStartDate, -14), tomorrow].sort().at(-1)!
+  const latestRequestableDate = addDaysToDateKey(originalEndDate, 14)
+  const earliestRequestableDateObject = new Date(`${earliestRequestableDate}T12:00:00`)
+  const latestRequestableDateObject = new Date(`${latestRequestableDate}T12:00:00`)
+  const earliestRequestableMonth = new Date(
+    earliestRequestableDateObject.getFullYear(),
+    earliestRequestableDateObject.getMonth(),
+    1
+  )
+  const latestRequestableMonth = new Date(
+    latestRequestableDateObject.getFullYear(),
+    latestRequestableDateObject.getMonth(),
+    1
+  )
   
   // Hilfsfunktion: Date zu YYYY-MM-DD (lokal, nicht UTC!)
   const formatDateKey = (date: Date) => {
@@ -78,24 +115,12 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
     return `${year}-${month}-${day}`
   }
   
-  if (resultDates.length === 0 && !isStreaming) {
-    return (
-      <div className="text-center py-8 text-gray-500">
-        Keine Suchergebnisse verfügbar. Bitte starte eine neue Suche.
-      </div>
-    )
-  }
-
   // Get the date range from results or expected range
   const dates = Object.keys(results).filter(key => key !== '_meta').sort()
   
-  // Generate expected date range if streaming
+  // Der vollständige Suchbereich bleibt auch nach Abschluss oder Abbruch erhalten,
+  // damit noch nicht abgefragte Tage gezielt nachgeladen werden können.
   const getExpectedDateRange = () => {
-    // Wenn nicht streamend, verwende die bereits vorhandenen Daten
-    if (!isStreaming) {
-      return dates
-    }
-    
     // Berechne erwartete Daten aus Wochentagen und Datumsbereich
     if (searchParams?.reisezeitraumAb && searchParams?.reisezeitraumBis) {
       try {
@@ -141,12 +166,12 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
   
   const expectedDateRange = getExpectedDateRange()
   const firstExpectedDate = expectedDateRange.length > 0 ? new Date(expectedDateRange[0]) : (dates.length > 0 ? new Date(dates[0]) : new Date())
-  const lastExpectedDate = expectedDateRange.length > 0 ? new Date(expectedDateRange[expectedDateRange.length - 1]) : (dates.length > 0 ? new Date(dates[dates.length - 1]) : new Date())
 
-  if (dates.length === 0 && expectedDateRange.length === 0) return null
-
-  const firstDate = dates.length > 0 ? new Date(dates[0]) : firstExpectedDate
-  const lastDate = dates.length > 0 ? new Date(dates[dates.length - 1]) : lastExpectedDate
+  const firstDate = expectedDateRange.length > 0
+    ? firstExpectedDate
+    : dates.length > 0
+      ? new Date(dates[0])
+      : new Date()
 
   // State for calendar navigation
   const [currentMonth, setCurrentMonth] = useState(() => new Date())
@@ -156,6 +181,12 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
       setCurrentMonth(new Date(firstDate.getFullYear(), firstDate.getMonth(), 1))
     }
   }, [firstDate.getFullYear(), firstDate.getMonth()])
+
+  useEffect(() => {
+    if (!selectedDay) return
+    const selectedDate = new Date(selectedDay)
+    setCurrentMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
+  }, [selectedDay])
 
   const prices = Object.values(results)
     .map((r) => r.preis)
@@ -223,46 +254,6 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
     }
   }
 
-  // --- Tag-Navigation (Pfeile, Keyboard, Swipe) ---
-  // Hole alle Tage mit Preis
-  const dayKeys = dates.filter(dateKey => results[dateKey]?.preis > 0)
-
-  // Ermittle den aktuell ausgewählten Tag (aus Parent)
-  // (Parent-Komponente muss selectedDay und onNavigateDay bereitstellen)
-
-  // Swipe-Handling
-  const touchStartX = React.useRef<number | null>(null)
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX
-  }
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null) return
-    const deltaX = e.changedTouches[0].clientX - touchStartX.current
-    if (Math.abs(deltaX) > 50) {
-      if (deltaX < 0) {
-        // Swipe nach links → nächster Tag
-        onNavigateDay && onNavigateDay(1)
-      } else {
-        // Swipe nach rechts → vorheriger Tag
-        onNavigateDay && onNavigateDay(-1)
-      }
-    }
-    touchStartX.current = null
-  }
-
-  // Keyboard-Handling
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') {
-        onNavigateDay && onNavigateDay(-1)
-      } else if (e.key === 'ArrowRight') {
-        onNavigateDay && onNavigateDay(1)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onNavigateDay])
-
   const totalDays = expectedDays && expectedDays > 0
     ? expectedDays
     : expectedDateRange.length > 0
@@ -277,6 +268,8 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
     searchType: "bestpreissuche",
   })
 
+  if (dates.length === 0 && expectedDateRange.length === 0) return null
+
   return (
     <>
       <SearchProgressPanel
@@ -288,51 +281,64 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
         completedUnit="Reisetage"
         isCancelled={searchWasCancelled}
         onCancel={onCancelSearch}
-        detail={`${startStation?.name || "Start"} nach ${zielStation?.name || "Ziel"}`}
+        onRestart={onRestartSearch}
       />
 
       {/* Calendar Header und Legende */}
-      <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-        <header className="flex items-center justify-between gap-3 border-b border-blue-100 bg-blue-50/70 px-4 py-3 sm:px-5">
+      <div className={`mt-4 overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm ${isStreaming ? "min-h-[100dvh]" : ""}`}>
+        {startStation && zielStation && (
+          <header className="flex items-start justify-between gap-2 border-b border-blue-100 bg-blue-50/70 px-4 py-4 sm:items-center sm:gap-3 sm:px-5">
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Einfache Fahrt</div>
+              <h2 className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-base text-blue-950 sm:flex-nowrap sm:text-lg">
+                <span className="min-w-0 truncate font-bold">{startStation.name}</span>
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-white text-blue-600" aria-hidden="true">
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0 truncate font-bold">{zielStation.name}</span>
+              </h2>
+              <p className="mt-1 text-xs text-blue-700">{resultDates.length} Reisetage ausgewertet</p>
+            </div>
+            {minPrice > 0 && (
+              <div className="shrink-0 self-start rounded-lg border border-green-200 bg-green-50 px-2 py-1.5 shadow-sm sm:self-center sm:px-4 sm:py-2 sm:text-right">
+                <div className="text-[10px] font-medium text-green-700 sm:text-xs">Günstigster Preis</div>
+                <div className="mt-0.5 flex items-baseline gap-1 text-green-800 sm:justify-end">
+                  <span className="text-xs font-semibold sm:text-sm">ab</span>
+                  <span className="text-xl font-bold tabular-nums sm:text-2xl">
+                    {minPrice.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                  </span>
+                </div>
+              </div>
+            )}
+          </header>
+        )}
+        <div className="flex items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-5">
           <h2 className="flex items-center gap-2 text-base font-semibold text-blue-950">
             <CalendarDays className="h-4 w-4 text-blue-700" />
             Preiskalender
           </h2>
-          <span className="text-xs font-medium text-blue-700">Klicken zum Buchen</span>
-        </header>
+          <span className="text-xs font-medium text-blue-700">Tag für Verbindungen auswählen</span>
+        </div>
         {/* Calendar Header */}
         <div className="flex items-center justify-between p-4 border-b">
           <Button
             variant="outline"
             size="sm"
             onClick={goToPreviousMonth}
-            disabled={currentMonth <= new Date(firstDate.getFullYear(), firstDate.getMonth(), 1)}
+            disabled={currentMonth.getTime() <= earliestRequestableMonth.getTime()}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
 
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold">
-              {months[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-            </h3>
-            {/* Tag-Navigation für ausgewählten Tag (Parent muss selectedDay und onNavigateDay bereitstellen) */}
-            {typeof selectedDay === 'string' && (
-              <>
-                <Button variant="ghost" size="icon" onClick={() => onNavigateDay && onNavigateDay(-1)} disabled={dayKeys.indexOf(selectedDay) <= 0}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => onNavigateDay && onNavigateDay(1)} disabled={dayKeys.indexOf(selectedDay) === dayKeys.length - 1}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-          </div>
+          <h3 className="text-lg font-semibold">
+            {months[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+          </h3>
 
           <Button
             variant="outline"
             size="sm"
             onClick={goToNextMonth}
-            disabled={currentMonth >= new Date(lastDate.getFullYear(), lastDate.getMonth(), 1)}
+            disabled={currentMonth.getTime() >= latestRequestableMonth.getTime()}
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -356,10 +362,7 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
         )}
 
         {/* Calendar Grid */}
-        <div className="p-4"
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-        >
+        <div className="p-4">
           {/* Weekday Headers */}
           <div className="grid grid-cols-7 gap-1 mb-2">
             {weekdays.map((day) => (
@@ -382,7 +385,11 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
               
               // Check if this day is expected but not yet loaded (pending)
               const isExpectedDay = expectedDateRange.includes(dateKey)
-              const isPendingDay = isStreaming && isExpectedDay && !hasResult
+              const isRequestableDay = dateKey >= earliestRequestableDate && dateKey <= latestRequestableDate
+              const isLazyPending = lazyDayRequest?.date === dateKey && lazyDayRequest.status === "loading"
+              const lazyRequestFailed = lazyDayRequest?.date === dateKey && lazyDayRequest.status === "error"
+              const isPendingDay = (isStreaming && isExpectedDay && !hasResult) || isLazyPending
+              const canRequestDay = isRequestableDay && !hasResult && !isPendingDay && Boolean(onRequestDay)
 
               return (
                 <div
@@ -391,26 +398,26 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
                     relative min-h-[90px] sm:min-h-[100px] p-1 sm:p-3 border rounded-lg transition-all hover:shadow-sm flex flex-col justify-between
                     ${!isCurrentMonth ? "opacity-30" : ""}
                     ${isToday ? "ring-2 ring-blue-500" : ""}
+                    ${selectedDay === dateKey ? "ring-2 ring-blue-700 ring-offset-2" : ""}
                     ${hasPrice ? getPriceBg(priceData.preis) : 
                       hasResult ? "bg-gray-50" : 
-                      isPendingDay ? "bg-blue-50 border-blue-200" : "bg-white"}
+                      isPendingDay ? "bg-blue-50 border-blue-200" :
+                      canRequestDay ? "cursor-pointer border-dashed border-blue-200 bg-white text-blue-700 hover:border-blue-300 hover:bg-blue-50/60" : "bg-white"}
                     ${hasPrice ? "cursor-pointer hover:shadow-md hover:scale-105" : ""}
                   `}
-                  onClick={() => hasPrice && handleDayClick(dateKey, priceData)}
+                  onClick={() => {
+                    if (hasPrice) {
+                      handleDayClick(dateKey, priceData)
+                    } else if (canRequestDay) {
+                      onRequestDay?.(dateKey)
+                    }
+                  }}
                 >
                   {/* Day Number und Multiple options indicator */}
                   <div className="flex items-center justify-between mb-1">
                     <div className="text-xs sm:text-sm font-medium text-gray-900">{day.getDate()}</div>
                     {hasMultipleOptions && (
                       <span className="text-[10px] sm:text-xs bg-blue-100 text-blue-600 px-1 rounded ml-1">{priceData.allIntervals!.length}</span>
-                    )}
-                    {isPendingDay && (
-                      <span className="text-[10px] sm:text-xs bg-blue-100 text-blue-600 px-1 rounded ml-1">
-                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      </span>
                     )}
                   </div>
 
@@ -459,11 +466,31 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
                   {/* Pending indicator for days being searched */}
                   {isPendingDay && (
                     <div className="flex flex-col items-center justify-center h-full text-blue-600">
+                      <Loader2 className="mb-1 h-4 w-4 animate-spin" />
                       <div className="text-[9px] sm:text-xs font-medium text-center max-w-full sm:max-w-none truncate whitespace-pre-line">
-                        <span className="block sm:hidden">Wird<br/>geladen...</span>
-                        <span className="hidden sm:inline">Wird geladen...</span>
+                        <span className="block sm:hidden">Wird<br/>abgefragt</span>
+                        <span className="hidden sm:inline">Wird abgefragt</span>
                       </div>
                     </div>
+                  )}
+
+                  {canRequestDay && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onRequestDay?.(dateKey)
+                      }}
+                      className={`mx-auto my-auto px-0.5 py-1 text-center text-[9px] font-medium transition-opacity sm:text-[10px] ${
+                        lazyRequestFailed
+                          ? "text-red-700 opacity-80 hover:opacity-100"
+                          : "text-blue-700 opacity-50 hover:opacity-100"
+                      }`}
+                      title={lazyRequestFailed ? lazyDayRequest?.message || "Preisabfrage erneut versuchen" : `Preis für den ${dateKey} abfragen`}
+                    >
+                      <span className="sm:hidden">{lazyRequestFailed ? "Erneut" : "Abfragen"}</span>
+                      <span className="hidden sm:inline">{lazyRequestFailed ? "Erneut versuchen" : "Preis abfragen"}</span>
+                    </button>
                   )}
 
                   {/* Click indicator for bookable days entfernt */}
@@ -479,22 +506,14 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
           </div>
         </div>
 
-        {/* Route Info */}
-        {startStation && zielStation && (
-          <div className="p-4 border-t bg-gray-50 text-center text-sm text-gray-600">
-            <div className="font-medium">
-              {startStation.name} → {zielStation.name}
-            </div>
-            <div className="text-xs mt-1">
-              Klicke auf einen Tag mit Preis für alle Verbindungen • {resultDates.length} Tage durchsucht
-              {isStreaming && (
-                <span className="text-blue-600 ml-2">
-                  (Weitere Ergebnisse werden geladen...)
-                </span>
-              )}
-            </div>
-          </div>
-        )}
+        <div className="border-t bg-gray-50 p-4 text-center text-xs text-gray-600">
+          Wähle einen Tag mit Preis oder frage einen ungeladenen Tag bis zu vier Wochen vor oder nach dem Suchzeitraum ab
+          {isStreaming && (
+            <span className="ml-2 text-blue-600">
+              (Weitere Ergebnisse werden geladen...)
+            </span>
+          )}
+        </div>
       </div>
 
     </>

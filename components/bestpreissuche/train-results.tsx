@@ -2,11 +2,16 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { PriceCalendar } from "./price-calendar"
-import { DayDetailsModal } from "./day-details-modal"
-import { TravelCombinations, type TravelCombination } from "./travel-combinations"
+import { DayDetailsPanel } from "./day-details-panel"
+import {
+  TravelCombinations,
+  type LazyCombinationRequestState,
+  type TravelCombination,
+} from "./travel-combinations"
 import { IncompleteSearchNotice } from "@/components/search/incomplete-search-notice"
 import { logError, logInfo, logWarn } from "@/lib/shared/logger"
 import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
+import { getEligibleDateKeys, getFeasibleReturnSearchDates } from "@/lib/search/return-search-feasibility"
 
 const LOG_SCOPE = "bestpreissuche.client"
 const BACKGROUND_SEARCH_NOTICE = "Suchen können nicht im Hintergrund ausgeführt werden, um zu viele Anfragen an die Bahn-API zu vermeiden."
@@ -98,6 +103,19 @@ interface PriceResults {
   [date: string]: PriceData
 }
 
+interface LazyDayRequestState {
+  date: string
+  status: "loading" | "complete" | "error"
+  message?: string
+}
+
+interface TargetedSearchOverrides {
+  reisezeitraumAb?: string
+  reisezeitraumBis?: string
+  outwardWeekdays?: number[]
+  returnWeekdays?: number[]
+}
+
 const ALL_WEEKDAYS = [1, 2, 3, 4, 5, 6, 0]
 
 function parseWeekdaysParam(value?: string, fallback = ALL_WEEKDAYS) {
@@ -140,35 +158,48 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const [showAbortModal, setShowAbortModal] = useState(false)
   const [abortModalMessage, setAbortModalMessage] = useState("")
   const [searchWasCancelled, setSearchWasCancelled] = useState(false)
+  const [searchAttempt, setSearchAttempt] = useState(0)
+  const [lazyCombinationRequest, setLazyCombinationRequest] = useState<LazyCombinationRequestState | null>(null)
+  const [lazyDayRequest, setLazyDayRequest] = useState<LazyDayRequestState | null>(null)
+  const [isFullMatrixLoading, setIsFullMatrixLoading] = useState(false)
+  const [fullMatrixLoadError, setFullMatrixLoadError] = useState<string | null>(null)
+  const lazyRequestRef = useRef<{ key: string; sessionId: string; controller: AbortController } | null>(null)
 
   const hasReturnSearch = searchParams.rueckfahrt === "1"
 
-  const countExpectedDates = (weekdays: number[]) => {
-    if (!searchParams.reisezeitraumAb || !searchParams.reisezeitraumBis) {
-      return 0
-    }
-    try {
-      const startDate = new Date(searchParams.reisezeitraumAb)
-      const endDate = new Date(searchParams.reisezeitraumBis)
-      let count = 0
-      
-      for (let d = new Date(startDate); d <= endDate && count < 30; d.setDate(d.getDate() + 1)) {
-        if (weekdays.includes(d.getDay())) {
-          count++
-        }
-      }
-      return count
-    } catch {
-      return 0
-    }
-  }
-
   const outwardWeekdays = parseWeekdaysParam(searchParams.wochentage)
   const returnWeekdays = parseWeekdaysParam(searchParams.returnWochentage, outwardWeekdays)
-  const expectedOutwardDays = countExpectedDates(outwardWeekdays)
-  const expectedReturnDays = hasReturnSearch
-    ? countExpectedDates(returnWeekdays)
-    : 0
+  const availableOutwardDates = getEligibleDateKeys(
+    searchParams.reisezeitraumAb || "",
+    searchParams.reisezeitraumBis || "",
+    outwardWeekdays
+  ).slice(0, 30)
+  const availableReturnDates = hasReturnSearch
+    ? getEligibleDateKeys(
+        searchParams.reisezeitraumAb || "",
+        searchParams.reisezeitraumBis || "",
+        returnWeekdays
+      ).slice(0, 30)
+    : []
+  const parsedMinNights = Number.parseInt(searchParams.minNaechte || "1", 10)
+  const parsedMaxNights = searchParams.maxNaechte
+    ? Number.parseInt(searchParams.maxNaechte, 10)
+    : undefined
+  const normalizedMinNights = Number.isFinite(parsedMinNights) && parsedMinNights > 0 ? parsedMinNights : 1
+  const normalizedMaxNights =
+    typeof parsedMaxNights === "number" && Number.isFinite(parsedMaxNights) && parsedMaxNights > 0
+      ? parsedMaxNights
+      : undefined
+  const initialReturnSearchDates = hasReturnSearch
+    ? getFeasibleReturnSearchDates({
+        outwardDates: availableOutwardDates,
+        returnDates: availableReturnDates,
+        minNights: normalizedMinNights,
+        maxNights: normalizedMaxNights,
+      })
+    : { outwardDates: availableOutwardDates, returnDates: [] }
+  const expectedOutwardDays = initialReturnSearchDates.outwardDates.length
+  const expectedReturnDays = initialReturnSearchDates.returnDates.length
   const expectedDays = expectedOutwardDays + expectedReturnDays
 
   // Track der bereits eingetroffenen dayResults
@@ -196,18 +227,24 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const cancelSearchWithReason = useCallback((reason: 'user_request' | 'page_hidden') => {
     const activeSessionId = activeSessionIdRef.current
     const activeController = abortControllerRef.current
-    if (!activeSessionId && !activeController) return
+    const activeLazyRequest = lazyRequestRef.current
+    if (!activeSessionId && !activeController && !activeLazyRequest) return
 
     logInfo(LOG_SCOPE, "Bestpreissuche cancellation requested", { sessionId: activeSessionId, reason })
 
     activeSessionIdRef.current = null
     abortControllerRef.current = null
+    lazyRequestRef.current = null
     activeController?.abort()
+    activeLazyRequest?.controller.abort()
 
     setLoading(false)
     setIsStreaming(false)
     setSessionId(null)
     setSearchWasCancelled(true)
+    setLazyCombinationRequest(null)
+    setLazyDayRequest(null)
+    setIsFullMatrixLoading(false)
 
     setAbortModalMessage(
       reason === 'page_hidden'
@@ -232,11 +269,55 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
         })
       })
     }
+    if (activeLazyRequest) {
+      void fetch(`/api/search-prices/cancel-search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: activeLazyRequest.sessionId, reason }),
+        keepalive: true,
+      }).catch(() => undefined)
+    }
   }, [])
 
   const cancelSearch = useCallback(() => {
     cancelSearchWithReason('user_request')
   }, [cancelSearchWithReason])
+
+  const restartSearch = useCallback(() => {
+    const activeSessionId = activeSessionIdRef.current
+    const activeController = abortControllerRef.current
+    const activeLazyRequest = lazyRequestRef.current
+
+    activeSessionIdRef.current = null
+    abortControllerRef.current = null
+    lazyRequestRef.current = null
+    activeController?.abort()
+    activeLazyRequest?.controller.abort()
+
+    for (const requestSessionId of [activeSessionId, activeLazyRequest?.sessionId]) {
+      if (!requestSessionId) continue
+      void fetch("/api/search-prices/cancel-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: requestSessionId, reason: "restart_search" }),
+      }).catch(() => undefined)
+    }
+
+    startedSearchKeyRef.current = null
+    setShowAbortModal(false)
+    setLoading(false)
+    setIsStreaming(false)
+    setSessionId(null)
+    setLazyCombinationRequest(null)
+    setLazyDayRequest(null)
+    setIsFullMatrixLoading(false)
+    setSearchAttempt((attempt) => attempt + 1)
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener("bestpreissuche:restart", restartSearch)
+    return () => window.removeEventListener("bestpreissuche:restart", restartSearch)
+  }, [restartSearch])
 
   // Cleanup bei Component Unmount oder Navigation
   useEffect(() => {
@@ -246,8 +327,9 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     }
 
     const notifyPageUnload = (reason: 'page_unload' | 'component_unmount') => {
-      const activeSessionId = activeSessionIdRef.current
-      if (activeSessionId) {
+      const activeSessionIds = [activeSessionIdRef.current, lazyRequestRef.current?.sessionId]
+        .filter((sessionId): sessionId is string => Boolean(sessionId))
+      for (const activeSessionId of activeSessionIds) {
         const payload = new Blob(
           [JSON.stringify({ sessionId: activeSessionId, reason })],
           { type: 'application/json' }
@@ -259,10 +341,11 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     const handleBeforeUnload = () => {
       notifyPageUnload('page_unload')
       abortControllerRef.current?.abort()
+      lazyRequestRef.current?.controller.abort()
     }
 
     const handleVisibilityChange = () => {
-      if (document.hidden && activeSessionIdRef.current) {
+      if (document.hidden && (activeSessionIdRef.current || lazyRequestRef.current)) {
         cancelSearchWithReason('page_hidden')
       }
     }
@@ -279,8 +362,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       unmountCleanupTimerRef.current = setTimeout(() => {
         notifyPageUnload('component_unmount')
         abortControllerRef.current?.abort()
+        lazyRequestRef.current?.controller.abort()
         activeSessionIdRef.current = null
         abortControllerRef.current = null
+        lazyRequestRef.current = null
         unmountCleanupTimerRef.current = null
       }, 0)
     }
@@ -315,6 +400,48 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     umstiegszeit: searchParams.umstiegszeit,
   })
 
+  const buildSearchRequestBody = (
+    requestSessionId: string,
+    requestedDates?: { outwardDates: string[]; returnDates: string[] },
+    overrides?: TargetedSearchOverrides
+  ) => ({
+    sessionId: requestSessionId,
+    start: searchParams.start,
+    ziel: searchParams.ziel,
+    reisezeitraumAb: overrides?.reisezeitraumAb || searchParams.reisezeitraumAb || addDaysToDateKey(getEarliestSearchDateKey(), 6),
+    reisezeitraumBis: overrides?.reisezeitraumBis || searchParams.reisezeitraumBis || addDaysToDateKey(
+      searchParams.reisezeitraumAb || addDaysToDateKey(getEarliestSearchDateKey(), 6),
+      6
+    ),
+    wochentage: overrides?.outwardWeekdays || outwardWeekdays,
+    returnWochentage: overrides?.returnWeekdays || returnWeekdays,
+    alter: searchParams.alter || "ERWACHSENER",
+    ermaessigungArt: searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG",
+    ermaessigungKlasse: searchParams.ermaessigungKlasse || "KLASSENLOS",
+    klasse: searchParams.klasse || "KLASSE_2",
+    schnelleVerbindungen: searchParams.schnelleVerbindungen === "1",
+    nurDeutschlandTicketVerbindungen: searchParams.nurDeutschlandTicketVerbindungen === "1",
+    ...(searchParams.maximaleUmstiege !== undefined && searchParams.maximaleUmstiege !== "" && {
+      maximaleUmstiege: Number.parseInt(searchParams.maximaleUmstiege),
+    }),
+    abfahrtAb: searchParams.abfahrtAb,
+    abfahrtBis: searchParams.abfahrtBis,
+    ankunftAb: searchParams.ankunftAb,
+    ankunftBis: searchParams.ankunftBis,
+    rueckfahrt: searchParams.rueckfahrt,
+    minNaechte: searchParams.minNaechte,
+    maxNaechte: searchParams.maxNaechte,
+    returnAbfahrtAb: searchParams.returnAbfahrtAb,
+    returnAbfahrtBis: searchParams.returnAbfahrtBis,
+    returnAnkunftAb: searchParams.returnAnkunftAb,
+    returnAnkunftBis: searchParams.returnAnkunftBis,
+    umstiegszeit: searchParams.umstiegszeit,
+    ...(requestedDates && {
+      requestedOutwardDates: requestedDates.outwardDates,
+      requestedReturnDates: requestedDates.returnDates,
+    }),
+  })
+
   useEffect(() => {
     // Only search if we have required params and this is a new search
     if (!searchParams.start || !searchParams.ziel || currentSearchKey === "") {
@@ -326,10 +453,18 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     startedSearchKeyRef.current = currentSearchKey
 
     const searchPrices = async () => {
+      lazyRequestRef.current?.controller.abort()
+      lazyRequestRef.current = null
+      setLazyCombinationRequest(null)
+      setLazyDayRequest(null)
+      setIsFullMatrixLoading(false)
+      setFullMatrixLoadError(null)
       setLoading(true)
       setPriceResults({})
       setReturnPriceResults({})
       setTravelCombinations([])
+      setSelectedDay(null)
+      setSelectedData(null)
       setIsStreaming(true)
       setShowAbortModal(false)
       setSearchWasCancelled(false)
@@ -351,37 +486,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             "Content-Type": "application/json",
           },
           signal: controller.signal,
-          body: JSON.stringify({
-            sessionId: newSessionId,
-            start: searchParams.start,
-            ziel: searchParams.ziel,
-            reisezeitraumAb: searchParams.reisezeitraumAb || addDaysToDateKey(getEarliestSearchDateKey(), 6),
-            reisezeitraumBis: searchParams.reisezeitraumBis || addDaysToDateKey(
-              searchParams.reisezeitraumAb || addDaysToDateKey(getEarliestSearchDateKey(), 6),
-              6
-            ),
-            wochentage: outwardWeekdays,
-            returnWochentage: returnWeekdays,
-            alter: searchParams.alter || "ERWACHSENER",
-            ermaessigungArt: searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG",
-            ermaessigungKlasse: searchParams.ermaessigungKlasse || "KLASSENLOS",
-            klasse: searchParams.klasse || "KLASSE_2",
-            schnelleVerbindungen: searchParams.schnelleVerbindungen === "1",
-            nurDeutschlandTicketVerbindungen: searchParams.nurDeutschlandTicketVerbindungen === "1",
-            ...(searchParams.maximaleUmstiege !== undefined && searchParams.maximaleUmstiege !== "" && { maximaleUmstiege: Number.parseInt(searchParams.maximaleUmstiege) }),
-            abfahrtAb: searchParams.abfahrtAb,
-            abfahrtBis: searchParams.abfahrtBis,
-            ankunftAb: searchParams.ankunftAb,
-            ankunftBis: searchParams.ankunftBis,
-            rueckfahrt: searchParams.rueckfahrt,
-            minNaechte: searchParams.minNaechte,
-            maxNaechte: searchParams.maxNaechte,
-            returnAbfahrtAb: searchParams.returnAbfahrtAb,
-            returnAbfahrtBis: searchParams.returnAbfahrtBis,
-            returnAnkunftAb: searchParams.returnAnkunftAb,
-            returnAnkunftBis: searchParams.returnAnkunftBis,
-            umstiegszeit: searchParams.umstiegszeit,
-          }),
+          body: JSON.stringify(buildSearchRequestBody(newSessionId)),
         })
 
         if (!response.ok) {
@@ -431,8 +536,12 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                       processedDaysRef.current.add(`return:${data.date}`)
                     } else if (data.type === 'complete') {
                       // Vollständige Ergebnisse bei Abschluss
-                      setPriceResults(data.results)
-                      setReturnPriceResults(data.returnResults || {})
+                      setPriceResults((current) => ({
+                        ...current,
+                        ...data.results,
+                        _meta: data.results?._meta || current._meta,
+                      }))
+                      setReturnPriceResults((current) => ({ ...current, ...(data.returnResults || {}) }))
                       setTravelCombinations(data.travelCombinations || [])
                       setLoading(false)
                       setIsStreaming(false)
@@ -461,8 +570,13 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           if (buffer.trim()) {
             try {
               const finalData = JSON.parse(buffer)
-              setPriceResults(finalData.results || finalData)
-              setReturnPriceResults(finalData.returnResults || {})
+              const finalResults = finalData.results || finalData
+              setPriceResults((current) => ({
+                ...current,
+                ...finalResults,
+                _meta: finalResults?._meta || current._meta,
+              }))
+              setReturnPriceResults((current) => ({ ...current, ...(finalData.returnResults || {}) }))
               setTravelCombinations(finalData.travelCombinations || [])
             } catch (e) {
               logWarn(LOG_SCOPE, "Could not parse Bestpreissuche final streaming buffer", {
@@ -475,8 +589,13 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
         } else {
           // Fallback für non-streaming response
           const data = await response.json()
-          setPriceResults(data.results || data)
-          setReturnPriceResults(data.returnResults || {})
+          const responseResults = data.results || data
+          setPriceResults((current) => ({
+            ...current,
+            ...responseResults,
+            _meta: responseResults?._meta || current._meta,
+          }))
+          setReturnPriceResults((current) => ({ ...current, ...(data.returnResults || {}) }))
           setTravelCombinations(data.travelCombinations || [])
         }
         
@@ -506,6 +625,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     searchPrices()
   }, [
     currentSearchKey,
+    searchAttempt,
     searchParams.start,
     searchParams.ziel,
     searchParams.reisezeitraumAb,
@@ -533,7 +653,197 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     searchParams.umstiegszeit,
   ])
 
-  // --- Tag-Navigation für Modal und Kalender ---
+  const fetchRequestedDates = async (
+    requestKey: string,
+    requestedDates: { outwardDates: string[]; returnDates: string[] },
+    overrides?: TargetedSearchOverrides
+  ) => {
+    const previousRequest = lazyRequestRef.current
+    if (previousRequest) {
+      previousRequest.controller.abort()
+      void fetch("/api/search-prices/cancel-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: previousRequest.sessionId, reason: "superseded_targeted_request" }),
+      }).catch(() => undefined)
+    }
+
+    const requestSessionId = generateSessionId()
+    const controller = new AbortController()
+    lazyRequestRef.current = { key: requestKey, sessionId: requestSessionId, controller }
+    const receivedOutwardResults: PriceResults = {}
+
+    try {
+      const response = await fetch("/api/search-prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify(buildSearchRequestBody(requestSessionId, requestedDates, overrides)),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unbekannter Fehler" }))
+        throw new Error(errorData.error || `HTTP ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error("Die Preisantwort konnte nicht gelesen werden.")
+
+      const decoder = new TextDecoder()
+      let buffer = ""
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() || ""
+
+        for (const line of lines) {
+          if (!line.trim()) continue
+          const data = JSON.parse(line)
+          if (data.type === "dayResult") {
+            receivedOutwardResults[data.date] = data.result
+            setPriceResults((current) => ({
+              ...current,
+              [data.date]: data.result,
+              _meta: current._meta || data.meta,
+            }))
+          } else if (data.type === "returnDayResult") {
+            setReturnPriceResults((current) => ({ ...current, [data.date]: data.result }))
+          } else if (data.type === "error") {
+            throw new Error(data.error || "Die Preisabfrage ist fehlgeschlagen.")
+          } else if (data.type === "complete" && data.results) {
+            for (const [date, result] of Object.entries(data.results)) {
+              if (date !== "_meta") receivedOutwardResults[date] = result as PriceData
+            }
+            setPriceResults((current) => ({
+              ...current,
+              ...data.results,
+              _meta: data.results._meta || current._meta,
+            }))
+          }
+        }
+      }
+
+      return receivedOutwardResults
+    } finally {
+      if (lazyRequestRef.current?.key === requestKey) {
+        lazyRequestRef.current = null
+      }
+    }
+  }
+
+  const requestLazyCombination = async (outwardDate: string, returnDate: string) => {
+    const requestKey = `${outwardDate}|${returnDate}`
+    if (lazyRequestRef.current?.key === requestKey) return
+
+    const isOutwardLoaded = Object.prototype.hasOwnProperty.call(priceResults, outwardDate)
+    const isReturnLoaded = Object.prototype.hasOwnProperty.call(returnPriceResults, returnDate)
+    const outwardIsAlreadyQueued = isStreaming && initialReturnSearchDates.outwardDates.includes(outwardDate)
+    const returnIsAlreadyQueued = isStreaming && initialReturnSearchDates.returnDates.includes(returnDate)
+    const requestedDates = {
+      outwardDates: !isOutwardLoaded && !outwardIsAlreadyQueued ? [outwardDate] : [],
+      returnDates: !isReturnLoaded && !returnIsAlreadyQueued ? [returnDate] : [],
+    }
+
+    setLazyCombinationRequest({ outwardDate, returnDate, status: "loading" })
+    if (requestedDates.outwardDates.length === 0 && requestedDates.returnDates.length === 0) return
+
+    try {
+      await fetchRequestedDates(requestKey, requestedDates)
+      setLazyCombinationRequest({ outwardDate, returnDate, status: "complete" })
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return
+      const message = error instanceof Error ? error.message : "Die Preisabfrage ist fehlgeschlagen."
+      setLazyCombinationRequest({ outwardDate, returnDate, status: "error", message })
+      logError(LOG_SCOPE, "Lazy combination request failed", error, { outwardDate, returnDate })
+    }
+  }
+
+  const requestLazyDay = async (date: string) => {
+    const requestKey = `day:${date}`
+    if (lazyRequestRef.current?.key === requestKey) return
+    if (Object.prototype.hasOwnProperty.call(priceResults, date)) return
+    if (isStreaming && availableOutwardDates.includes(date)) return
+
+    setLazyDayRequest({ date, status: "loading" })
+    try {
+      const requestedWeekday = new Date(`${date}T12:00:00`).getDay()
+      const receivedResults = await fetchRequestedDates(
+        requestKey,
+        {
+          outwardDates: [date],
+          returnDates: [],
+        },
+        {
+          reisezeitraumAb: date,
+          reisezeitraumBis: date,
+          outwardWeekdays: [requestedWeekday],
+          returnWeekdays: [requestedWeekday],
+        }
+      )
+      const result = receivedResults[date]
+      setLazyDayRequest({ date, status: "complete" })
+
+      if (result?.preis > 0) {
+        handleSelectDay(date, result, false)
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return
+      const message = error instanceof Error ? error.message : "Die Preisabfrage ist fehlgeschlagen."
+      setLazyDayRequest({ date, status: "error", message })
+      logError(LOG_SCOPE, "Lazy day request failed", error, { date })
+    }
+  }
+
+  const requestFullMatrix = async (outwardDates: string[], returnDates: string[]) => {
+    const requestedDates = {
+      outwardDates: outwardDates.filter((date) => !Object.prototype.hasOwnProperty.call(priceResults, date)),
+      returnDates: returnDates.filter((date) => !Object.prototype.hasOwnProperty.call(returnPriceResults, date)),
+    }
+
+    setLazyCombinationRequest(null)
+    setFullMatrixLoadError(null)
+    if (requestedDates.outwardDates.length === 0 && requestedDates.returnDates.length === 0) return
+
+    setIsFullMatrixLoading(true)
+    try {
+      await fetchRequestedDates(`full-matrix:${outwardDates.join(",")}|${returnDates.join(",")}`, requestedDates)
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return
+      const message = error instanceof Error ? error.message : "Die vollständige Matrix konnte nicht geladen werden."
+      setFullMatrixLoadError(message)
+      logError(LOG_SCOPE, "Full matrix request failed", error)
+    } finally {
+      setIsFullMatrixLoading(false)
+    }
+  }
+
+  const clearLazyCombinationRequest = () => {
+    const activeRequest = lazyRequestRef.current
+    if (activeRequest) {
+      activeRequest.controller.abort()
+      lazyRequestRef.current = null
+      void fetch("/api/search-prices/cancel-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: activeRequest.sessionId, reason: "selection_changed" }),
+      }).catch(() => undefined)
+    }
+    setLazyCombinationRequest(null)
+  }
+
+  useEffect(() => {
+    if (lazyCombinationRequest?.status !== "loading" || lazyRequestRef.current) return
+
+    const outwardLoaded = Object.prototype.hasOwnProperty.call(priceResults, lazyCombinationRequest.outwardDate)
+    const returnLoaded = Object.prototype.hasOwnProperty.call(returnPriceResults, lazyCombinationRequest.returnDate)
+    if (outwardLoaded && returnLoaded) {
+      setLazyCombinationRequest((current) => current ? { ...current, status: "complete" } : current)
+    }
+  }, [lazyCombinationRequest, priceResults, returnPriceResults])
+
+  // Tag-Navigation innerhalb der eingebetteten Verbindungsliste
   const dayKeys = validPriceResults.map(([date]) => date).sort()
   const handleNavigateDay = (direction: number) => {
     if (!selectedDay) return
@@ -545,6 +855,37 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       setSelectedData(priceResults[newDay])
     }
   }
+
+  const handleSelectDay = (date: string, data: PriceData, shouldScroll = true) => {
+    setSelectedDay(date)
+    setSelectedData(data)
+    if (!shouldScroll) return
+
+    requestAnimationFrame(() => {
+      document.getElementById("day-connections")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      })
+    })
+  }
+
+  useEffect(() => {
+    if (hasReturnSearch || selectedDay) return
+
+    const firstAvailableDay = validPriceResults
+      .filter(([, data]) => data.preis > 0)
+      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))[0]
+
+    if (firstAvailableDay) {
+      setSelectedDay(firstAvailableDay[0])
+      setSelectedData(firstAvailableDay[1])
+    }
+  }, [hasReturnSearch, selectedDay, priceResults])
+
+  useEffect(() => {
+    if (!selectedDay || !priceResults[selectedDay]) return
+    setSelectedData(priceResults[selectedDay])
+  }, [selectedDay, priceResults])
 
   const prices = validPriceResults
     .map(([, r]) => r.preis)
@@ -599,7 +940,15 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
               isStreaming={isStreaming}
               sessionId={sessionId}
               onCancelSearch={cancelSearch}
+              onRestartSearch={restartSearch}
               searchWasCancelled={searchWasCancelled}
+              lazyCombinationRequest={lazyCombinationRequest}
+              onRequestCombination={requestLazyCombination}
+              onResolveLazyCombination={clearLazyCombinationRequest}
+              isFullMatrixLoading={isFullMatrixLoading}
+              fullMatrixLoadError={fullMatrixLoadError}
+              onRequestFullMatrix={requestFullMatrix}
+              onResetFullMatrix={() => setFullMatrixLoadError(null)}
             />
           </div>
         ) : (
@@ -608,30 +957,23 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             <div>
               <PriceCalendar
                   results={priceResults}
-                  onDayClick={(date, data) => {
-                    setSelectedDay(date)
-                    setSelectedData(data)
-                  }}
+                  onDayClick={handleSelectDay}
                   startStation={startStation}
                   zielStation={zielStation}
                   searchParams={searchParams}
                   isStreaming={isStreaming}
                   sessionId={sessionId}
                   onCancelSearch={cancelSearch}
+                  onRestartSearch={restartSearch}
                   searchWasCancelled={searchWasCancelled}
                   selectedDay={selectedDay || undefined}
-                  onNavigateDay={handleNavigateDay}
                   expectedDays={expectedDays}
+                  lazyDayRequest={lazyDayRequest}
+                  onRequestDay={requestLazyDay}
               />
             </div>
 
-            {/* Day Details Modal */}
-            <DayDetailsModal
-                isOpen={!!selectedDay}
-                onClose={() => {
-                  setSelectedDay(null)
-                  setSelectedData(null)
-                }}
+            <DayDetailsPanel
                 date={selectedDay}
                 data={selectedData}
                 startStation={startStation}

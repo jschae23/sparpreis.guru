@@ -84,3 +84,33 @@ export function getReturnSearchFeasibility({
 
   return { hasCombination, maximumAvailableNights }
 }
+
+export function getFeasibleReturnSearchDates({
+  outwardDates,
+  returnDates,
+  minNights,
+  maxNights,
+}: {
+  outwardDates: string[]
+  returnDates: string[]
+  minNights: number
+  maxNights?: number
+}) {
+  const isValidCombination = (outwardDate: string, returnDate: string) => {
+    const outwardTimestamp = parseDateKey(outwardDate)
+    const returnTimestamp = parseDateKey(returnDate)
+    if (outwardTimestamp === null || returnTimestamp === null) return false
+
+    const nights = Math.round((returnTimestamp - outwardTimestamp) / MILLISECONDS_PER_DAY)
+    return nights >= minNights && (maxNights === undefined || nights <= maxNights)
+  }
+
+  return {
+    outwardDates: outwardDates.filter((outwardDate) =>
+      returnDates.some((returnDate) => isValidCombination(outwardDate, returnDate))
+    ),
+    returnDates: returnDates.filter((returnDate) =>
+      outwardDates.some((outwardDate) => isValidCombination(outwardDate, returnDate))
+    ),
+  }
+}

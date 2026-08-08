@@ -367,7 +367,7 @@ const DynamicLeafletMap = dynamic(async () => {
           />
           {showDurationOverlay && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
-              <span className="font-semibold text-gray-700">Fahrtdauer-Bereiche:</span>
+              <span className="font-semibold text-gray-700">Fahrtdauer-Zonen:</span>
               {DURATION_BANDS.map(band => (
                 <span key={band.label} className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1">
                   <span className="h-2.5 w-5 rounded-full" style={{ backgroundColor: band.color }} />

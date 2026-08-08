@@ -7,6 +7,7 @@ import { recommendBestPrice } from '@/lib/train-search/recommendation-engine'
 import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logError, logInfo } from '@/lib/shared/logger'
 import { getEarliestSearchDateKey } from '@/lib/shared/berlin-date'
+import { getFeasibleReturnSearchDates } from '@/lib/search/return-search-feasibility'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -96,6 +97,43 @@ function parseDateAtNoon(dateStr: string) {
 function getNights(outwardDate: string, returnDate: string) {
   const diffMs = parseDateAtNoon(returnDate).getTime() - parseDateAtNoon(outwardDate).getTime()
   return Math.round(diffMs / 86_400_000)
+}
+
+interface SearchRequestOrderEntry {
+  direction: "outward" | "return"
+  index: number
+}
+
+function buildPrioritizedRequestOrder(
+  outwardDates: string[],
+  returnDates: string[],
+  minNights: number,
+  maxNights?: number
+): SearchRequestOrderEntry[] {
+  const requestOrder: SearchRequestOrderEntry[] = []
+  const queuedReturnIndexes = new Set<number>()
+
+  outwardDates.forEach((outwardDate, outwardIndex) => {
+    requestOrder.push({ direction: "outward", index: outwardIndex })
+
+    const earliestReturnIndex = returnDates.findIndex((returnDate) => {
+      const nights = getNights(outwardDate, returnDate)
+      return nights >= minNights && (maxNights === undefined || nights <= maxNights)
+    })
+
+    if (earliestReturnIndex >= 0 && !queuedReturnIndexes.has(earliestReturnIndex)) {
+      queuedReturnIndexes.add(earliestReturnIndex)
+      requestOrder.push({ direction: "return", index: earliestReturnIndex })
+    }
+  })
+
+  returnDates.forEach((_, returnIndex) => {
+    if (!queuedReturnIndexes.has(returnIndex)) {
+      requestOrder.push({ direction: "return", index: returnIndex })
+    }
+  })
+
+  return requestOrder
 }
 
 function hasJourneyTimestamp(value: unknown): value is string {
@@ -233,6 +271,8 @@ export async function POST(request: NextRequest) {
       returnAnkunftAb,
       returnAnkunftBis,
       umstiegszeit,
+      requestedOutwardDates,
+      requestedReturnDates,
     } = body
 
     const earliestSearchDate = getEarliestSearchDateKey()
@@ -247,19 +287,58 @@ export async function POST(request: NextRequest) {
     }
 
     // Calculate dates first
-    const calculatedDates = calculateDatesFromWeekdays(
+    const availableOutwardDates = calculateDatesFromWeekdays(
       reisezeitraumAb,
       reisezeitraumBis,
       wochentage || [1, 2, 3, 4, 5, 6, 0]
     )
     const returnSearchEnabled = rueckfahrt === "1" || rueckfahrt === true
-    const calculatedReturnDates = returnSearchEnabled
+    const availableReturnDates = returnSearchEnabled
       ? calculateDatesFromWeekdays(
           reisezeitraumAb,
           reisezeitraumBis,
           returnWochentage || wochentage || [1, 2, 3, 4, 5, 6, 0]
         )
       : []
+    const parsedMinNights = Number.parseInt(String(minNaechte || "1"), 10)
+    const parsedMaxNights = maxNaechte ? Number.parseInt(String(maxNaechte), 10) : undefined
+    const normalizedMinNights = Number.isFinite(parsedMinNights) && parsedMinNights > 0 ? parsedMinNights : 1
+    const normalizedMaxNights =
+      typeof parsedMaxNights === "number" && Number.isFinite(parsedMaxNights) && parsedMaxNights > 0
+        ? parsedMaxNights
+        : undefined
+    const hasExplicitDateRequest = Array.isArray(requestedOutwardDates) || Array.isArray(requestedReturnDates)
+    const selectRequestedDates = (requestedDates: unknown, availableDates: string[]) =>
+      Array.isArray(requestedDates)
+        ? [...new Set(requestedDates)].filter(
+            (date): date is string => typeof date === "string" && availableDates.includes(date)
+          ).slice(0, MAX_DAYS_PER_DIRECTION)
+        : []
+
+    let calculatedDates: string[]
+    let calculatedReturnDates: string[]
+    if (hasExplicitDateRequest) {
+      calculatedDates = selectRequestedDates(requestedOutwardDates, availableOutwardDates)
+      calculatedReturnDates = returnSearchEnabled
+        ? selectRequestedDates(requestedReturnDates, availableReturnDates)
+        : []
+    } else if (returnSearchEnabled) {
+      const feasibleDates = getFeasibleReturnSearchDates({
+        outwardDates: availableOutwardDates,
+        returnDates: availableReturnDates,
+        minNights: normalizedMinNights,
+        maxNights: normalizedMaxNights,
+      })
+      calculatedDates = feasibleDates.outwardDates.slice(0, MAX_DAYS_PER_DIRECTION)
+      calculatedReturnDates = feasibleDates.returnDates.slice(0, MAX_DAYS_PER_DIRECTION)
+    } else {
+      calculatedDates = availableOutwardDates.slice(0, MAX_DAYS_PER_DIRECTION)
+      calculatedReturnDates = []
+    }
+
+    if (calculatedDates.length === 0 && calculatedReturnDates.length === 0) {
+      return NextResponse.json({ error: "Keine gültigen Reisetage für diese Anfrage." }, { status: 400 })
+    }
 
     // Count the search immediately; cache split is known after station resolution.
     metricsCollector.recordUserSearch(
@@ -332,13 +411,6 @@ export async function POST(request: NextRequest) {
         let metaData: any = undefined
         const results: TrainResults = {}
         const returnResults: TrainResults = {}
-        const parsedMinNights = Number.parseInt(String(minNaechte || "1"), 10)
-        const parsedMaxNights = maxNaechte ? Number.parseInt(String(maxNaechte), 10) : undefined
-        const normalizedMinNights = Number.isFinite(parsedMinNights) && parsedMinNights > 0 ? parsedMinNights : 1
-        const normalizedMaxNights =
-          typeof parsedMaxNights === "number" && Number.isFinite(parsedMaxNights) && parsedMaxNights > 0
-            ? parsedMaxNights
-            : undefined
         const getCurrentTravelCombinations = () =>
           returnSearchEnabled
             ? buildTravelCombinations(results, returnResults, normalizedMinNights, normalizedMaxNights)
@@ -453,18 +525,8 @@ export async function POST(request: NextRequest) {
 
         try {
           // Calculate dates from weekdays and date range
-          datesToProcess = calculateDatesFromWeekdays(
-            reisezeitraumAb,
-            reisezeitraumBis,
-            wochentage || [1, 2, 3, 4, 5, 6, 0]
-          ).slice(0, MAX_DAYS_PER_DIRECTION)
-          returnDatesToProcess = returnSearchEnabled
-            ? calculateDatesFromWeekdays(
-                reisezeitraumAb,
-                reisezeitraumBis,
-                returnWochentage || wochentage || [1, 2, 3, 4, 5, 6, 0]
-              ).slice(0, MAX_DAYS_PER_DIRECTION)
-            : []
+          datesToProcess = calculatedDates
+          returnDatesToProcess = calculatedReturnDates
           maxDays = datesToProcess.length + returnDatesToProcess.length
           logDebug(LOG_SCOPE, "📅 Bestpreissuche date processing started", {
             sessionId,
@@ -946,17 +1008,20 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          const interleavedRequestPromises: Promise<any>[] = []
-          const taskCount = Math.max(outwardRequestTasks.length, returnRequestTasks.length)
-          for (let taskIndex = 0; taskIndex < taskCount; taskIndex++) {
-            const outwardTask = outwardRequestTasks[taskIndex]
-            const returnTask = returnRequestTasks[taskIndex]
-            if (outwardTask) interleavedRequestPromises.push(outwardTask())
-            if (returnTask) interleavedRequestPromises.push(returnTask())
-          }
+          const prioritizedRequestOrder = buildPrioritizedRequestOrder(
+            datesToProcess,
+            returnDatesToProcess,
+            normalizedMinNights,
+            normalizedMaxNights
+          )
+          const prioritizedRequestPromises = prioritizedRequestOrder.map(({ direction, index }) =>
+            direction === "outward"
+              ? outwardRequestTasks[index]()
+              : returnRequestTasks[index]()
+          )
 
           // Warte auf alle Requests, aber verarbeite sie sobald sie fertig sind.
-          await Promise.all(interleavedRequestPromises.map(processResult))
+          await Promise.all(prioritizedRequestPromises.map(processResult))
 
           // Falls aus irgendeinem Grund noch nicht gesendet, jetzt senden
           if (!completeSent && !globalRateLimiter.isSessionCancelledSync(sessionId)) {

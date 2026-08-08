@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react"
+import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import { FAQPopup } from "@/components/layout/faq-popup"
@@ -54,6 +55,16 @@ function addDaysISO(dateValue: string, days: number) {
   const date = new Date(`${dateValue}T12:00:00`)
   date.setDate(date.getDate() + days)
   return date.toISOString().split("T")[0]
+}
+
+function getDayDistanceISO(startDate: string, endDate: string) {
+  const startTimestamp = Date.parse(`${startDate}T00:00:00Z`)
+  const endTimestamp = Date.parse(`${endDate}T00:00:00Z`)
+
+  if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)) return null
+
+  const dayDistance = Math.round((endTimestamp - startTimestamp) / 86_400_000)
+  return dayDistance >= 0 ? dayDistance : null
 }
 
 interface WeekdaySelectorProps {
@@ -147,6 +158,8 @@ interface StationSuggestion {
 }
 
 export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: TrainSearchFormProps) {
+  const router = useRouter()
+
   // Helper function to check if a string is a station ID (numeric)
   const isStationId = (value: string): boolean => {
     return /^\d+$/.test(value)
@@ -587,7 +600,17 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
       params.set("wochentage", sortWeekdays(selectedWeekdays).join(","))
     }
     
-    window.location.href = `/?${params.toString()}`
+    const currentParams = new URLSearchParams(window.location.search)
+    const normalizedCurrentParams = new URLSearchParams(currentParams)
+    const normalizedNextParams = new URLSearchParams(params)
+    normalizedCurrentParams.sort()
+    normalizedNextParams.sort()
+
+    if (normalizedCurrentParams.toString() === normalizedNextParams.toString()) {
+      window.dispatchEvent(new Event("bestpreissuche:restart"))
+    } else {
+      router.push(`/?${params.toString()}`, { scroll: false })
+    }
   }
 
   const handleReset = () => {
@@ -625,11 +648,12 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   }
 
   const handleReisezeitraumAbChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setReisezeitraumAb(e.target.value)
-    const ab = new Date(e.target.value)
-    const bis = new Date(reisezeitraumBis)
-    if (bis < ab) {
-      setReisezeitraumBis(e.target.value)
+    const nextStart = e.target.value
+    const previousDayDistance = getDayDistanceISO(reisezeitraumAb, reisezeitraumBis)
+
+    setReisezeitraumAb(nextStart)
+    if (nextStart) {
+      setReisezeitraumBis(addDaysISO(nextStart, previousDayDistance ?? 1))
     }
   }
 
@@ -666,23 +690,24 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
       ? "Je weniger Tage du vergleichst, desto schneller erhältst du Ergebnisse."
       : "Optimale Auswahl für schnelle Ergebnisse."
   return (
-    <div className="w-full rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:p-5">
+    <div className="w-full bg-white p-3 sm:rounded-xl sm:border sm:border-gray-200 sm:p-5 sm:shadow-sm">
       <DateTimeControlStyle />
       <div className="mb-5 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="text-xl font-bold text-gray-900 sm:text-2xl">Bestpreise finden</h2>
+          <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2.5">
+            <h2 className="shrink-0 text-lg font-bold text-gray-900 sm:text-2xl">Bestpreise finden</h2>
             <a
               href={classicModeHref}
-              className="group inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-gradient-to-r from-red-50 via-orange-50 to-amber-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:-translate-y-0.5 hover:border-red-300 hover:shadow-md"
+              className="group inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-200 bg-gradient-to-r from-red-50 via-orange-50 to-amber-50 px-2 py-1 text-[11px] font-semibold text-red-700 shadow-sm transition hover:-translate-y-0.5 hover:border-red-300 hover:shadow-md sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs"
               aria-label="Zeitreise zum bahn.guru-Klassikmodus"
             >
-              <Sparkles className="h-3.5 w-3.5 text-amber-500 transition-transform group-hover:rotate-12" />
-              <span>Zeitreise: bahn.guru-Klassikmodus</span>
-              <span className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
+              <Sparkles className="h-3 w-3 text-amber-500 transition-transform group-hover:rotate-12 sm:h-3.5 sm:w-3.5" />
+              <span className="sm:hidden">bahn.guru-Modus</span>
+              <span className="hidden sm:inline">Zeitreise: bahn.guru-Klassikmodus</span>
+              <span className="transition-transform group-hover:translate-x-0.5 sm:inline" aria-hidden="true">→</span>
             </a>
           </div>
-          <p className="mt-1 text-sm text-gray-600">Strecke und Zeitraum wählen – den günstigsten Reisetag finden.</p>
+          <p className="mt-1 whitespace-nowrap text-xs text-gray-600 sm:text-sm">Zeitraum wählen, Bestpreis finden.</p>
         </div>
         <FAQPopup context="bestpreissuche" />
       </div>

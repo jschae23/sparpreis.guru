@@ -34,13 +34,7 @@ function getTrend(history: PriceHistoryEntry[]) {
 
 // Wrap component with React.memo to prevent re-renders if props haven't changed
 export const PriceHistoryChart = memo(function PriceHistoryChart({ history, title }: PriceHistoryChartProps) {
-  if (!history || history.length < 1) {
-    return (
-      <div className="text-center text-sm text-gray-500 py-4">
-        Keine Preishistorie vorhanden.
-      </div>
-    )
-  }
+  if (!history || history.length < 2) return null
 
   // Memoize chart data and trend calculation to avoid re-computing on every render
   const { data, hasMultipleEntriesPerDay, trend, minPrice, maxPrice } = useMemo(() => {
@@ -85,14 +79,9 @@ export const PriceHistoryChart = memo(function PriceHistoryChart({ history, titl
           )}
         </div>
       </div>
-      {history.length === 1 ? (
-        <div className="text-center text-sm text-gray-600 py-4">
-          Nur ein Datenpunkt vorhanden: {history[0].preis.toFixed(2)}€ am {new Date(history[0].recorded_at).toLocaleString('de-DE')}
-        </div>
-      ) : (
-        <div className="h-[150px] w-full min-w-0">
-          <ResponsiveContainer width="100%" height={150} minWidth={1}>
-            <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+      <div className="h-[150px] w-full min-w-0">
+        <ResponsiveContainer width="100%" height={150} minWidth={1}>
+          <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
               <XAxis 
                 dataKey="date" 
@@ -129,10 +118,9 @@ export const PriceHistoryChart = memo(function PriceHistoryChart({ history, titl
                   <ReferenceLine y={maxPrice} label={{ value: `Max: ${maxPrice.toFixed(2)}€`, position: 'insideTopLeft', fill: '#dc2626', fontSize: 10 }} stroke="#dc2626" strokeDasharray="3 3" />
                 </>
               )}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   )
 })
