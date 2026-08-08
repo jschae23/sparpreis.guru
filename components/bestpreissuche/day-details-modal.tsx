@@ -19,6 +19,7 @@ import { RecommendationCards } from "./day-recommendation-cards"
 import { ConnectionsTable } from "./day-connections-table"
 import { PriceHistoryChart, type PriceHistoryEntry } from "./price-history-chart"
 import { logWarn } from "@/lib/shared/logger"
+import { createPriceBandScale, PRICE_BAND_STYLES } from "@/lib/train-search/price-bands"
 
 const LOG_SCOPE = "bestpreissuche.day-details"
 
@@ -255,14 +256,11 @@ export function DayDetailsModal({
   // Empfehlungsalgorithmus - IMMER eine Empfehlung, auch bei nur einer Verbindung
   const recommendation = intervals.length > 0 ? recommendOne(intervals) : null
   const recommendedTrip = recommendation?.trip
+  const intervalPriceScale = createPriceBandScale(intervals.map((interval) => interval.preis))
 
   const getIntervalPriceColor = (price: number) => {
-    const minIntervalPrice = Math.min(...intervals.map((i) => i.preis))
-    const maxIntervalPrice = Math.max(...intervals.map((i) => i.preis))
-
-    if (price === minIntervalPrice) return "text-green-600 bg-green-50"
-    if (price === maxIntervalPrice) return "text-red-600 bg-red-50"
-    return "text-orange-600 bg-orange-50"
+    const style = PRICE_BAND_STYLES[intervalPriceScale.getBand(price)]
+    return `${style.text} ${style.background} ${style.emphasis}`
   }
 
   const swipeDirection = direction

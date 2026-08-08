@@ -1,7 +1,7 @@
 'use client'
 
 import { getAppVersion, getCurrentYear } from "@/lib/shared/app-info"
-import { Github } from "lucide-react"
+import { ChevronDown, Github } from "lucide-react"
 import { useEffect, useState } from "react"
 
 interface FooterProps {
@@ -23,46 +23,87 @@ export function Footer({ show = false }: FooterProps) {
   if (!showFooter) return null
 
   return (
-    <footer className="mt-8 border-t border-gray-200 pt-8">
-      <div className="text-xs text-center text-gray-400 mt-0">
+    <footer className="mt-6 border-t border-gray-200 pt-4 sm:mt-8 sm:pt-8">
+      <details className="group rounded-lg bg-gray-50 sm:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-medium text-gray-600 [&::-webkit-details-marker]:hidden">
+          Projekt- und Datenschutzhinweise
+          <ChevronDown
+            aria-hidden="true"
+            className="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180"
+          />
+        </summary>
+
+        <div className="space-y-2 border-t border-gray-200 px-3 py-3 text-[11px] leading-relaxed text-gray-500">
+          <p>
+            <span className="font-medium text-gray-600">Zweck:</span>{" "}
+            Dieses Deployment dient ausschließlich als technische Demonstration des Projekts{" "}
+            <a
+              href="https://github.com/sparpreis-guru/sparpreis.guru"
+              className="underline underline-offset-2"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              sparpreis.guru
+            </a>. Es werden keine kommerziellen Zwecke verfolgt.
+          </p>
+          <p>
+            <span className="font-medium text-gray-600">Datenschutz:</span>{" "}
+            Die Anwendung visualisiert Abfrageergebnisse und speichert keine personenbezogenen Daten.
+          </p>
+          <p>
+            <span className="font-medium text-gray-600">Kontakt:</span>{" "}
+            Bei Einwänden (z. B. von Rechteinhabern oder Plattformbetreibern) wird das Deployment auf
+            Hinweis hin umgehend deaktiviert. Schreib an{" "}
+            <a href="mailto:info@sparpreis.guru" className="underline underline-offset-2">
+              info@sparpreis.guru
+            </a>
+            .
+          </p>
+        </div>
+      </details>
+
+      <div className="hidden grid-cols-3 gap-6 text-left text-xs leading-relaxed text-gray-400 sm:grid">
         <p>
+          <span className="mb-1 block font-medium text-gray-600">Technische Demo</span>
           Dieses Deployment dient ausschließlich als technische Demonstration des Projekts{" "}
-          <a href="https://github.com/XLixl4snSU/sparpreis.guru"
-            className="underline"
+          <a
+            href="https://github.com/sparpreis-guru/sparpreis.guru"
+            className="underline underline-offset-2"
             target="_blank"
             rel="noopener noreferrer"
-          >sparpreis.guru</a>
+          >
+            sparpreis.guru
+          </a>. Es werden keine kommerziellen Zwecke verfolgt.
         </p>
-
         <p>
+          <span className="mb-1 block font-medium text-gray-600">Datenschutz</span>
           Die Anwendung visualisiert Abfrageergebnisse und speichert keine personenbezogenen Daten.
-          Es werden keine kommerziellen Zwecke verfolgt.
         </p>
-
         <p>
-          Bei Einwänden (z. B. von Rechteinhabern oder Plattformbetreibern) wird das
-          Deployment auf Hinweis hin umgehend deaktiviert.
-          Kontakt:
-          {" "}
-          <a href="mailto:info@sparpreis.guru" className="underline">
+          <span className="mb-1 block font-medium text-gray-600">Kontakt</span>
+          Bei Einwänden (z. B. von Rechteinhabern oder Plattformbetreibern) wird das Deployment auf
+          Hinweis hin umgehend deaktiviert. Kontakt:{" "}
+          <a href="mailto:info@sparpreis.guru" className="underline underline-offset-2">
             info@sparpreis.guru
           </a>
           .
         </p>
       </div>
-      <div className="flex flex-row justify-between items-center text-sm text-gray-500 mt-4" >
-        <div>
+
+      <div className="mt-3 flex items-center justify-between text-xs text-gray-500 sm:mt-5 sm:text-sm">
+        <div className="whitespace-nowrap">
           © {currentYear} <span className="font-medium text-gray-600">sparpreis.guru</span>
         </div>
-        <div className="mt-2 sm:mt-0 flex flex-row sm:items-end items-center gap-3">
-          <span>Version {appVersion}</span>
+        <div className="flex items-center gap-3">
+          <span className="hidden min-[380px]:inline">Version {appVersion}</span>
+          <span className="min-[380px]:hidden">v{appVersion}</span>
           <a
-            href="https://github.com/XLixl4snSU/sparpreis.guru"
+            href="https://github.com/sparpreis-guru/sparpreis.guru"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-600 hover:underline mt-1 flex items-center"
+            className="flex items-center text-blue-600 hover:underline"
           >
-            <Github className="inline w-4 h-4 mr-1" /> GitHub
+            <Github aria-hidden="true" className="mr-1 h-4 w-4" /> GitHub
           </a>
         </div>
       </div>

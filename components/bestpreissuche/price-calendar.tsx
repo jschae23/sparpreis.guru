@@ -1,13 +1,13 @@
 "use client"
 
 import React from "react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
 import { logWarn } from "@/lib/shared/logger"
-import { SearchQueueStatus } from "@/components/search/search-queue-status"
-import { SearchCancelButton } from "@/components/search/search-cancel-button"
+import { SearchProgressPanel } from "@/components/search/search-progress-panel"
 import { useSearchQueueStatus } from "@/hooks/use-search-queue-status"
+import { createPriceBandScale, PRICE_BAND_STYLES } from "@/lib/train-search/price-bands"
 
 const LOG_SCOPE = "bestpreissuche.price-calendar"
 
@@ -44,6 +44,7 @@ interface PriceCalendarProps {
   expectedDays?: number
   sessionId?: string | null
   onCancelSearch?: () => void
+  searchWasCancelled?: boolean
   onNavigateDay?: (direction: number) => void // Neue Prop für Tag-Navigation
   selectedDay?: string // Neu: Ausgewählter Tag (YYYY-MM-DD)
 }
@@ -65,7 +66,7 @@ const months = [
   "Dezember",
 ]
 
-export function PriceCalendar({ results, onDayClick, startStation, zielStation, searchParams, isStreaming, expectedDays, sessionId, onCancelSearch, onNavigateDay, selectedDay }: PriceCalendarProps) {
+export function PriceCalendar({ results, onDayClick, startStation, zielStation, searchParams, isStreaming, expectedDays, sessionId, onCancelSearch, searchWasCancelled, onNavigateDay, selectedDay }: PriceCalendarProps) {
   const today = new Date()
   const resultDates = Object.keys(results).filter(key => key !== '_meta').sort()
   
@@ -156,13 +157,13 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
     }
   }, [firstDate.getFullYear(), firstDate.getMonth()])
 
-  // Find min and max prices for color coding
   const prices = Object.values(results)
     .map((r) => r.preis)
     .filter((p) => p > 0)
 
-  const minPrice = prices.length > 0 ? Math.min(...prices) : 0
-  const maxPrice = prices.length > 0 ? Math.max(...prices) : 0
+  const priceScale = createPriceBandScale(prices)
+  const minPrice = priceScale.min
+  const maxPrice = priceScale.max
 
   // Generate calendar days for current month
   const generateCalendarDays = () => {
@@ -207,16 +208,13 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
 
   const getPriceColor = (price: number) => {
     if (price === 0) return "text-gray-400"
-    if (price === minPrice) return "text-green-600"
-    if (price === maxPrice) return "text-red-600"
-    return "text-orange-600"
+    return PRICE_BAND_STYLES[priceScale.getBand(price)].text
   }
 
   const getPriceBg = (price: number) => {
     if (price === 0) return "bg-gray-50"
-    if (price === minPrice) return "bg-green-50 border-green-200 rounded"
-    if (price === maxPrice) return "bg-red-50 border-red-200 rounded"
-    return "bg-orange-50 border-orange-200 rounded"
+    const style = PRICE_BAND_STYLES[priceScale.getBand(price)]
+    return `${style.background} ${style.border} ${style.emphasis}`
   }
 
   const handleDayClick = (dateKey: string, priceData: PriceData | undefined) => {
@@ -265,10 +263,13 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onNavigateDay])
 
-  const totalDays = expectedDateRange.length > 0 ? expectedDateRange.length : (expectedDays || (searchParams?.dayLimit ? parseInt(searchParams.dayLimit) : resultDates.length))
+  const totalDays = expectedDays && expectedDays > 0
+    ? expectedDays
+    : expectedDateRange.length > 0
+      ? expectedDateRange.length
+      : (searchParams?.dayLimit ? parseInt(searchParams.dayLimit) : resultDates.length)
   const completedDays = Object.values(results).filter(r => r && r.preis !== undefined).length
   const isCompleteNow = totalDays > 0 && completedDays >= totalDays
-  const progressPercentage = totalDays > 0 ? Math.min(100, Math.round((completedDays / totalDays) * 100)) : 0
   const queueStatus = useSearchQueueStatus({
     sessionId,
     isActive: Boolean(isStreaming && !isCompleteNow),
@@ -278,37 +279,27 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
 
   return (
     <>
-      {isStreaming && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <h2 className="text-lg font-bold text-blue-950">Reisezeitraum-Analyse</h2>
-              <div className="mt-1 text-sm text-blue-800">
-                {startStation?.name || "Start"} nach {zielStation?.name || "Ziel"}
-              </div>
-            </div>
-            {onCancelSearch && (
-              <SearchCancelButton onClick={onCancelSearch} />
-            )}
-          </div>
-          <div className="mt-4">
-            <div className="mb-1 flex justify-between text-xs text-blue-800">
-              <span>{completedDays} von {totalDays} Reisetagen geprüft</span>
-              <span>{progressPercentage}%</span>
-            </div>
-            <div className="h-2 rounded bg-blue-100">
-              <div
-                className="h-2 rounded bg-blue-600 transition-all"
-                style={{ width: `${progressPercentage}%` }}
-              />
-            </div>
-            <SearchQueueStatus status={queueStatus} className="mt-3" />
-          </div>
-        </div>
-      )}
+      <SearchProgressPanel
+        isActive={Boolean(isStreaming)}
+        completedItems={completedDays}
+        totalItems={totalDays}
+        queueStatus={queueStatus}
+        progressUnit="Reisetagen"
+        completedUnit="Reisetage"
+        isCancelled={searchWasCancelled}
+        onCancel={onCancelSearch}
+        detail={`${startStation?.name || "Start"} nach ${zielStation?.name || "Ziel"}`}
+      />
 
       {/* Calendar Header und Legende */}
-      <div className="bg-white rounded-lg border mt-4">
+      <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+        <header className="flex items-center justify-between gap-3 border-b border-blue-100 bg-blue-50/70 px-4 py-3 sm:px-5">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-blue-950">
+            <CalendarDays className="h-4 w-4 text-blue-700" />
+            Preiskalender
+          </h2>
+          <span className="text-xs font-medium text-blue-700">Klicken zum Buchen</span>
+        </header>
         {/* Calendar Header */}
         <div className="flex items-center justify-between p-4 border-b">
           <Button
@@ -347,23 +338,22 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
           </Button>
         </div>
 
-        {/* Price Legend immer anzeigen */}
-        <div className="p-4 border-b bg-gray-50">
-          <div className="flex items-center justify-center gap-4 sm:gap-6 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-green-100 border border-green-200 rounded"></div>
-              <span className="text-green-600 font-medium">Günstigster: {minPrice > 0 ? minPrice + '€' : '– €'}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-orange-100 border border-orange-200 rounded"></div>
-              <span className="text-orange-600 font-medium">Durchschnitt: {prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) + '€' : '– €'}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-red-100 border border-red-200 rounded"></div>
-              <span className="text-red-600 font-medium">Teuerster: {maxPrice > 0 ? maxPrice + '€' : '– €'}</span>
+        {priceScale.activeBands.length > 0 && (
+          <div className="border-b bg-gray-50 p-3 sm:p-4">
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs sm:gap-3">
+              {priceScale.activeBands.map((band) => {
+                const style = PRICE_BAND_STYLES[band]
+                return (
+                  <span key={band} className={`inline-flex items-center gap-1 rounded border px-2 py-1 font-medium ${style.background} ${style.border} ${style.text}`}>
+                    {style.label}
+                    {band === "best" && ` ${minPrice} €`}
+                    {band === "high" && ` bis ${maxPrice} €`}
+                  </span>
+                )
+              })}
             </div>
           </div>
-        </div>
+        )}
 
         {/* Calendar Grid */}
         <div className="p-4"
@@ -440,7 +430,7 @@ export function PriceCalendar({ results, onDayClick, startStation, zielStation, 
                         {priceData.preis > 0 && (
                           <div className="text-[10px] sm:text-xs">
                             {priceData.preis === minPrice && <span>🏆</span>}
-                            {priceData.preis === maxPrice && <span>💸</span>}
+                            {priceData.preis === maxPrice && priceScale.getBand(priceData.preis) === "high" && <span>💸</span>}
                           </div>
                         )}
                       </div>

@@ -137,41 +137,40 @@ const DynamicLeaflet = dynamic(async () => {
           allMarkersForBounds.push(homeMarkerRef.current)
         }
 
-        if (destinations.length === 0) return
+        if (destinations.length > 0) {
+          const minPrice = Math.min(...destinations.map((d: DestinationResult) => d.totalPrice))
+          const maxPrice = Math.max(...destinations.map((d: DestinationResult) => d.totalPrice))
+          const priceRange = maxPrice - minPrice
 
-        const minPrice = Math.min(...destinations.map((d: DestinationResult) => d.totalPrice))
-        const maxPrice = Math.max(...destinations.map((d: DestinationResult) => d.totalPrice))
-        const priceRange = maxPrice - minPrice
+          destinations.forEach((dest: DestinationResult) => {
+            if (!dest.lat || !dest.lon) return
 
-        destinations.forEach((dest: DestinationResult) => {
-          if (!dest.lat || !dest.lon) return
+            const pricePercent = priceRange > 0 ? ((dest.totalPrice - minPrice) / priceRange) * 100 : 50
+            let bgColor = '#22c55e' // green
+            if (pricePercent > 66) bgColor = '#ef4444' // red
+            else if (pricePercent > 33) bgColor = '#f59e0b' // amber
 
-          const pricePercent = priceRange > 0 ? ((dest.totalPrice - minPrice) / priceRange) * 100 : 50
-          let bgColor = '#22c55e' // green
-          if (pricePercent > 66) bgColor = '#ef4444' // red
-          else if (pricePercent > 33) bgColor = '#f59e0b' // amber
+            const label = pricePercent < 33 ? '💰' : pricePercent < 66 ? '⚖️' : '❌'
 
-          const label = pricePercent < 33 ? '💰' : pricePercent < 66 ? '⚖️' : '❌'
-
-          const icon = L.divIcon({
-            html: `<div style="position:relative;display:inline-flex;flex-direction:column;align-items:center;cursor:pointer">
+            const icon = L.divIcon({
+              html: `<div style="position:relative;display:inline-flex;flex-direction:column;align-items:center;cursor:pointer">
               <div style="background:${bgColor};color:white;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.35);line-height:1.4">${label} ${dest.totalPrice.toFixed(0)}€</div>
               <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid ${bgColor};margin-top:-1px"></div>
             </div>`,
-            className: '',
-            iconAnchor: [30, 28],
-          })
+              className: '',
+              iconAnchor: [30, 28],
+            })
 
-          // Build popup HTML with details + a "Zur Liste" button
-          const hasReturn = !!(dest.returnDeparture && dest.returnPrice)
-          const outRow = dest.outwardDeparture
-            ? `<div style="margin:4px 0;font-size:12px;color:#1d4ed8">📍 Hin: ${fmt(dest.outwardDeparture)} → ${fmt(dest.outwardArrival)} · <b>${dest.outwardPrice.toFixed(0)} €</b></div>`
-            : ''
-          const retRow = hasReturn
-            ? `<div style="margin:4px 0;font-size:12px;color:#c2410c">↩️ Rück: ${fmt(dest.returnDeparture!)} → ${fmt(dest.returnArrival ?? '')} · <b>${(dest.returnPrice ?? 0).toFixed(0)} €</b></div>`
-            : ''
+            // Build popup HTML with details + a "Zur Liste" button
+            const hasReturn = !!(dest.returnDeparture && dest.returnPrice)
+            const outRow = dest.outwardDeparture
+              ? `<div style="margin:4px 0;font-size:12px;color:#1d4ed8">📍 Hin: ${fmt(dest.outwardDeparture)} → ${fmt(dest.outwardArrival)} · <b>${dest.outwardPrice.toFixed(0)} €</b></div>`
+              : ''
+            const retRow = hasReturn
+              ? `<div style="margin:4px 0;font-size:12px;color:#c2410c">↩️ Rück: ${fmt(dest.returnDeparture!)} → ${fmt(dest.returnArrival ?? '')} · <b>${(dest.returnPrice ?? 0).toFixed(0)} €</b></div>`
+              : ''
 
-          const popupHtml = `
+            const popupHtml = `
             <div style="min-width:180px;font-family:system-ui,sans-serif">
               <div style="font-size:14px;font-weight:700;color:#111;margin-bottom:4px">${dest.destination.replace(' Hbf', '')}</div>
               <div style="font-size:18px;font-weight:900;color:${bgColor};margin-bottom:4px">${dest.totalPrice.toFixed(2)} €</div>
@@ -182,36 +181,41 @@ const DynamicLeaflet = dynamic(async () => {
               >Zur Liste ↓</button>
             </div>`
 
-          const marker = L.marker([dest.lat, dest.lon], { icon })
-            .bindPopup(popupHtml, { maxWidth: 240, className: 'uf-popup' })
-            .addTo(map)
+            const marker = L.marker([dest.lat, dest.lon], { icon })
+              .bindPopup(popupHtml, { maxWidth: 240, className: 'uf-popup' })
+              .addTo(map)
 
-          // When popup opens, wire up the "Zur Liste" button
-          marker.on('popupopen', () => {
-            const btnId = `jump-${dest.destinationId || dest.destination.replace(/\s/g, '_')}`
-            const btn = document.getElementById(btnId)
-            if (btn) {
-              btn.onclick = () => {
-                marker.closePopup()
-                onSelectRef.current(dest)
+            // When popup opens, wire up the "Zur Liste" button
+            marker.on('popupopen', () => {
+              const btnId = `jump-${dest.destinationId || dest.destination.replace(/\s/g, '_')}`
+              const btn = document.getElementById(btnId)
+              if (btn) {
+                btn.onclick = () => {
+                  marker.closePopup()
+                  onSelectRef.current(dest)
+                }
               }
-            }
-          })
+            })
 
-          markersRef.current.push(marker)
-          allMarkersForBounds.push(marker)
-        })
+            markersRef.current.push(marker)
+            allMarkersForBounds.push(marker)
+          })
+        }
 
         // Only fit bounds if user has not manually interacted with the map
         if (!userInteractedRef.current && allMarkersForBounds.length > 0) {
           try {
-            const group = L.featureGroup(allMarkersForBounds)
             const clearProgrammaticMove = () => {
               programmaticMoveRef.current = false
             }
             programmaticMoveRef.current = true
             map.once('moveend', clearProgrammaticMove)
-            map.fitBounds(group.getBounds().pad(0.15))
+            if (allMarkersForBounds.length === 1 && homeCoords) {
+              map.setView([homeCoords.lat, homeCoords.lon], 6)
+            } else {
+              const group = L.featureGroup(allMarkersForBounds)
+              map.fitBounds(group.getBounds().pad(0.15))
+            }
             setTimeout(clearProgrammaticMove, 500)
             setTimeout(() => map.invalidateSize(), 50)
           } catch (e) {

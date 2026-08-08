@@ -23,6 +23,7 @@ import tempfile
 import zipfile
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from math import cos, radians
 from pathlib import Path
 from urllib.error import URLError
@@ -172,14 +173,10 @@ def merge_into(stations: dict, stop_to_station: dict, source_sid: str, target_si
         stop_to_station[stop_id] = target_sid
 
 
-def download_feed(feed_id: str, force: bool) -> Path:
+def download_feed(feed_id: str) -> Path:
     feed = FEEDS[feed_id]
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     target = DATA_DIR / f"{feed_id}.zip"
-
-    if target.exists() and not force:
-        print(f"{feed['name']}: using cached {target} ({target.stat().st_size:,} bytes)")
-        return target
 
     print(f"{feed['name']}: downloading {feed['url']}")
     request = Request(feed["url"], headers={"User-Agent": "sparpreis.guru direct-connections builder"})
@@ -212,10 +209,10 @@ def validate_feed(path: Path) -> None:
         sys.exit(1)
 
 
-def build(feeds: list[str], force_download: bool, output: Path) -> None:
+def build(feeds: list[str], output: Path) -> None:
     zip_paths = {}
     for feed_id in feeds:
-        zip_path = download_feed(feed_id, force_download)
+        zip_path = download_feed(feed_id)
         validate_feed(zip_path)
         zip_paths[feed_id] = zip_path
 
@@ -360,16 +357,17 @@ def build(feeds: list[str], force_download: bool, output: Path) -> None:
                     service_mask = int(meta.get("serviceMask", 0))
                     line_label = meta.get("line")
 
-                    deduped: list[tuple[str, int]] = []
+                    deduped: list[tuple[str, int, str]] = []
                     previous_sid = None
                     for sid, minutes in current_trip:
                         if sid == previous_sid:
                             continue
-                        deduped.append((sid, minutes))
+                        formatted_minutes = (format_minutes(minutes) or "") if service_mask else ""
+                        deduped.append((sid, minutes, formatted_minutes))
                         previous_sid = sid
 
-                    for i, (sid_a, minutes_a) in enumerate(deduped[:-1]):
-                        for sid_b, minutes_b in deduped[i + 1:]:
+                    for i, (sid_a, minutes_a, departure_a) in enumerate(deduped[:-1]):
+                        for sid_b, minutes_b, arrival_b in deduped[i + 1:]:
                             if sid_a == sid_b:
                                 continue
                             travel_time = max(1, minutes_b - minutes_a)
@@ -402,8 +400,8 @@ def build(feeds: list[str], force_download: bool, output: Path) -> None:
                                 lines[line_label] = int(lines.get(line_label, 0)) + 1
                             if service_mask:
                                 detail_key = (
-                                    format_minutes(minutes_a) or "",
-                                    format_minutes(minutes_b) or "",
+                                    departure_a,
+                                    arrival_b,
                                     travel_time,
                                     str(line_label or ""),
                                     product,
@@ -503,6 +501,7 @@ def build(feeds: list[str], force_download: bool, output: Path) -> None:
     ordered_detail_dates = sorted(detail_dates)
     remapped_date_index = {day: index for index, day in enumerate(ordered_detail_dates)}
 
+    @lru_cache(maxsize=None)
     def remap_mask(mask: int) -> int:
         next_mask = 0
         for original_day, original_index in detail_date_to_index.items():
@@ -532,7 +531,7 @@ def build(feeds: list[str], force_download: bool, output: Path) -> None:
     )
     db.execute(
         "INSERT INTO main_data (id, data_compressed) VALUES (1, ?)",
-        (gzip.compress(output_json.encode("utf-8"), compresslevel=6),),
+        (gzip.compress(output_json.encode("utf-8"), compresslevel=1),),
     )
     insert_detail = db.cursor()
 
@@ -581,7 +580,7 @@ def build(feeds: list[str], force_download: bool, output: Path) -> None:
 
         insert_detail.execute(
             "INSERT INTO origin_details (origin_id, data_compressed) VALUES (?, ?)",
-            (origin_sid, gzip.compress(detail_payload.encode("utf-8"), compresslevel=1)),
+            (origin_sid, gzip.compress(detail_payload.encode("utf-8"), compresslevel=6)),
         )
 
     db.commit()
@@ -597,7 +596,6 @@ def build(feeds: list[str], force_download: bool, output: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build direct train connection SQLite data from GTFS.de")
-    parser.add_argument("--force-download", action="store_true", help="Download feeds even when cached ZIPs exist")
     parser.add_argument("--feeds", default="fv,rv", help="Comma-separated feed ids: fv,rv")
     parser.add_argument("--output", type=Path, default=OUTPUT_DB_FILE)
     args = parser.parse_args()
@@ -607,7 +605,7 @@ def main() -> None:
     if unknown:
         parser.error(f"Unknown feed id(s): {', '.join(unknown)}")
 
-    build(feeds, args.force_download, args.output)
+    build(feeds, args.output)
 
 
 if __name__ == "__main__":

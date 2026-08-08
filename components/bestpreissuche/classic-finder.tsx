@@ -886,14 +886,14 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
 
       <div id="footer">
         <span className="footerLine">
-          Zur modernen Ansicht mit neuen Features: <a href="/">sparpreis.guru</a>
+          Zur modernen Ansicht mit neuen Features: <a className="modernLink" href="/">sparpreis.guru</a>
         </span>
         <span className="footerLine">
           Der Klassikmodus sowie der gesamte sparpreis.guru ist inspiriert vom originalen{" "}
           <a href="https://github.com/juliuste/bahn.guru" rel="noreferrer" target="_blank">
             bahn.guru
           </a>{" "}
-          von Julius Tens (ISC).
+          von Julius Tens.
         </span>
       </div>
 
@@ -904,13 +904,13 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
           min-height: 100vh;
           flex-direction: column;
           align-items: center;
-          justify-content: center;
+          justify-content: flex-start;
           background: #fafafa;
           color: #333;
           font-family: Helvetica, Arial, sans-serif;
           font-size: 20px;
           line-height: 1.15;
-          padding-bottom: 5.2rem;
+          padding-bottom: 0;
         }
 
         .classicGuru * {
@@ -936,6 +936,7 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
 
         .classicGuru #page {
           display: flex;
+          flex: 1 0 auto;
           min-width: 90%;
           max-width: 95%;
           padding-top: 2rem;
@@ -1244,6 +1245,8 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
 
         .classicGuru #calendar .priceGroup {
           display: flex;
+          width: 100%;
+          min-width: 0;
           flex-direction: row;
           align-items: center;
           justify-content: center;
@@ -1256,6 +1259,7 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
           color: #333;
           font-size: 75%;
           font-weight: lighter;
+          white-space: nowrap;
         }
 
         .classicGuru #calendar td .duration {
@@ -1342,11 +1346,13 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
         }
 
         .classicGuru #footer {
-          position: absolute;
+          position: static;
           right: 0;
           bottom: 0;
           left: 0;
           display: flex;
+          width: 100%;
+          margin-top: 1.5rem;
           flex-direction: column;
           align-items: center;
           justify-content: center;
@@ -1373,19 +1379,44 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
           text-decoration: underline;
         }
 
+        .classicGuru #footer a.modernLink {
+          color: #077;
+          font-weight: 600;
+          text-decoration: underline;
+          text-decoration-color: rgba(0, 119, 119, 0.35);
+          text-underline-offset: 0.12em;
+        }
+
+        .classicGuru #footer a.modernLink:hover {
+          text-decoration-color: currentColor;
+        }
+
         @media (min-width: 760px) {
           .classicGuru {
+            justify-content: center;
             padding-bottom: 3.8rem;
           }
 
+          .classicGuru #page {
+            flex: none;
+          }
+
           .classicGuru #footer {
+            position: absolute;
+            margin-top: 0;
             font-size: 90%;
           }
         }
 
         @media (min-width: 425px) and (max-width: 599px) {
+          .classicGuru #calendar .priceGroup {
+            flex-direction: column;
+          }
+
           .classicGuru #calendar .inlineDuration {
-            display: initial;
+            display: block;
+            margin-left: 0;
+            padding-top: 0.1rem;
           }
         }
 
