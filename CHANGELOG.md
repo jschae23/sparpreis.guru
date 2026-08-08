@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.0.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v1.4.1...v2.0.0) (2026-08-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* Version 2.0.0 uses https://github.com/sparpreis-guru/sparpreis.guru as its canonical repository, changes the primary container image to ghcr.io/sparpreis-guru/sparpreis-guru, and retrieves direct-connections updates exclusively from sparpreis-guru/sparpreis.guru-direct-connections-data. Existing 1.x installations do not know the new data source and must update before their bundled timetable data expires.
+
+### Features
+
+* move distribution to sparpreis-guru organization ([99193e6](https://github.com/sparpreis-guru/sparpreis.guru/commit/99193e60229aa6d1e79a2bd11c0abbfd13455dac))
+* **search:** improve progress and price comparison views ([cb3997e](https://github.com/sparpreis-guru/sparpreis.guru/commit/cb3997efddaf8690d59f8a302a070d935247879a))
+
+
+### Bug Fixes
+
+* **layout:** improve mobile forms and project footer ([2a3c1f4](https://github.com/sparpreis-guru/sparpreis.guru/commit/2a3c1f46a5fedaf7a65a203e8cb3f0d8f8d80669))
+
+
+### Performance Improvements
+
+* **direct-connections:** accelerate database generation ([478a3cf](https://github.com/sparpreis-guru/sparpreis.guru/commit/478a3cf17fc728a08f388480919894fc55eb441a))
+
 ## [1.4.1](https://github.com/sparpreis-guru/sparpreis.guru/compare/v1.4.0...v1.4.1) (2026-08-07)
 
 
