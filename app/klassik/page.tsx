@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { ClassicFinder } from "@/components/bestpreissuche/classic-finder"
+import "./klassik.css"
 
 interface SearchParams {
   start?: string
@@ -81,5 +82,21 @@ export default async function KlassikPage({
     }
   }
 
-  return <ClassicFinder searchParams={params} />
+  return (
+    <>
+      <style>{`
+        html {
+          background: #fafafa;
+          color-scheme: light;
+        }
+
+        body {
+          margin: 0;
+          background: #fafafa;
+          color: #333;
+        }
+      `}</style>
+      <ClassicFinder searchParams={params} />
+    </>
+  )
 }
