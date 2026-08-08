@@ -23,7 +23,7 @@ export function Footer({ show = false }: FooterProps) {
   if (!showFooter) return null
 
   return (
-    <footer className="mt-6 border-t border-gray-200 pt-4 sm:mt-8 sm:pt-8">
+    <footer className="mt-6 border-t border-gray-200 px-3 pt-4 sm:mt-8 sm:px-0 sm:pt-8">
       <details className="group rounded-lg bg-gray-50 sm:hidden">
         <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-medium text-gray-600 [&::-webkit-details-marker]:hidden">
           Projekt- und Datenschutzhinweise

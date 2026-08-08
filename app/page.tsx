@@ -128,7 +128,7 @@ export default async function Page({
   return (
     <div className="min-h-screen bg-white">
       <PageContainer>
-        <header className="mb-6">
+        <header className="mb-6 px-3 sm:px-0">
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
               <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} variant="mobile" />
