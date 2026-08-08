@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
-import { ArrowUp, CheckCircle2, CircleX, Loader2 } from "lucide-react"
+import { ArrowUp, CheckCircle2, CircleX, Loader2, RotateCcw } from "lucide-react"
 import type { SearchQueueStatusData } from "@/hooks/use-search-queue-status"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 import { SearchCancelButton } from "./search-cancel-button"
-import { SearchQueueStatus } from "./search-queue-status"
+import { formatEta, SearchQueueStatus } from "./search-queue-status"
 
 function formatElapsedTime(seconds: number | null): string {
   if (seconds === null) return "nicht erfasst"
@@ -32,6 +33,7 @@ interface SearchProgressPanelProps {
   completedUnit: string
   isCancelled?: boolean
   onCancel?: () => void
+  onRestart?: () => void
   detail?: ReactNode
 }
 
@@ -44,6 +46,7 @@ export function SearchProgressPanel({
   completedUnit,
   isCancelled = false,
   onCancel,
+  onRestart,
   detail,
 }: SearchProgressPanelProps) {
   const panelId = useId()
@@ -69,11 +72,18 @@ export function SearchProgressPanel({
     }
     if (hasAutoScrolledRef.current) return
 
-    hasAutoScrolledRef.current = true
-    const frame = window.requestAnimationFrame(() => {
-      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    let layoutFrame: number | undefined
+    const renderFrame = window.requestAnimationFrame(() => {
+      layoutFrame = window.requestAnimationFrame(() => {
+        if (!panelRef.current || hasAutoScrolledRef.current) return
+        hasAutoScrolledRef.current = true
+        panelRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
+      })
     })
-    return () => window.cancelAnimationFrame(frame)
+    return () => {
+      window.cancelAnimationFrame(renderFrame)
+      if (layoutFrame !== undefined) window.cancelAnimationFrame(layoutFrame)
+    }
   }, [isActive])
 
   useEffect(() => {
@@ -168,6 +178,20 @@ export function SearchProgressPanel({
             </div>
           </div>
           {isActive && onCancel && <SearchCancelButton onClick={onCancel} />}
+          {state === "cancelled" && onRestart && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 shrink-0 border-blue-200 bg-blue-50 px-0 text-xs font-semibold text-blue-700 hover:border-blue-300 hover:bg-blue-100 hover:text-blue-800 focus-visible:ring-blue-400 sm:w-auto sm:px-2.5 [&_svg]:size-3.5"
+              onClick={onRestart}
+              aria-label="Suche wiederholen"
+              title="Suche wiederholen"
+            >
+              <RotateCcw aria-hidden="true" />
+              <span className="hidden sm:inline">Suche wiederholen</span>
+            </Button>
+          )}
         </div>
 
         <div className="px-4 py-2.5">
@@ -185,8 +209,10 @@ export function SearchProgressPanel({
               <dd className="text-sm font-semibold tabular-nums text-gray-950">{remainingItems}</dd>
             </div>
             <div className="min-w-0">
-              <dt className="text-[11px] text-gray-500">Dauer</dt>
-              <dd className="truncate text-sm font-semibold tabular-nums text-gray-950">{formatElapsedTime(elapsedSeconds)}</dd>
+              <dt className="text-[11px] text-gray-500">{isActive ? "Restzeit" : "Dauer"}</dt>
+              <dd className={cn("truncate text-sm font-semibold tabular-nums", isActive ? "text-blue-700" : "text-gray-950")}>
+                {isActive ? `ca. ${formatEta(queueStatus.estimatedTimeRemaining)}` : formatElapsedTime(elapsedSeconds)}
+              </dd>
             </div>
           </dl>
 
@@ -202,30 +228,32 @@ export function SearchProgressPanel({
             />
           </div>
 
-          {detail && <div className="mt-2 truncate text-xs text-gray-600">{detail}</div>}
-
-          <div className="relative mt-2.5">
-            <div className={cn(!isActive && "invisible")} aria-hidden={!isActive || undefined}>
-              <SearchQueueStatus status={queueStatus} embedded />
+          {(isActive || detail) && (
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+              {isActive && <span className="shrink-0 tabular-nums">Vergangen: {formatElapsedTime(elapsedSeconds)}</span>}
+              {detail && <span className="truncate">{detail}</span>}
             </div>
-            {!isActive && (
-              <div
-                className={cn(
-                  "absolute inset-0 flex items-start gap-2 border-t pt-2 text-xs font-medium",
-                  state === "cancelled"
-                    ? "border-amber-200 text-amber-900"
-                    : "border-green-200 text-green-900"
-                )}
-              >
-                {state === "cancelled" ? (
-                  <CircleX className="h-4 w-4 shrink-0 text-amber-600" />
-                ) : (
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
-                )}
-                <span>{state === "cancelled" ? "Suche vorzeitig beendet." : "Alle geplanten Anfragen verarbeitet."}</span>
-              </div>
-            )}
-          </div>
+          )}
+
+          {isActive ? (
+            <SearchQueueStatus status={queueStatus} className="mt-2.5" embedded />
+          ) : (
+            <div
+              className={cn(
+                "mt-2.5 flex items-start gap-2 border-t pt-2 text-xs font-medium",
+                state === "cancelled"
+                  ? "border-amber-200 text-amber-900"
+                  : "border-green-200 text-green-900"
+              )}
+            >
+              {state === "cancelled" ? (
+                <CircleX className="h-4 w-4 shrink-0 text-amber-600" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+              )}
+              <span>{state === "cancelled" ? "Suche vorzeitig beendet." : "Alle geplanten Anfragen verarbeitet."}</span>
+            </div>
+          )}
         </div>
       </section>
 
@@ -233,26 +261,43 @@ export function SearchProgressPanel({
         <button
           type="button"
           className={cn(
-            "fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-3 z-40 inline-flex min-h-11 items-center gap-2 rounded-md border bg-white px-3 py-2 text-left text-xs font-semibold shadow-lg transition-colors hover:bg-gray-50 sm:bottom-4 sm:right-4",
-            state === "active" && "border-blue-300 text-blue-900",
-            state === "completed" && "border-green-300 text-green-900",
-            state === "cancelled" && "border-amber-300 text-amber-950"
+            "fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-3 z-[1500] inline-flex min-h-12 items-center gap-2.5 overflow-hidden rounded-xl border px-4 py-2.5 text-left text-sm font-semibold shadow-xl transition-all sm:bottom-4 sm:right-4",
+            state === "active" && "left-3 min-h-16 border-blue-700 bg-blue-600 px-3.5 py-3 text-white shadow-[0_16px_40px_-12px_rgba(30,64,175,0.75)] ring-2 ring-blue-300/70 hover:bg-blue-700 sm:left-auto sm:min-w-[21rem] sm:px-4",
+            state === "completed" && "border-green-300 bg-white text-green-900 hover:bg-green-50",
+            state === "cancelled" && "border-amber-300 bg-white text-amber-950 hover:bg-amber-50"
           )}
           onClick={scrollToPanel}
           aria-controls={panelId}
+          aria-label={state === "active" ? `Suche läuft, ${progress} Prozent abgeschlossen. Suchstatus anzeigen` : "Suchstatus anzeigen"}
           title="Suchstatus anzeigen"
         >
           {state === "active" ? (
-            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/25">
+              <span className="absolute h-2.5 w-2.5 animate-ping rounded-full bg-white/70 motion-reduce:animate-none" aria-hidden="true" />
+              <Loader2 className="relative h-5 w-5 animate-spin text-white" />
+            </span>
           ) : state === "cancelled" ? (
-            <CircleX className="h-4 w-4 text-amber-600" />
+            <CircleX className="h-5 w-5 text-amber-600" />
           ) : (
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <CheckCircle2 className="h-5 w-5 text-green-600" />
           )}
           {state === "active" ? (
-            <span>
-              <span className="block tabular-nums">Suche läuft · {progress}% · {safeCompletedItems}/{safeTotalItems}</span>
-              <span className="block text-[10px] font-medium text-blue-700">Ergebnisse unvollständig</span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-bold">Suche läuft weiter</span>
+                <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs font-bold tabular-nums ring-1 ring-white/20">
+                  {progress}%
+                </span>
+              </span>
+              <span className="mt-0.5 block truncate text-xs font-medium text-blue-50">
+                {safeCompletedItems}/{safeTotalItems} geprüft · noch ca. {formatEta(queueStatus.estimatedTimeRemaining)}
+              </span>
+              <span className="mt-2 block h-1 overflow-hidden rounded-full bg-blue-950/30" aria-hidden="true">
+                <span
+                  className="block h-full rounded-full bg-white transition-[width] duration-500 ease-out"
+                  style={{ width: `${progress || 2}%` }}
+                />
+              </span>
             </span>
           ) : state === "cancelled" ? (
             <span>
@@ -262,7 +307,12 @@ export function SearchProgressPanel({
           ) : (
             <span>Suche abgeschlossen</span>
           )}
-          <ArrowUp className="h-3.5 w-3.5" />
+          <span className={cn(
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+            state === "active" ? "bg-white/15 text-white ring-1 ring-white/20" : ""
+          )}>
+            <ArrowUp className="h-4 w-4" />
+          </span>
         </button>
       )}
     </>

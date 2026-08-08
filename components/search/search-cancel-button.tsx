@@ -14,13 +14,15 @@ export function SearchCancelButton({ className, ...props }: SearchCancelButtonPr
       variant="outline"
       size="sm"
       className={cn(
-        "h-8 shrink-0 border-red-200 bg-red-50 px-2.5 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-100 hover:text-red-800 focus-visible:ring-red-400 [&_svg]:size-3",
+        "h-8 w-8 shrink-0 border-red-200 bg-red-50 px-0 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-100 hover:text-red-800 focus-visible:ring-red-400 sm:w-auto sm:px-2.5 [&_svg]:size-3",
         className,
       )}
+      aria-label="Suche abbrechen"
+      title="Suche abbrechen"
       {...props}
     >
       <Square className="fill-current" aria-hidden="true" />
-      Suche abbrechen
+      <span className="hidden sm:inline">Suche abbrechen</span>
     </Button>
   )
 }

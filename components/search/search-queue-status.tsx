@@ -1,10 +1,10 @@
 "use client"
 
-import { Clock3, TriangleAlert, Users } from "lucide-react"
+import { TriangleAlert, Users } from "lucide-react"
 import type { SearchQueueStatusData } from "@/hooks/use-search-queue-status"
 import { cn } from "@/lib/utils"
 
-function formatEta(seconds: number): string {
+export function formatEta(seconds: number): string {
   const safeSeconds = Math.max(1, Math.ceil(seconds))
   const roundedSeconds = safeSeconds < 60
     ? Math.ceil(safeSeconds / 5) * 5
@@ -38,6 +38,7 @@ export function SearchQueueStatus({
   embedded?: boolean
 }) {
   const hasDelayNotice = status.isContended || status.isRateLimited
+  if (!hasDelayNotice) return null
 
   return (
     <div
@@ -51,13 +52,8 @@ export function SearchQueueStatus({
       role={embedded ? undefined : "status"}
       aria-live={embedded ? undefined : "polite"}
     >
-      <div className="flex items-center gap-2 font-medium">
-        <Clock3 className="h-4 w-4 shrink-0" />
-        <span>Voraussichtlich noch ca. {formatEta(status.estimatedTimeRemaining)}</span>
-      </div>
-
       {status.isContended && (
-        <div className="mt-1.5 flex items-start gap-2 text-xs">
+        <div className="flex items-start gap-2 text-xs">
           <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             Aktuell sind insgesamt {status.otherActiveSearches + 1} Suchen aktiv.{" "}
@@ -74,7 +70,7 @@ export function SearchQueueStatus({
       )}
 
       {status.isRateLimited && (
-        <div className="mt-1.5 flex items-start gap-2 text-xs">
+        <div className={cn("flex items-start gap-2 text-xs", status.isContended && "mt-1.5")}>
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>Die DB begrenzt Anfragen aktuell. Ergebnisse erscheinen weiterhin nach und nach.</span>
         </div>
