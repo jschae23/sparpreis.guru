@@ -716,9 +716,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
             </div>
           </fieldset>
 
-          <div className="order-2 mb-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-end">
-            <div className="flex-1 min-w-0 relative">
-              <Label htmlFor="start" className="text-sm font-medium text-gray-600 mb-2 block">
+          <div className="order-2 mb-4 grid grid-cols-[minmax(0,1fr)_1.75rem_minmax(0,1fr)] items-end gap-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-2">
+            <div className="relative min-w-0">
+              <Label htmlFor="start" className="mb-2 block text-sm font-medium text-gray-600">
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="w-4 h-4 text-blue-500" />
                   Von
@@ -776,20 +776,20 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                 </div>
               )}
             </div>
-            <div className="-my-1 flex justify-end pr-3 sm:my-0 sm:h-11 sm:items-end sm:pr-0">
+            <div className="flex h-11 items-center justify-center">
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 onClick={switchStations}
-                className="h-11 w-11 rounded-full border-gray-300 bg-white p-0 hover:bg-gray-50 sm:rounded-md"
+                className="h-7 w-7 rounded-full border-gray-300 bg-white p-0 text-gray-600 shadow-none hover:bg-gray-50 sm:h-11 sm:w-11 sm:rounded-md"
                 aria-label="Bahnhöfe tauschen"
               >
-                <ArrowLeftRight className="h-5 w-5" />
+                <ArrowLeftRight className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
               </Button>
             </div>
-            <div className="flex-1 min-w-0 relative">
-              <Label htmlFor="ziel" className="text-sm font-medium text-gray-600 mb-2 block">
+            <div className="relative min-w-0">
+              <Label htmlFor="ziel" className="mb-2 block text-sm font-medium text-gray-600">
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="w-4 h-4 text-blue-500" />
                   Nach
