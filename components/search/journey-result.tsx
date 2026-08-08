@@ -709,7 +709,10 @@ export function RoundTripJourneySummary({
       <div className="mt-2 grid min-h-5 grid-cols-2 divide-x divide-gray-100 border-t border-gray-100 pt-1.5 text-xs text-gray-600 sm:hidden">
         <span className="flex items-center justify-center px-2 text-center whitespace-nowrap">
           {typeof nights === "number" ? (
-            <><span className="font-bold text-gray-900">{nights}</span>{" "}{nights === 1 ? "Nacht" : "Nächte"}</>
+            <span className="inline-flex items-baseline gap-1">
+              <span className="font-bold text-gray-900">{nights}</span>
+              <span>{nights === 1 ? "Nacht" : "Nächte"}</span>
+            </span>
           ) : "Hin- und Rückfahrt"}
         </span>
         {totalTravelTime && (
@@ -862,7 +865,12 @@ export function RoundTripJourneySummaryPlaceholder({
       </div>
       <div className="mt-2 grid min-h-5 grid-cols-2 divide-x divide-gray-100 border-t border-gray-100 pt-1.5 text-xs text-gray-600 sm:hidden">
         <span className="flex items-center justify-center px-2 text-center">
-          {typeof nights === "number" ? <span><span className="font-bold text-gray-900">{nights}</span>{" "}{nights === 1 ? "Nacht" : "Nächte"}</span> : <span className="inline-block h-3 w-20 rounded bg-gray-100" />}
+          {typeof nights === "number" ? (
+            <span className="inline-flex items-baseline gap-1">
+              <span className="font-bold text-gray-900">{nights}</span>
+              <span>{nights === 1 ? "Nacht" : "Nächte"}</span>
+            </span>
+          ) : <span className="inline-block h-3 w-20 rounded bg-gray-100" />}
         </span>
         <span className="flex items-center justify-center px-2">
           <span className="inline-block h-3 w-24 rounded bg-gray-100" />
