@@ -17,7 +17,7 @@ Suchergebnisse und Fortschritt werden laufend angezeigt. Suchen können abgebroc
 Vorausgesetzt werden Node.js `>= 22.19.0` und pnpm `11.20.0`.
 
 ```bash
-git clone https://github.com/XLixl4snSU/sparpreis.guru.git
+git clone https://github.com/sparpreis-guru/sparpreis.guru.git
 cd sparpreis.guru
 pnpm install
 pnpm dev
@@ -38,10 +38,12 @@ pnpm start
 docker run -p 3000:3000 \
   -e NEXT_PUBLIC_BASE_URL="http://localhost:3000" \
   -v path/to/local/data:/app/data \
-  ghcr.io/xlixl4snsu/sparpreis-guru:latest
+  ghcr.io/sparpreis-guru/sparpreis-guru:latest
 ```
 
 Das Volume unter `/app/data` bewahrt Cache, Preisverlauf und heruntergeladene Direktverbindungsdaten über Neustarts hinweg. Notwendige Datenbankanpassungen laufen beim Start automatisch.
+
+Das Docker-Image wird zusätzlich als `butti/sparpreis-guru:latest` auf Docker Hub gespiegelt.
 
 Die Direktverbindungsdaten werden beim ersten Aufruf automatisch geladen und danach regelmäßig aktualisiert. Für einen manuellen Neuaufbau aus den GTFS.de-Feeds wird Python 3 benötigt:
 

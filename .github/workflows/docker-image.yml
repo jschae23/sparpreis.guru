@@ -13,6 +13,11 @@ permissions:
   contents: read
   packages: write
 
+env:
+  DOCKERHUB_IMAGE: butti/sparpreis-guru
+  ORG_GHCR_IMAGE: ghcr.io/sparpreis-guru/sparpreis-guru
+  LEGACY_GHCR_IMAGE: ghcr.io/xlixl4snsu/sparpreis-guru
+
 jobs:
   docker:
     if: github.ref_type == 'tag' # Nur für Tags
@@ -48,17 +53,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set GHCR_REPO (lowercase)
-        run: echo "GHCR_REPO=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
-
       # 5) Tags/Labels
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: |
-            butti/sparpreis-guru
-            ghcr.io/${{ env.GHCR_REPO }}/sparpreis-guru
+            ${{ env.DOCKERHUB_IMAGE }}
+            ${{ env.ORG_GHCR_IMAGE }}
           flavor: |
             latest=true
           tags: |
@@ -80,6 +82,39 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Log in to legacy GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          # Classic PAT from the legacy account with write:packages.
+          username: XLixl4snSU
+          password: ${{ secrets.LEGACY_GHCR_TOKEN }}
+
+      - name: Extract legacy GHCR metadata
+        id: legacy-meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.LEGACY_GHCR_IMAGE }}
+          flavor: |
+            latest=true
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}},prefix=v
+            type=semver,pattern={{major}}.{{minor}},prefix=v
+            type=semver,pattern={{major}},prefix=v
+            type=sha,format=long,prefix=sha-
+
+      - name: Push Docker image to legacy GHCR namespace
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.legacy-meta.outputs.tags }}
+          labels: ${{ steps.legacy-meta.outputs.labels }}
+          cache-from: type=gha
 
   docker-dev:
     if: github.ref == 'refs/heads/dev' # Nur für dev-Branch
@@ -105,9 +140,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set GHCR_REPO (lowercase)
-        run: echo "GHCR_REPO=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
-
       - name: Build and push Docker image (dev)
         uses: docker/build-push-action@v7
         with:
@@ -115,7 +147,24 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            butti/sparpreis-guru:dev
-            ghcr.io/${{ env.GHCR_REPO }}/sparpreis-guru:dev
+            ${{ env.DOCKERHUB_IMAGE }}:dev
+            ${{ env.ORG_GHCR_IMAGE }}:dev
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Log in to legacy GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          # Classic PAT from the legacy account with write:packages.
+          username: XLixl4snSU
+          password: ${{ secrets.LEGACY_GHCR_TOKEN }}
+
+      - name: Push Docker image to legacy GHCR namespace (dev)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ env.LEGACY_GHCR_IMAGE }}:dev
+          cache-from: type=gha
