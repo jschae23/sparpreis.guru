@@ -150,6 +150,7 @@ function normalizeDayDetailsData(
       info: interval.info || data.info || "",
       umstiegsAnzahl: interval.umstiegsAnzahl,
       isCheapestPerInterval: interval.isCheapestPerInterval,
+      abschnitte: interval.abschnitte,
     })),
   }
 }
