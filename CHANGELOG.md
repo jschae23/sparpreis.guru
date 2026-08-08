@@ -12,6 +12,12 @@
 > `ghcr.io/sparpreis-guru/sparpreis-guru` veröffentlicht. Docker Hub und das bisherige
 > GHCR-Image werden während der Übergangszeit weiterhin bedient.
 >
+> **Docker-Nutzer müssen die verwendete Image-Referenz unbedingt auf
+> `ghcr.io/sparpreis-guru/sparpreis-guru` umstellen.** Das gilt insbesondere für
+> Docker-Compose-Dateien sowie Konfigurationen in Portainer, Watchtower und vergleichbaren
+> Deployment-Werkzeugen. Die bisherigen Image-Pfade werden nur vorübergehend gespiegelt und
+> sind nicht mehr die dauerhaft unterstützte Bezugsquelle.
+>
 > Die Direktverbindungsdaten werden künftig als geprüftes Rolling Release aus dem separaten
 > Repository
 > [`sparpreis-guru/sparpreis.guru-direct-connections-data`](https://github.com/sparpreis-guru/sparpreis.guru-direct-connections-data)
