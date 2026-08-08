@@ -2,6 +2,23 @@
 
 ## [2.0.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v1.4.1...v2.0.0) (2026-08-08)
 
+> [!IMPORTANT]
+> **Hinweis für bestehende Installationen**
+>
+> Mit Version 2.0.0 wechselt sparpreis.guru vollständig in die GitHub-Organisation
+> [`sparpreis-guru`](https://github.com/sparpreis-guru). Das kanonische Repository ist ab
+> sofort [`sparpreis-guru/sparpreis.guru`](https://github.com/sparpreis-guru/sparpreis.guru),
+> und das primäre Docker-Image wird unter
+> `ghcr.io/sparpreis-guru/sparpreis-guru` veröffentlicht. Docker Hub und das bisherige
+> GHCR-Image werden während der Übergangszeit weiterhin bedient.
+>
+> Die Direktverbindungsdaten werden künftig als geprüftes Rolling Release aus dem separaten
+> Repository
+> [`sparpreis-guru/sparpreis.guru-direct-connections-data`](https://github.com/sparpreis-guru/sparpreis.guru-direct-connections-data)
+> geladen. Versionen aus der 1.x-Reihe kennen diese neue Datenquelle nicht und erhalten daher
+> keine zukünftigen Fahrplandaten mehr. Bestehende Installationen sollten rechtzeitig auf
+> Version 2.0.0 oder neuer aktualisiert werden, bevor ihre mitgelieferten Fahrplandaten ablaufen.
+
 
 ### ⚠ BREAKING CHANGES
 
