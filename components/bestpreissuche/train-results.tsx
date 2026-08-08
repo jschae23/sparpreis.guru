@@ -137,8 +137,6 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const abortControllerRef = useRef<AbortController | null>(null)
   const startedSearchKeyRef = useRef<string | null>(null)
   const unmountCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const calendarRef = useRef<HTMLDivElement>(null)
-  const [hasScrolledToCalendar, setHasScrolledToCalendar] = useState(false)
   const [showAbortModal, setShowAbortModal] = useState(false)
   const [abortModalMessage, setAbortModalMessage] = useState("")
   const [searchWasCancelled, setSearchWasCancelled] = useState(false)
@@ -556,23 +554,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const maxPrice = Math.max(...prices)
   const avgPrice = Math.round(prices.reduce((a: number, b: number) => a + b, 0) / prices.length)
 
-  useEffect(() => {
-    // Sobald der Kalender sichtbar ist (auch beim Laden), einmalig scrollen
-    if (!hasScrolledToCalendar && calendarRef.current && (loading || isStreaming || validPriceResults.length > 0)) {
-      calendarRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
-      setHasScrolledToCalendar(true)
-    }
-  }, [loading, isStreaming, hasScrolledToCalendar, validPriceResults.length])
-
   // Show nothing if no search params
   if (!searchParams.start || !searchParams.ziel) {
     return null
   }
-
-  // Reset scroll-Flag, wenn neue Suche gestartet wird
-  useEffect(() => {
-    setHasScrolledToCalendar(false)
-  }, [currentSearchKey])
 
   // Always show calendar when search is active or has results
   if (!hasReturnSearch && !loading && !isStreaming && !showAbortModal && !searchWasCancelled && (!validPriceResults || validPriceResults.length === 0)) {
@@ -598,10 +583,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
   return (
       <div className="space-y-6">
-        {searchWasCancelled && <IncompleteSearchNotice />}
+        {searchWasCancelled && !hasReturnSearch && validPriceResults.length === 0 && <IncompleteSearchNotice />}
 
         {hasReturnSearch ? (
-          <div ref={calendarRef}>
+          <div>
             <TravelCombinations
               combinations={travelCombinations}
               outwardResults={priceResults}
@@ -614,16 +599,13 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
               isStreaming={isStreaming}
               sessionId={sessionId}
               onCancelSearch={cancelSearch}
+              searchWasCancelled={searchWasCancelled}
             />
           </div>
         ) : (
           <>
             {/* Calendar View */}
-            <div ref={calendarRef}>
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                📅 Preiskalender
-                <span className="text-sm font-normal text-gray-500">(Klicken zum Buchen)</span>
-              </h3>
+            <div>
               <PriceCalendar
                   results={priceResults}
                   onDayClick={(date, data) => {
@@ -636,6 +618,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                   isStreaming={isStreaming}
                   sessionId={sessionId}
                   onCancelSearch={cancelSearch}
+                  searchWasCancelled={searchWasCancelled}
                   selectedDay={selectedDay || undefined}
                   onNavigateDay={handleNavigateDay}
                   expectedDays={expectedDays}

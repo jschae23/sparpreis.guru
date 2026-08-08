@@ -31,23 +31,25 @@ function formatEta(seconds: number): string {
 export function SearchQueueStatus({
   status,
   className,
+  embedded = false,
 }: {
   status: SearchQueueStatusData
   className?: string
+  embedded?: boolean
 }) {
   const hasDelayNotice = status.isContended || status.isRateLimited
 
   return (
     <div
       className={cn(
-        "rounded-lg border px-3 py-2 text-sm",
+        embedded ? "border-t px-0 pt-2 text-xs" : "rounded-lg border px-3 py-2 text-sm",
         hasDelayNotice
-          ? "border-amber-200 bg-amber-50 text-amber-900"
-          : "border-blue-100 bg-blue-50/70 text-blue-900",
+          ? embedded ? "border-amber-200 text-amber-900" : "border-amber-200 bg-amber-50 text-amber-900"
+          : embedded ? "border-blue-100 text-blue-900" : "border-blue-100 bg-blue-50/70 text-blue-900",
         className
       )}
-      role="status"
-      aria-live="polite"
+      role={embedded ? undefined : "status"}
+      aria-live={embedded ? undefined : "polite"}
     >
       <div className="flex items-center gap-2 font-medium">
         <Clock3 className="h-4 w-4 shrink-0" />

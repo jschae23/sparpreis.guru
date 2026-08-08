@@ -8,7 +8,6 @@ import {
   AlertCircle,
   MapPin,
   TrendingDown,
-  Loader2,
   Train,
   ChevronDown,
   ChevronUp,
@@ -22,8 +21,7 @@ import {
   JourneyTimelineVertical,
   type JourneyLeg,
 } from "@/components/bestpreissuche/journey-timeline"
-import { SearchQueueStatus } from "@/components/search/search-queue-status"
-import { SearchCancelButton } from "@/components/search/search-cancel-button"
+import { SearchProgressPanel } from "@/components/search/search-progress-panel"
 import { useSearchQueueStatus } from "@/hooks/use-search-queue-status"
 
 const DynamicLeaflet = dynamic(
@@ -140,6 +138,7 @@ interface UrlauberfinderResultsProps {
   plannedDestinations?: number
   requestsPerDestination?: number
   searchParams?: SearchParams | null
+  searchWasCancelled?: boolean
   onCancel?: () => void
 }
 
@@ -500,6 +499,7 @@ export function UrlauberfinderResults({
   plannedDestinations = 0,
   requestsPerDestination = 1,
   searchParams,
+  searchWasCancelled,
   onCancel,
 }: UrlauberfinderResultsProps) {
   const [mapSelected, setMapSelected] = useState<DestinationResult | null>(null)
@@ -512,10 +512,6 @@ export function UrlauberfinderResults({
   const averagePrice =
     results.length > 0
       ? results.reduce((sum, r) => sum + r.totalPrice, 0) / results.length
-      : 0
-  const progressPercent =
-    progress && progress.total > 0
-      ? Math.round((progress.processed / progress.total) * 100)
       : 0
   const hasResults = results.length > 0
   const hasUnavailable = unavailableResults.length > 0
@@ -545,43 +541,17 @@ export function UrlauberfinderResults({
 
   return (
     <div className="space-y-4">
-      {isLoading && (
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <Loader2 className="w-4 h-4 animate-spin text-blue-600 flex-shrink-0" />
-              <p className="text-sm font-semibold text-gray-700 truncate">
-                {progress ? (
-                  <>
-                    Prüfe Reiseziele{" "}
-                    <span className="text-gray-400 font-normal text-xs">
-                      ({progress.processed}/{progress.total})
-                    </span>
-                  </>
-                ) : (
-                  "Starte Suche..."
-                )}
-              </p>
-            </div>
-            {onCancel && (
-              <SearchCancelButton className="ml-3" onClick={onCancel} />
-            )}
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-            <div
-              className="bg-blue-600 h-full rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${progressPercent || (isLoading ? 2 : 0)}%` }}
-            />
-          </div>
-          <SearchQueueStatus status={queueStatus} className="mt-3" />
-          {hasResults && (
-            <p className="text-[11px] text-gray-400 mt-1.5">
-              {results.length} Ziel{results.length !== 1 ? "e" : ""} gefunden
-              {" "}· wird aktualisiert...
-            </p>
-          )}
-        </div>
-      )}
+      <SearchProgressPanel
+        isActive={isLoading}
+        completedItems={progress?.processed ?? results.length + unavailableResults.length}
+        totalItems={progress?.total ?? plannedDestinations}
+        queueStatus={queueStatus}
+        progressUnit="Reisezielen"
+        completedUnit="Reiseziele"
+        isCancelled={searchWasCancelled}
+        onCancel={onCancel}
+        detail={hasResults ? `${results.length} Ziel${results.length !== 1 ? "e" : ""} gefunden` : undefined}
+      />
 
       {!isLoading && !hasResults && !hasUnavailable && (
         <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center">
@@ -594,29 +564,29 @@ export function UrlauberfinderResults({
         </div>
       )}
 
+      {(isLoading || hasMapData) && (
+        <div className="rounded-lg bg-blue-50 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-blue-600" />
+            <span className="text-sm font-semibold text-blue-800">Karte</span>
+            <span className="ml-auto text-xs text-blue-700">
+              {results.length} Ziel{results.length !== 1 ? "e" : ""}
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-blue-200 bg-white shadow-sm">
+            <DynamicLeaflet
+              destinations={results}
+              homeStation={homeStation}
+              homeCoords={homeCoords}
+              selectedResult={mapSelected}
+              onSelectResult={(result: DestinationResult) => setMapSelected({ ...result })}
+            />
+          </div>
+        </div>
+      )}
+
       {hasResults && (
         <>
-          {hasMapData && (
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <div className="flex items-center gap-2 mb-3">
-                <MapPin className="w-4 h-4 text-blue-600" />
-                <span className="font-semibold text-blue-800 text-sm">Karte</span>
-                <span className="ml-auto text-xs text-blue-700">
-                  {results.length} Ziele
-                </span>
-              </div>
-              <div className="overflow-hidden rounded-lg border border-blue-200 bg-white shadow-sm">
-                <DynamicLeaflet
-                  destinations={results}
-                  homeStation={homeStation}
-                  homeCoords={homeCoords}
-                  selectedResult={mapSelected}
-                  onSelectResult={(result: DestinationResult) => setMapSelected({ ...result })}
-                />
-              </div>
-            </div>
-          )}
-
           <div className="bg-blue-50 p-4 rounded-lg">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-2 md:gap-0">
               <h3 className="font-semibold text-blue-800 flex items-center gap-2">

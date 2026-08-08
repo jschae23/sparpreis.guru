@@ -429,7 +429,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
           />
         </section>
 
-        {searchWasCancelled && (
+        {searchWasCancelled && results.length === 0 && unavailableResults.length === 0 && (
           <IncompleteSearchNotice className="mb-6" />
         )}
 
@@ -447,6 +447,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
               plannedDestinations={plannedDestinations}
               requestsPerDestination={requestsPerDestination}
               searchParams={bookingSearchParams}
+              searchWasCancelled={searchWasCancelled}
               onCancel={handleCancel}
             />
           </section>

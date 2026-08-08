@@ -8,17 +8,22 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react"
 import {
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
   AlertTriangle,
   Calendar,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Clock,
   Euro,
   GripVertical,
+  LayoutList,
   Loader2,
   Maximize2,
   Shuffle,
+  Table2,
   Train,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -30,9 +35,14 @@ import { ConnectionsTable } from "./day-connections-table"
 import { DayDetailsModal } from "./day-details-modal"
 import { VehicleTypesSummary } from "./vehicle-types-summary"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { SearchQueueStatus } from "@/components/search/search-queue-status"
-import { SearchCancelButton } from "@/components/search/search-cancel-button"
+import { SearchProgressPanel } from "@/components/search/search-progress-panel"
 import { useSearchQueueStatus } from "@/hooks/use-search-queue-status"
+import {
+  createPriceBandScale,
+  getPriceBandClasses,
+  PRICE_BAND_STYLES,
+  type PriceBand,
+} from "@/lib/train-search/price-bands"
 
 interface JourneyLeg {
   abfahrtsZeitpunkt: string
@@ -78,6 +88,7 @@ interface TravelCombinationsProps {
   isStreaming?: boolean
   sessionId?: string | null
   onCancelSearch?: () => void
+  searchWasCancelled?: boolean
 }
 
 interface PriceData {
@@ -869,7 +880,6 @@ function ComboMatrix({
   returnDates,
   outwardResults,
   returnResults,
-  best,
   minNights,
   maxNights,
   isStreaming,
@@ -882,7 +892,6 @@ function ComboMatrix({
   returnDates: string[]
   outwardResults: PriceResults
   returnResults: PriceResults
-  best?: TravelCombination
   minNights: number
   maxNights?: number
   isStreaming?: boolean
@@ -913,31 +922,44 @@ function ComboMatrix({
     })
   )
   const prices = validCells.map((cell) => cell.total)
-  const minPrice = prices.length > 0 ? Math.min(...prices) : 0
-  const maxPrice = prices.length > 0 ? Math.max(...prices) : 0
+  const priceScale = createPriceBandScale(prices)
 
   const getCellTone = (price: number) => {
-    if (price === minPrice) return "border-green-300 bg-green-50 text-green-800"
-    if (maxPrice > minPrice && price === maxPrice) return "border-red-200 bg-red-50 text-red-700"
-    return "border-orange-200 bg-orange-50 text-orange-700"
+    return getPriceBandClasses(priceScale.getBand(price))
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3">
-      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className={cn(
+      "bg-white",
+      expanded ? "flex h-full min-h-0 flex-col" : "rounded-lg border border-gray-200 p-3"
+    )}>
+      <div className={cn(
+        "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
+        expanded ? "shrink-0 border-b border-gray-200 px-3 py-2 sm:px-4" : "mb-3"
+      )}>
         <div>
-          <h3 className="text-base font-semibold text-gray-900">Preismatrix</h3>
-          <p className="text-xs text-gray-600">
-            Spalten sind Hinfahrten, Zeilen sind Rückfahrten. Jede Zelle ist der Gesamtpreis.
-          </p>
+          {!expanded && <h3 className="text-base font-semibold text-gray-900">Preismatrix</h3>}
+          {!expanded && (
+            <p className="text-xs text-gray-600">
+              Spalten sind Hinfahrten, Zeilen sind Rückfahrten. Jede Zelle ist der Gesamtpreis.
+            </p>
+          )}
           <p className="mt-1 text-xs font-medium text-gray-700">
             Aufenthalt: mindestens {minNights} Nächte{typeof maxNights === "number" ? `, maximal ${maxNights} Nächte` : ""}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-1 rounded border border-green-200 bg-green-50 px-2 py-1 text-green-700">günstig</span>
-          <span className="inline-flex items-center gap-1 rounded border border-orange-200 bg-orange-50 px-2 py-1 text-orange-700">mittel</span>
-          <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-red-700">teuer</span>
+        <div className={cn(
+          "flex items-center gap-2 text-xs",
+          expanded ? "flex-nowrap overflow-x-auto pb-1" : "flex-wrap"
+        )}>
+          {priceScale.activeBands.map((band) => {
+            const style = PRICE_BAND_STYLES[band]
+            return (
+              <span key={band} className={cn("inline-flex shrink-0 items-center gap-1 rounded border px-2 py-1", style.background, style.border, style.text)}>
+                {style.label}
+              </span>
+            )
+          })}
           {onOpenLarge && (
             <Button
               type="button"
@@ -955,17 +977,22 @@ function ComboMatrix({
 
       <div
         className={cn(
-          "overflow-auto rounded-lg border border-gray-200 bg-white p-2",
-          expanded ? "max-h-[calc(92vh-11rem)]" : "max-h-[36rem]"
+          "relative isolate overflow-auto bg-white",
+          expanded
+            ? "min-h-0 flex-1 sm:rounded-lg sm:border sm:border-gray-200"
+            : "max-h-[36rem] rounded-lg border border-gray-200"
         )}
       >
         <div
-          className="grid min-w-max gap-1"
-          style={{ gridTemplateColumns: `5.5rem repeat(${outwardDates.length}, minmax(4.5rem, 1fr))` }}
+          className="grid min-w-max gap-1 [--matrix-label-width:4.5rem] sm:[--matrix-label-width:5.5rem]"
+          style={{ gridTemplateColumns: `var(--matrix-label-width) repeat(${outwardDates.length}, minmax(4.5rem, 1fr))` }}
         >
-          <div className="sticky left-0 top-0 z-30 rounded bg-white p-1 text-xs font-semibold text-gray-500" />
+          <div className="sticky left-0 top-0 z-50 flex flex-col border-b border-r border-gray-200 bg-white p-1 text-[9px] font-semibold leading-tight text-gray-500 shadow-sm before:absolute before:-right-1 before:top-0 before:h-full before:w-1 before:bg-white before:content-[''] after:absolute after:-bottom-1 after:left-0 after:h-1 after:w-full after:bg-white after:content-['']">
+            <span className="self-end">Hin →</span>
+            <span>Rück ↓</span>
+          </div>
           {outwardDates.map((date) => (
-            <div key={date} className="sticky top-0 z-20 rounded bg-blue-50 px-2 py-1 text-center text-[11px] font-semibold text-blue-800">
+            <div key={date} className="sticky top-0 z-40 border-b border-r border-blue-100 bg-blue-50 px-1 py-1 text-center text-[11px] font-semibold text-blue-800 shadow-sm after:absolute after:-bottom-1 after:left-0 after:h-1 after:w-full after:bg-white after:content-[''] sm:px-2">
               <div>Hin</div>
               <div>{formatDate(date)}</div>
             </div>
@@ -973,7 +1000,7 @@ function ComboMatrix({
 
           {returnDates.map((returnDate) => (
             <div key={returnDate} className="contents">
-              <div className="sticky left-0 z-10 rounded bg-green-50 px-2 py-2 text-[11px] font-semibold text-green-800">
+              <div className="sticky left-0 z-30 border-b border-r border-gray-200 bg-gray-100 px-1 py-2 text-[11px] font-semibold text-gray-700 shadow-sm after:absolute after:-right-1 after:top-0 after:h-full after:w-1 after:bg-white after:content-[''] sm:px-2">
                 <div>Rück</div>
                 <div>{formatDate(returnDate)}</div>
               </div>
@@ -988,7 +1015,6 @@ function ComboMatrix({
                 const total = hasBothPrices
                   ? Math.round((outward.preis + returning.preis) * 100) / 100
                   : 0
-                const isBest = best?.outwardDate === outwardDate && best?.returnDate === returnDate
                 const isSelected =
                   selectedCombination?.outwardDate === outwardDate &&
                   selectedCombination?.returnDate === returnDate
@@ -1000,13 +1026,13 @@ function ComboMatrix({
                     key={`${outwardDate}-${returnDate}`}
                     disabled={!hasBothPrices}
                     onClick={() => hasBothPrices && onSelectCombination(outwardDate, returnDate)}
-                    className={`min-h-14 rounded border px-2 py-1 text-center text-xs ${
+                    className={`relative z-0 min-h-14 rounded-md border px-1 py-1 text-center text-xs sm:px-2 ${
                       hasBothPrices
                         ? `${getCellTone(total)} cursor-pointer hover:shadow-sm`
                         : isPending && !isInvalidDuration
                           ? "border-blue-100 bg-blue-50 text-blue-700"
                           : "border-gray-100 bg-gray-50 text-gray-300"
-                    } ${isBest ? "ring-2 ring-green-600" : ""} ${isSelected ? "outline outline-2 outline-blue-600" : ""}`}
+                    } ${isSelected ? "outline outline-2 outline-blue-600" : ""}`}
                   >
                     {hasBothPrices ? (
                       <>
@@ -1053,7 +1079,7 @@ function CombinationBandEndpoint({
   const legs = (outward ? combination.outwardLegs : combination.returnLegs) || []
 
   return (
-    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-4 sm:px-5">
+    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-3 px-4 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:px-5">
       <div
         className={cn(
           "flex h-9 w-9 items-center justify-center rounded-md",
@@ -1083,7 +1109,7 @@ function CombinationBandEndpoint({
           <VehicleTypesSummary interval={{ abschnitte: legs }} />
         </div>
       </div>
-      <div className="justify-self-end">
+      <div className="col-span-2 w-full sm:col-span-1 sm:w-auto sm:justify-self-end [&>button]:w-full sm:[&>button]:w-auto">
         <DirectionBookingButton
           combination={combination}
           direction={direction}
@@ -1253,9 +1279,8 @@ function CombinationSearchTimeline({
   }
 
   return (
-    <div className="pt-4">
-      <div className="flex items-center justify-between gap-3 text-xs">
-        <span className="font-semibold text-blue-900">Position im gesuchten Reisezeitraum</span>
+    <div className="pt-3">
+      <div className="flex justify-end text-xs">
         <div className="flex items-center gap-3 text-blue-700">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 border border-gray-200 bg-gray-100" />
@@ -1265,7 +1290,18 @@ function CombinationSearchTimeline({
         </div>
       </div>
 
-      <div ref={timelineRef} className="relative mx-1 mt-3 h-32 select-none sm:mx-2">
+      <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:hidden">
+        <div>
+          <div className="font-medium text-gray-500">Hinfahrt</div>
+          <div className="font-semibold text-blue-800">{formatDate(combination.outwardDate)}</div>
+        </div>
+        <div className="text-right">
+          <div className="font-medium text-gray-500">Rückfahrt</div>
+          <div className="font-semibold text-blue-800">{formatDate(combination.returnDate)}</div>
+        </div>
+      </div>
+
+      <div ref={timelineRef} className="relative mx-1 mt-2 h-32 select-none sm:mx-2 sm:mt-3">
         {timelineDays.filter((day) => day.isWeekend).map((day) => (
           <span
             key={`weekend-${day.offset}`}
@@ -1309,7 +1345,7 @@ function CombinationSearchTimeline({
 
         <div
           className={cn(
-            "absolute text-xs font-semibold text-blue-800",
+            "absolute hidden text-xs font-semibold text-blue-800 sm:block",
             markerAlignment(outwardPosition)
           )}
           style={{ left: `${outwardPosition}%`, top: 0 }}
@@ -1341,7 +1377,7 @@ function CombinationSearchTimeline({
 
         <div
           className={cn(
-            "absolute text-xs font-semibold text-blue-800",
+            "absolute hidden text-xs font-semibold text-blue-800 sm:block",
             markerAlignment(returnPosition)
           )}
           style={{ left: `${returnPosition}%`, top: closeMarkers ? 20 : 0 }}
@@ -1394,7 +1430,7 @@ function CombinationSearchTimeline({
 function CombinationOverviewBand({
   combination,
   bestPrice,
-  worstPrice,
+  priceBand,
   searchStart,
   searchEnd,
   startStation,
@@ -1413,10 +1449,12 @@ function CombinationOverviewBand({
   isStreaming,
   onSelectCombination,
   outsideStayFilter,
+  hasShortestTravelTime,
+  isDirectCombination,
 }: {
   combination: TravelCombination
   bestPrice: number
-  worstPrice: number
+  priceBand: PriceBand
   searchStart: string
   searchEnd: string
   startStation?: { name: string; id: string }
@@ -1435,42 +1473,56 @@ function CombinationOverviewBand({
   isStreaming?: boolean
   onSelectCombination: (outwardDate: string, returnDate: string, focusResult?: boolean) => void
   outsideStayFilter: boolean
+  hasShortestTravelTime: boolean
+  isDirectCombination: boolean
 }) {
-  const totalPriceTone = combination.totalPrice === bestPrice
-    ? "bg-green-50 text-green-700"
-    : worstPrice > bestPrice && combination.totalPrice === worstPrice
-      ? "bg-red-50 text-red-700"
-      : "bg-orange-50 text-orange-700"
+  const totalPriceStyle = PRICE_BAND_STYLES[priceBand]
 
   return (
-    <div className="border-b border-blue-100 bg-white">
-      <div className="grid gap-4 bg-blue-50/70 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-blue-800">
-            <Train className="h-4 w-4" />
-            Ausgewählte Reisekombination
-          </div>
-          <div className="mt-1 truncate text-sm text-gray-600">
-            {startStation?.name || "Start"} nach {zielStation?.name || "Ziel"} und zurück
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-3 lg:justify-end">
-          {combination.totalPrice === bestPrice && (
-            <Badge className="flex items-center gap-1 rounded-full border border-green-400 bg-green-100 px-2 py-1 font-semibold text-green-800 shadow-sm">
+    <div className="bg-white">
+      <div className="border-b border-gray-200 px-4 py-4 sm:px-5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="mr-1 text-xs font-semibold uppercase text-blue-700">Ausgewählte Verbindung</div>
+          {combination.totalPrice === bestPrice ? (
+            <Badge className="inline-flex items-center gap-1 rounded-full border border-green-400 bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-800 shadow-sm">
               <Euro className="h-3 w-3" />
               Bestpreis
             </Badge>
+          ) : (
+            <Badge variant="outline" className="rounded-full border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+              Alternative
+            </Badge>
           )}
-          <div className="text-right">
-            <div className="text-xs text-gray-500">Gesamtpreis</div>
-            <div className={cn("mt-0.5 inline-block rounded-md px-2 py-1 text-2xl font-bold tabular-nums", totalPriceTone)}>
+          {hasShortestTravelTime && (
+            <Badge className="inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700 shadow-none">
+              <Clock className="h-3 w-3" />
+              <span className="sm:hidden">Schnellste</span>
+              <span className="hidden sm:inline">Kürzeste Gesamtreisezeit</span>
+            </Badge>
+          )}
+          {isDirectCombination && (
+            <Badge className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 shadow-none">
+              <Train className="h-3 w-3" />
+              <span className="sm:hidden">Direkt</span>
+              <span className="hidden sm:inline">Nur Direktverbindungen</span>
+            </Badge>
+          )}
+        </div>
+
+        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
+          <div className="min-w-0 line-clamp-2 text-sm font-semibold text-gray-900 sm:truncate sm:text-base">
+            {startStation?.name || "Start"} nach {zielStation?.name || "Ziel"} und zurück
+          </div>
+          <div className="shrink-0 text-right">
+            <div className="text-[11px] text-gray-500 sm:text-xs">Gesamtpreis</div>
+            <div className={cn("mt-0.5 inline-block rounded-md px-2 py-1 text-xl font-bold tabular-nums sm:text-2xl", totalPriceStyle.background, totalPriceStyle.text, totalPriceStyle.emphasis)}>
               {formatPrice(combination.totalPrice)}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 md:divide-x md:divide-gray-200">
+      <div className="grid bg-gray-50/60 md:grid-cols-2 md:divide-x md:divide-gray-200">
         <CombinationBandEndpoint
           combination={combination}
           direction="outward"
@@ -1489,22 +1541,28 @@ function CombinationOverviewBand({
         </div>
       </div>
 
-      <div className="border-t border-gray-200 bg-white px-4 py-3 sm:px-5">
+      <div className="border-t border-gray-200 bg-white">
         <JourneyDetails combination={combination} />
       </div>
 
-      <div className="border-t border-gray-200 px-4 pb-1 sm:px-5">
-        <CombinationSearchTimeline
-          combination={combination}
-          searchStart={searchStart}
-          searchEnd={searchEnd}
-          outwardDates={outwardDates}
-          returnDates={returnDates}
-          outwardResults={outwardResults}
-          returnResults={returnResults}
-          isStreaming={isStreaming}
-          onSelectCombination={onSelectCombination}
-        />
+      <div className="border-t-8 border-gray-100 bg-white">
+        <div className="border-b border-gray-200 px-4 py-3 sm:px-5">
+          <div className="text-[11px] font-semibold uppercase text-gray-500">Reisezeitraum</div>
+          <div className="mt-0.5 text-sm font-semibold text-gray-900">Position der ausgewählten Verbindung</div>
+        </div>
+        <div className="px-4 pb-1 sm:px-5">
+          <CombinationSearchTimeline
+            combination={combination}
+            searchStart={searchStart}
+            searchEnd={searchEnd}
+            outwardDates={outwardDates}
+            returnDates={returnDates}
+            outwardResults={outwardResults}
+            returnResults={returnResults}
+            isStreaming={isStreaming}
+            onSelectCombination={onSelectCombination}
+          />
+        </div>
       </div>
 
       {outsideStayFilter && (
@@ -1517,29 +1575,36 @@ function CombinationOverviewBand({
         </div>
       )}
 
-      <div className="grid gap-2 border-t border-gray-200 bg-gray-50 px-4 py-3 sm:grid-cols-2 sm:px-5">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-9 justify-start border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-          onClick={onShowOutwardRides}
-          disabled={outwardRideCount === 0}
-        >
-          <Train className="h-4 w-4 text-blue-600" />
-          Hinfahrten am {formatDate(combination.outwardDate)} ansehen · {outwardRideCount}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-9 justify-start border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-          onClick={onShowReturnRides}
-          disabled={returnRideCount === 0}
-        >
-          <Train className="h-4 w-4 text-blue-600" />
-          Rückfahrten am {formatDate(combination.returnDate)} ansehen · {returnRideCount}
-        </Button>
+      <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 sm:px-5">
+        <div className="text-xs font-semibold uppercase text-gray-600">Weitere Fahrten an diesen Reisetagen</div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            className="flex min-h-12 items-center gap-3 rounded-md border border-gray-200 bg-white px-3 py-2 text-left text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={onShowOutwardRides}
+            disabled={outwardRideCount === 0}
+          >
+            <Calendar className="h-4 w-4 shrink-0 text-blue-600" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold text-gray-900">Hinfahrt · {formatDate(combination.outwardDate)}</span>
+              <span className="block text-[11px] text-gray-500">{outwardRideCount} Verbindungen verfügbar</span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />
+          </button>
+          <button
+            type="button"
+            className="flex min-h-12 items-center gap-3 rounded-md border border-gray-200 bg-white px-3 py-2 text-left text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={onShowReturnRides}
+            disabled={returnRideCount === 0}
+          >
+            <Calendar className="h-4 w-4 shrink-0 text-blue-600" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold text-gray-900">Rückfahrt · {formatDate(combination.returnDate)}</span>
+              <span className="block text-[11px] text-gray-500">{returnRideCount} Verbindungen verfügbar</span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1608,12 +1673,18 @@ function CombinationComparisonPanel({
       const card = result.closest<HTMLElement>("article") || result
       const listRect = list.getBoundingClientRect()
       const cardRect = card.getBoundingClientRect()
-      const listPaddingTop = Number.parseFloat(window.getComputedStyle(list).paddingTop) || 0
+      const listStyles = window.getComputedStyle(list)
+      const listPaddingTop = Number.parseFloat(listStyles.paddingTop) || 0
+      const hasInternalScroll = ["auto", "scroll"].includes(listStyles.overflowY) && list.scrollHeight > list.clientHeight
 
-      list.scrollTo({
-        top: Math.max(0, list.scrollTop + cardRect.top - listRect.top - listPaddingTop),
-        behavior: "smooth",
-      })
+      if (hasInternalScroll) {
+        list.scrollTo({
+          top: Math.max(0, list.scrollTop + cardRect.top - listRect.top - listPaddingTop),
+          behavior: "smooth",
+        })
+      } else {
+        card.scrollIntoView({ behavior: "smooth", block: "start" })
+      }
       result.focus({ preventScroll: true })
       setPendingResultFocus(null)
     })
@@ -1634,6 +1705,7 @@ function CombinationComparisonPanel({
 
   const handleMatrixSelection = (outwardDate: string, returnDate: string) => {
     setPendingResultFocus(getCombinationKey(outwardDate, returnDate))
+    setMobileResultsView("list")
     setMatrixOpen(false)
     onSelectCombination(outwardDate, returnDate)
   }
@@ -1676,15 +1748,14 @@ function CombinationComparisonPanel({
   const ranked = [...combinations].sort(
     (left, right) => left.totalPrice - right.totalPrice || left.nights - right.nights
   )
-  const best = ranked[0]
   const visibleCombinations = (
     ranked.some((combination) => isSameCombination(combination, selectedCombination))
       ? ranked
       : [...ranked, selectedCombination]
   ).sort(compareCombinations)
   const prices = visibleCombinations.map((combination) => combination.totalPrice)
-  const minPrice = prices.length > 0 ? Math.min(...prices) : selectedCombination.totalPrice
-  const maxPrice = prices.length > 0 ? Math.max(...prices) : selectedCombination.totalPrice
+  const priceScale = createPriceBandScale(prices)
+  const minPrice = priceScale.min || selectedCombination.totalPrice
   const shortestTotalTravelTime = visibleCombinations.reduce((shortest, combination) => {
     const outwardMinutes = combination.outwardDeparture && combination.outwardArrival
       ? getDurationMinutes(combination.outwardDeparture, combination.outwardArrival)
@@ -1695,11 +1766,21 @@ function CombinationComparisonPanel({
     const totalMinutes = outwardMinutes + returnMinutes
     return Number.isFinite(totalMinutes) ? Math.min(shortest, totalMinutes) : shortest
   }, Number.POSITIVE_INFINITY)
+  const selectedTotalTravelTime = selectedCombination.outwardDeparture && selectedCombination.outwardArrival &&
+    selectedCombination.returnDeparture && selectedCombination.returnArrival
+    ? getDurationMinutes(selectedCombination.outwardDeparture, selectedCombination.outwardArrival) +
+      getDurationMinutes(selectedCombination.returnDeparture, selectedCombination.returnArrival)
+    : Number.POSITIVE_INFINITY
+  const selectedHasShortestTravelTime = Number.isFinite(selectedTotalTravelTime) &&
+    selectedTotalTravelTime === shortestTotalTravelTime
+  const selectedIsDirectCombination = selectedCombination.outwardTransfers === 0 &&
+    selectedCombination.returnTransfers === 0
   const selectedOutsideStayFilter =
     selectedCombination.nights < minNights ||
     (typeof maxNights === "number" && selectedCombination.nights > maxNights)
   const [dayDetailsDirection, setDayDetailsDirection] = useState<"outward" | "return" | null>(null)
   const [matrixOpen, setMatrixOpen] = useState(false)
+  const [mobileResultsView, setMobileResultsView] = useState<"list" | "matrix">("list")
   const shouldOfferExpandedMatrix =
     outwardDates.length > 7 || returnDates.length > 7 || outwardDates.length * returnDates.length > 49
   const outwardDayData = outwardResults[selectedCombination.outwardDate]
@@ -1728,9 +1809,8 @@ function CombinationComparisonPanel({
     : searchParams
 
   const priceTone = (price: number) => {
-    if (price === minPrice) return "bg-green-50 text-green-700"
-    if (maxPrice > minPrice && price === maxPrice) return "bg-red-50 text-red-700"
-    return "bg-orange-50 text-orange-700"
+    const style = PRICE_BAND_STYLES[priceScale.getBand(price)]
+    return `${style.background} ${style.text} ${style.emphasis}`
   }
 
   const combinationSortOptions: Array<{ key: CombinationSortKey; label: string }> = [
@@ -1746,10 +1826,16 @@ function CombinationComparisonPanel({
   return (
     <>
     <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <header className="border-b border-blue-100 bg-blue-50/70 px-4 py-3 sm:px-5">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-blue-950">
+          <Train className="h-4 w-4 text-blue-700" />
+          Reiseübersicht
+        </h2>
+      </header>
       <CombinationOverviewBand
         combination={selectedCombination}
         bestPrice={minPrice}
-        worstPrice={maxPrice}
+        priceBand={priceScale.getBand(selectedCombination.totalPrice)}
         searchStart={searchStart}
         searchEnd={searchEnd}
         startStation={startStation}
@@ -1768,8 +1854,40 @@ function CombinationComparisonPanel({
         isStreaming={isStreaming}
         onSelectCombination={handleTimelineSelection}
         outsideStayFilter={selectedOutsideStayFilter}
+        hasShortestTravelTime={selectedHasShortestTravelTime}
+        isDirectCombination={selectedIsDirectCombination}
       />
+    </section>
 
+    <section className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="grid grid-cols-2 border-b border-gray-200 bg-white lg:hidden" aria-label="Ergebnisansicht wählen">
+        <button
+          type="button"
+          className={cn(
+            "flex h-11 items-center justify-center gap-2 border-b-2 text-sm font-semibold transition-colors",
+            mobileResultsView === "list" ? "border-blue-600 text-blue-800" : "border-transparent text-gray-500 hover:text-gray-800"
+          )}
+          onClick={() => setMobileResultsView("list")}
+          aria-pressed={mobileResultsView === "list"}
+        >
+          <LayoutList className="h-4 w-4" />
+          Liste ({visibleCombinations.length})
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "flex h-11 items-center justify-center gap-2 border-b-2 text-sm font-semibold transition-colors",
+            mobileResultsView === "matrix" ? "border-blue-600 text-blue-800" : "border-transparent text-gray-500 hover:text-gray-800"
+          )}
+          onClick={() => setMobileResultsView("matrix")}
+          aria-pressed={mobileResultsView === "matrix"}
+        >
+          <Table2 className="h-4 w-4" />
+          Preismatrix
+        </button>
+      </div>
+
+      <div className={cn(mobileResultsView === "matrix" && "hidden lg:block")}>
       <div className="flex flex-col gap-1 border-b border-blue-200 bg-blue-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
@@ -1789,7 +1907,37 @@ function CombinationComparisonPanel({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 border-b border-gray-200 bg-white sm:grid-cols-4" aria-label="Reisekombinationen sortieren">
+      <div className="flex items-center gap-3 border-b border-gray-200 bg-white px-3 py-2 lg:hidden">
+        <label htmlFor="mobile-combination-sort" className="shrink-0 text-xs font-medium text-gray-600">
+          Sortierung
+        </label>
+        <div className="min-w-0 flex-1">
+          <select
+            id="mobile-combination-sort"
+            className="h-9 w-full rounded-md border border-gray-300 bg-white px-3 text-sm font-medium text-gray-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            value={combinationSortKey}
+            onChange={(event) => setCombinationSortKey(event.target.value as CombinationSortKey)}
+          >
+            <option value="price">Gesamtpreis</option>
+            <option value="outward">Hinfahrt</option>
+            <option value="return">Rückfahrt</option>
+            <option value="nights">Aufenthaltsdauer</option>
+          </select>
+        </div>
+        <button
+          type="button"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 transition-colors hover:border-blue-300 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          onClick={() => setCombinationSortDir((direction) => direction === "asc" ? "desc" : "asc")}
+          aria-label={combinationSortDir === "asc" ? "Absteigend sortieren" : "Aufsteigend sortieren"}
+          title={combinationSortDir === "asc" ? "Aufsteigend" : "Absteigend"}
+        >
+          {combinationSortDir === "asc"
+            ? <ArrowUp className="h-4 w-4" />
+            : <ArrowDown className="h-4 w-4" />}
+        </button>
+      </div>
+
+      <div className="hidden grid-cols-4 border-b border-gray-200 bg-white lg:grid" aria-label="Reisekombinationen sortieren">
         {combinationSortOptions.map((option) => {
           const active = combinationSortKey === option.key
           return (
@@ -1817,7 +1965,7 @@ function CombinationComparisonPanel({
 
       <div
         ref={combinationListRef}
-        className="max-h-[36rem] space-y-2 overflow-y-auto overscroll-contain bg-gray-50 p-3 lg:max-h-[44rem]"
+        className="space-y-2 bg-gray-50 p-2.5 sm:p-3 lg:max-h-[44rem] lg:overflow-y-auto lg:overscroll-contain"
       >
         {visibleCombinations.map((combination) => {
           const active = isSameCombination(combination, selectedCombination)
@@ -1849,13 +1997,79 @@ function CombinationComparisonPanel({
                   else combinationResultRefs.current.delete(combinationKey)
                 }}
                 type="button"
-                className="w-full p-3 text-left transition-colors hover:bg-gray-50 sm:p-4"
+                className="w-full p-2.5 text-left transition-colors hover:bg-gray-50 sm:p-4"
                 onClick={() => onSelectCombination(combination.outwardDate, combination.returnDate)}
                 aria-pressed={active}
               >
-                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                <div className="flex items-start justify-between gap-2 sm:hidden">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1">
+                    {isBestPrice ? (
+                      <Badge className="inline-flex items-center gap-1 rounded-full border border-green-400 bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-800 shadow-sm">
+                        <Euro className="h-3 w-3" />
+                        Bestpreis
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="rounded-full border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                        Alternative
+                      </Badge>
+                    )}
+                    {hasShortestTravelTime && (
+                      <Badge className="inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 shadow-none">
+                        <Clock className="h-3 w-3" />
+                        Schnellste
+                      </Badge>
+                    )}
+                    {isDirectCombination && (
+                      <Badge className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 shadow-none">
+                        <Train className="h-3 w-3" />
+                        Direkt
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-[10px] text-gray-500">Gesamt</div>
+                    <div className={cn("rounded-md px-1.5 py-0.5 text-lg font-bold leading-tight tabular-nums", priceTone(combination.totalPrice))}>
+                      {formatPrice(combination.totalPrice)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-2 grid grid-cols-2 divide-x divide-gray-100 sm:hidden">
+                  <div className="min-w-0 pr-2">
+                    <div className="text-[10px] font-semibold uppercase text-blue-700">Hinfahrt</div>
+                    <div className="truncate text-xs font-semibold text-gray-900">{formatDate(combination.outwardDate)}</div>
+                    <div className="mt-0.5 flex items-center gap-1 text-base font-bold tabular-nums text-gray-950">
+                      <span>{formatTime(combination.outwardDeparture)}</span>
+                      <ArrowRight className="h-3 w-3 shrink-0 text-gray-400" />
+                      <span>{formatTime(combination.outwardArrival)}</span>
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-gray-600">
+                      {calculateDuration(combination.outwardDeparture, combination.outwardArrival)} · {combination.outwardTransfers === 0 ? "Direkt" : `${combination.outwardTransfers ?? 0} Umstiege`}
+                    </div>
+                    <div className="mt-0.5 text-[11px] font-medium text-gray-500">{formatPrice(combination.outwardPrice)}</div>
+                  </div>
+                  <div className="min-w-0 pl-2">
+                    <div className="text-[10px] font-semibold uppercase text-blue-700">Rückfahrt</div>
+                    <div className="truncate text-xs font-semibold text-gray-900">{formatDate(combination.returnDate)}</div>
+                    <div className="mt-0.5 flex items-center gap-1 text-base font-bold tabular-nums text-gray-950">
+                      <span>{formatTime(combination.returnDeparture)}</span>
+                      <ArrowRight className="h-3 w-3 shrink-0 text-gray-400" />
+                      <span>{formatTime(combination.returnArrival)}</span>
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-gray-600">
+                      {calculateDuration(combination.returnDeparture, combination.returnArrival)} · {combination.returnTransfers === 0 ? "Direkt" : `${combination.returnTransfers ?? 0} Umstiege`}
+                    </div>
+                    <div className="mt-0.5 text-[11px] font-medium text-gray-500">{formatPrice(combination.returnPrice)}</div>
+                  </div>
+                </div>
+
+                <div className="mt-2 border-t border-gray-100 pt-1.5 text-center text-[11px] text-gray-600 sm:hidden">
+                  <span className="font-bold text-gray-900">{combination.nights}</span> {combination.nights === 1 ? "Nacht" : "Nächte"}
+                </div>
+
+                <div className="mb-2 hidden flex-wrap items-center gap-1.5 sm:flex">
                   {isBestPrice ? (
-                    <Badge className="inline-flex items-center gap-1 rounded-full border border-green-300 bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 shadow-none">
+                    <Badge className="inline-flex items-center gap-1 rounded-full border border-green-400 bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-800 shadow-sm">
                       <Euro className="h-3 w-3" />
                       Bestpreis
                     </Badge>
@@ -1877,7 +2091,7 @@ function CombinationComparisonPanel({
                     </Badge>
                   )}
                 </div>
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_4rem_minmax(0,1fr)_7rem] sm:items-center">
+                <div className="hidden gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_4rem_minmax(0,1fr)_7rem] sm:items-center">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                       <span className="font-semibold uppercase tracking-wide text-blue-700">Hinfahrt</span>
@@ -2000,14 +2214,17 @@ function CombinationComparisonPanel({
           )
         })}
       </div>
+      </div>
 
-      <div className="border-t border-gray-200 bg-gray-50 p-3">
+      <div className={cn(
+        "border-t border-gray-200 bg-gray-50 p-3",
+        mobileResultsView === "list" && "hidden lg:block"
+      )}>
         <ComboMatrix
           outwardDates={outwardDates}
           returnDates={returnDates}
           outwardResults={outwardResults}
           returnResults={returnResults}
-          best={best}
           minNights={minNights}
           maxNights={maxNights}
           isStreaming={isStreaming}
@@ -2031,20 +2248,19 @@ function CombinationComparisonPanel({
     />
 
     <Dialog open={matrixOpen} onOpenChange={setMatrixOpen}>
-      <DialogContent className="h-[92vh] w-[96vw] max-w-[96vw] overflow-hidden p-0">
-        <DialogHeader className="border-b border-gray-200 px-5 pb-4 pt-5">
-          <DialogTitle className="flex items-center gap-2 text-lg">
+      <DialogContent className="h-[100dvh] w-screen max-w-none grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden border-0 p-0 sm:h-[92vh] sm:w-[96vw] sm:max-w-[96vw] sm:rounded-lg sm:border">
+        <DialogHeader className="border-b border-gray-200 px-4 pb-3 pr-12 pt-4 text-left sm:px-5 sm:pb-4 sm:pt-5">
+          <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
             <Maximize2 className="h-5 w-5 text-blue-600" />
             Preismatrix im Überblick
           </DialogTitle>
         </DialogHeader>
-        <div className="min-h-0 overflow-hidden px-4 pb-4">
+        <div className="min-h-0 overflow-hidden sm:px-4 sm:pb-4">
           <ComboMatrix
             outwardDates={outwardDates}
             returnDates={returnDates}
             outwardResults={outwardResults}
             returnResults={returnResults}
-            best={best}
             minNights={minNights}
             maxNights={maxNights}
             isStreaming={isStreaming}
@@ -2163,20 +2379,29 @@ function JourneyDetails({
   const hasDetails = hasOutwardLegs || hasReturnLegs
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50">
+    <div>
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-semibold text-gray-800"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-blue-50/50 sm:px-5"
         onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
       >
-        <span className="inline-flex items-center gap-2">
-          <Train className="h-4 w-4 text-blue-600" />
-          {open ? "Fahrtverlauf schließen" : "Fahrtverlauf anzeigen"}
+        <span className="inline-flex min-w-0 items-center gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+            <Train className="h-4 w-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[11px] font-semibold uppercase text-gray-500">Ausgewählte Verbindung</span>
+            <span className="block text-sm font-semibold text-gray-900">Fahrtverlauf</span>
+          </span>
         </span>
-        {open ? <ChevronUp className="h-4 w-4 text-gray-500" /> : <ChevronDown className="h-4 w-4 text-gray-500" />}
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-blue-700">
+          {open ? "Schließen" : "Anzeigen"}
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </span>
       </button>
       {open && (
-        <div className="space-y-3 border-t border-gray-200 p-3">
+        <div className="space-y-3 border-t border-gray-200 bg-gray-50 p-3 sm:px-5">
           {!hasDetails && (
             <div className="text-center text-xs text-gray-500">
               Für diese Kombination sind keine Detailabschnitte verfügbar.
@@ -2353,15 +2578,11 @@ function DayRideList({
         return cheapestPerInterval.length > 0 ? cheapestPerInterval : sortedIntervals
       })()
     : sortedIntervals
+  const intervalPriceScale = createPriceBandScale(intervals.map((interval) => interval.preis))
 
   const getIntervalPriceColor = (price: number) => {
-    const prices = intervals.map((interval) => interval.preis)
-    const minPrice = Math.min(...prices)
-    const maxPrice = Math.max(...prices)
-
-    if (price === minPrice) return "text-green-600 bg-green-50"
-    if (price === maxPrice) return "text-red-600 bg-red-50"
-    return "text-orange-600 bg-orange-50"
+    const style = PRICE_BAND_STYLES[intervalPriceScale.getBand(price)]
+    return `${style.text} ${style.background} ${style.emphasis}`
   }
 
   return (
@@ -2543,6 +2764,7 @@ export function TravelCombinations({
   isStreaming,
   sessionId,
   onCancelSearch,
+  searchWasCancelled,
 }: TravelCombinationsProps) {
   const hasReturnSearch = searchParams.rueckfahrt === "1"
   const [selectedCombination, setSelectedCombination] = useState<TravelCombination | null>(null)
@@ -2573,7 +2795,6 @@ export function TravelCombinations({
   const completedReturn = resultEntries(returnResults).length
   const totalDays = expectedOutwardDays + expectedReturnDays
   const completedDays = completedOutward + completedReturn
-  const progress = totalDays > 0 ? Math.min(100, Math.round((completedDays / totalDays) * 100)) : 0
   const queueStatus = useSearchQueueStatus({
     sessionId,
     isActive: Boolean(isStreaming && completedDays < totalDays),
@@ -2661,54 +2882,38 @@ export function TravelCombinations({
 
   return (
     <div className="space-y-4">
-      {isStreaming && (
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-lg font-bold text-blue-950">Reisezeitraum-Analyse</h2>
-            <div className="mt-1 text-sm text-blue-800">
-              {startStation?.name || "Start"} nach {zielStation?.name || "Ziel"} und zurück
-            </div>
-          </div>
-          {onCancelSearch && (
-            <SearchCancelButton onClick={onCancelSearch} />
-          )}
-        </div>
-        <div className="mt-4">
-          <div className="mb-1 flex justify-between text-xs text-blue-800">
-            <span>{completedDays} von {totalDays} Reisetagen geprüft</span>
-            <span>{progress}%</span>
-          </div>
-          <div className="h-2 rounded bg-blue-100">
-            <div
-              className="h-2 rounded bg-blue-600 transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <SearchQueueStatus status={queueStatus} className="mt-3" />
-        </div>
-      </div>
-      )}
+      <SearchProgressPanel
+        isActive={Boolean(isStreaming)}
+        completedItems={completedDays}
+        totalItems={totalDays}
+        queueStatus={queueStatus}
+        progressUnit="Reisetagen"
+        completedUnit="Reisetage"
+        isCancelled={searchWasCancelled}
+        onCancel={onCancelSearch}
+      />
 
       {primaryCombination && (
-        <CombinationComparisonPanel
-          combinations={rankedCombinations}
-          selectedCombination={primaryCombination}
-          searchStart={searchStart}
-          searchEnd={searchEnd}
-          outwardDates={outwardDates}
-          returnDates={returnDates}
-          outwardResults={outwardResults}
-          returnResults={returnResults}
-          minNights={minNights}
-          maxNights={maxNights}
-          isStreaming={isStreaming}
-          startStation={startStation}
-          zielStation={zielStation}
-          searchParams={searchParams}
-          onSelectCombination={handleSelectCombination}
-          onSelectTimelineCombination={handleSelectTimelineCombination}
-        />
+        <div>
+          <CombinationComparisonPanel
+            combinations={rankedCombinations}
+            selectedCombination={primaryCombination}
+            searchStart={searchStart}
+            searchEnd={searchEnd}
+            outwardDates={outwardDates}
+            returnDates={returnDates}
+            outwardResults={outwardResults}
+            returnResults={returnResults}
+            minNights={minNights}
+            maxNights={maxNights}
+            isStreaming={isStreaming}
+            startStation={startStation}
+            zielStation={zielStation}
+            searchParams={searchParams}
+            onSelectCombination={handleSelectCombination}
+            onSelectTimelineCombination={handleSelectTimelineCombination}
+          />
+        </div>
       )}
 
       {isStreaming && rankedCombinations.length === 0 && (
