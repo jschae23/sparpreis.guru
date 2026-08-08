@@ -1,7 +1,28 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDownAZ, ArrowDownUp, ArrowRight, CalendarDays, Clock, Database, Filter, Info, Loader2, MapPin, Search, Train, X } from "lucide-react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import {
+  ArrowUp,
+  ArrowDownAZ,
+  ArrowDownUp,
+  ArrowRight,
+  CalendarClock,
+  CalendarDays,
+  Clock,
+  Clock3,
+  Database,
+  Info,
+  Loader2,
+  MapPin,
+  MapPinned,
+  RailSymbol,
+  Route,
+  Search,
+  Train,
+  TrainFront,
+  TramFront,
+  X,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,6 +47,36 @@ type ResultSort = "duration" | "name" | "product" | "frequency"
 type MaxDurationFilter = "all" | "120" | "240" | "480" | "720"
 type MinTripsFilter = "all" | "1" | "3" | "5" | "10" | "20"
 type SortDirection = "asc" | "desc"
+
+const productFilterUrlValues: Record<ProductFilter, string | null> = {
+  all: null,
+  longDistance: "fernverkehr",
+  regional: "nahverkehr",
+}
+
+function getProductFilterFromParams(params: URLSearchParams): ProductFilter {
+  const value = params.get("verkehr")
+  if (value === "fernverkehr") return "longDistance"
+  if (value === "nahverkehr") return "regional"
+  return "all"
+}
+
+function getMaxDurationFromParams(params: URLSearchParams): MaxDurationFilter {
+  const value = params.get("maxDauer")
+  if (value === "120" || value === "240" || value === "480" || value === "720") return value
+  return "all"
+}
+
+function getMinTripsFromParams(params: URLSearchParams): MinTripsFilter {
+  const value = params.get("minFahrten")
+  if (value === "1" || value === "3" || value === "5" || value === "10" || value === "20") return value
+  return "all"
+}
+
+function replaceDirectConnectionsUrl(params: URLSearchParams) {
+  const queryString = params.toString()
+  window.history.replaceState({}, "", queryString ? `/direktverbindungen?${queryString}` : "/direktverbindungen")
+}
 
 interface DirectConnectionsData {
   schemaVersion: number
@@ -208,8 +259,13 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
   const [expandedConnectionId, setExpandedConnectionId] = useState<string | null>(null)
   const [detailsByConnection, setDetailsByConnection] = useState<Record<string, DetailLoadState>>({})
   const [expandedDetailDays, setExpandedDetailDays] = useState<Record<string, boolean>>({})
+  const [desktopResultsHeight, setDesktopResultsHeight] = useState<number | null>(null)
+  const [showMobileBackToTop, setShowMobileBackToTop] = useState(false)
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const resultsSectionRef = useRef<HTMLElement>(null)
+  const resultsGridRef = useRef<HTMLDivElement>(null)
+  const shouldScrollToUrlResultsRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -217,6 +273,11 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
     async function loadData() {
       try {
         setIsLoading(true)
+        const paramsFromUrl = new URLSearchParams(window.location.search)
+        setProductFilter(getProductFilterFromParams(paramsFromUrl))
+        setMaxDuration(getMaxDurationFromParams(paramsFromUrl))
+        setMinTripsPerDay(getMinTripsFromParams(paramsFromUrl))
+
         try {
           const statusResponse = await fetch("/api/direct-connections/status", { cache: "no-store" })
           if (statusResponse.ok) {
@@ -235,10 +296,11 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
         if (cancelled) return
         setData(nextData)
 
-        const stationFromUrl = new URLSearchParams(window.location.search).get("station")
+        const stationFromUrl = paramsFromUrl.get("station")
         if (stationFromUrl) {
           const station = nextData.stations.find((item: DirectStation) => item.id === stationFromUrl)
           if (station) {
+            shouldScrollToUrlResultsRef.current = true
             setSelectedStation(station)
             setQuery(station.name)
           }
@@ -262,6 +324,15 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
   }, [])
 
   useEffect(() => {
+    if (isLoading || !selectedStation || !shouldScrollToUrlResultsRef.current) return
+
+    shouldScrollToUrlResultsRef.current = false
+    window.requestAnimationFrame(() => {
+      resultsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
+  }, [isLoading, selectedStation])
+
+  useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
         inputRef.current &&
@@ -275,6 +346,27 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
 
     document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    const updateBackToTopVisibility = () => {
+      const resultsSection = resultsSectionRef.current
+      if (!resultsSection) {
+        setShowMobileBackToTop(false)
+        return
+      }
+
+      const resultsTop = resultsSection.getBoundingClientRect().top + window.scrollY
+      setShowMobileBackToTop(window.scrollY > resultsTop + window.innerHeight * 0.75)
+    }
+
+    updateBackToTopVisibility()
+    window.addEventListener("scroll", updateBackToTopVisibility, { passive: true })
+    window.addEventListener("resize", updateBackToTopVisibility)
+    return () => {
+      window.removeEventListener("scroll", updateBackToTopVisibility)
+      window.removeEventListener("resize", updateBackToTopVisibility)
+    }
   }, [])
 
   const suggestions = useMemo(() => {
@@ -344,6 +436,62 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
     return sortDirection === "asc" ? sortedConnections : sortedConnections.reverse()
   }, [data, selectedStationIndex, productFilter, maxDuration, minTripsPerDay, resultQuery, resultSort, sortDirection])
 
+  useLayoutEffect(() => {
+    const grid = resultsGridRef.current
+    if (!grid) {
+      setDesktopResultsHeight(null)
+      return
+    }
+
+    let animationFrame: number | null = null
+    const measureThreeRows = () => {
+      if (animationFrame !== null) window.cancelAnimationFrame(animationFrame)
+      animationFrame = window.requestAnimationFrame(() => {
+        if (!window.matchMedia("(min-width: 768px)").matches) {
+          setDesktopResultsHeight(null)
+          return
+        }
+
+        const gridBounds = grid.getBoundingClientRect()
+        const items = Array.from(grid.children).map(child => {
+          const bounds = (child as HTMLElement).getBoundingClientRect()
+          return {
+            top: bounds.top - gridBounds.top + grid.scrollTop,
+            bottom: bounds.bottom - gridBounds.top + grid.scrollTop,
+          }
+        })
+        const rowTops: number[] = []
+        for (const item of items) {
+          if (!rowTops.some(top => Math.abs(top - item.top) < 2)) rowTops.push(item.top)
+        }
+        rowTops.sort((left, right) => left - right)
+
+        if (rowTops.length <= 3) {
+          setDesktopResultsHeight(null)
+          return
+        }
+
+        const thirdRowTop = rowTops[2]
+        const thirdRowBottom = Math.max(
+          ...items.filter(item => Math.abs(item.top - thirdRowTop) < 2).map(item => item.bottom)
+        )
+        const nextHeight = Math.ceil(thirdRowBottom)
+        setDesktopResultsHeight(current => current === nextHeight ? current : nextHeight)
+      })
+    }
+
+    measureThreeRows()
+    const resizeObserver = new ResizeObserver(measureThreeRows)
+    resizeObserver.observe(grid)
+    Array.from(grid.children).forEach(child => resizeObserver.observe(child))
+    window.addEventListener("resize", measureThreeRows)
+    return () => {
+      if (animationFrame !== null) window.cancelAnimationFrame(animationFrame)
+      resizeObserver.disconnect()
+      window.removeEventListener("resize", measureThreeRows)
+    }
+  }, [connections, expandedConnectionId, detailsByConnection])
+
   const productCounts = useMemo(() => {
     if (!data || selectedStationIndex < 0) {
       return { all: 0, longDistance: 0, regional: 0 }
@@ -406,7 +554,32 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
     setExpandedDetailDays({})
     const params = new URLSearchParams(window.location.search)
     params.set("station", station.id)
-    window.history.replaceState({}, "", `/direktverbindungen?${params.toString()}`)
+    replaceDirectConnectionsUrl(params)
+  }, [])
+
+  const changeProductFilter = useCallback((value: ProductFilter) => {
+    setProductFilter(value)
+    const params = new URLSearchParams(window.location.search)
+    const urlValue = productFilterUrlValues[value]
+    if (urlValue) params.set("verkehr", urlValue)
+    else params.delete("verkehr")
+    replaceDirectConnectionsUrl(params)
+  }, [])
+
+  const changeMaxDuration = useCallback((value: MaxDurationFilter) => {
+    setMaxDuration(value)
+    const params = new URLSearchParams(window.location.search)
+    if (value === "all") params.delete("maxDauer")
+    else params.set("maxDauer", value)
+    replaceDirectConnectionsUrl(params)
+  }, [])
+
+  const changeMinTripsPerDay = useCallback((value: MinTripsFilter) => {
+    setMinTripsPerDay(value)
+    const params = new URLSearchParams(window.location.search)
+    if (value === "all") params.delete("minFahrten")
+    else params.set("minFahrten", value)
+    replaceDirectConnectionsUrl(params)
   }, [])
 
   const reset = useCallback(() => {
@@ -416,7 +589,9 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
     setExpandedConnectionId(null)
     setExpandedDetailDays({})
     setShowSuggestions(false)
-    window.history.replaceState({}, "", "/direktverbindungen")
+    const params = new URLSearchParams(window.location.search)
+    params.delete("station")
+    replaceDirectConnectionsUrl(params)
     inputRef.current?.focus()
   }, [])
 
@@ -481,6 +656,11 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
     if (suggestions[0]) {
       selectStation(suggestions[0])
     }
+    if (selectedStation || suggestions[0]) {
+      window.requestAnimationFrame(() => {
+        resultsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      })
+    }
   }
 
   const selectedStationConnectionCount = selectedStationIndex >= 0
@@ -490,7 +670,7 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
   return (
     <div className="min-h-screen bg-white">
       <PageContainer>
-        <header className="mb-6">
+        <header className="mb-6 px-3 sm:px-0">
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
               <MainNavigation active="direktverbindungen" variant="mobile" />
@@ -505,41 +685,45 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
         </header>
 
         <section className="mb-8">
-          <div className="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-gray-100 p-2 shadow-lg sm:p-4">
-            <div className="mb-3 flex items-center justify-between gap-3 sm:mb-4">
-              <h2 className="text-lg font-bold text-gray-800 sm:text-xl">
-                Direktverbindungen
-              </h2>
+          <div className="w-full bg-white p-3 sm:rounded-xl sm:border sm:border-gray-200 sm:p-5 sm:shadow-sm">
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-gray-900 sm:text-2xl">Direktverbindungen</h2>
+                <p className="mt-1 text-xs text-gray-600 sm:text-sm">
+                  Ziele entdecken, die du ohne Umstieg erreichst.
+                </p>
+              </div>
               <FAQPopup context="direktverbindungen" />
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
-              <div className="rounded-lg border border-gray-100 bg-white p-2 shadow-sm sm:p-4">
-                <h3 className="mb-2 flex items-center gap-2 text-md font-semibold text-gray-700 sm:mb-3">
-                  <MapPin className="h-4 w-4 text-blue-600" />
-                  Startbahnhof
-                </h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4">
                 <div className="relative">
-                  <Label htmlFor="direct-start" className="mb-2 block text-sm font-medium text-gray-600">
-                    <span className="inline-flex items-center gap-1">
-                      <Search className="h-4 w-4 text-blue-500" />
-                      Von welchem Bahnhof möchtest du starten?
+                  <Label htmlFor="direct-start" className="mb-2 block text-sm font-medium text-gray-700">
+                    <span className="inline-flex items-center gap-1.5">
+                      <MapPinned className="h-4 w-4 text-blue-500" />
+                      Startbahnhof
                     </span>
                   </Label>
                   <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                     <Input
                       ref={inputRef}
                       id="direct-start"
                       type="text"
                       value={query}
-                      placeholder="z.B. Berlin Hauptbahnhof"
+                      placeholder="z. B. Berlin Hauptbahnhof"
                       autoComplete="off"
-                      className={`${ctrl} pr-10`}
+                      className={`${ctrl} px-10`}
                       onChange={event => {
                         setQuery(event.target.value)
                         setShowSuggestions(true)
                       }}
                       onFocus={() => query.length >= 2 && setShowSuggestions(true)}
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={showSuggestions && suggestions.length > 0}
+                      aria-controls="direct-start-suggestions"
                     />
                     {query && (
                       <button
@@ -555,8 +739,10 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
 
                   {showSuggestions && suggestions.length > 0 && (
                     <div
+                      id="direct-start-suggestions"
                       ref={suggestionsRef}
                       className="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-gray-300 bg-white shadow-lg"
+                      role="listbox"
                     >
                       {suggestions.map(station => (
                         <button
@@ -564,6 +750,8 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                           type="button"
                           onClick={() => selectStation(station)}
                           className="w-full border-b border-gray-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-blue-50"
+                          role="option"
+                          aria-selected={selectedStation?.id === station.id}
                         >
                           <div className="font-medium text-gray-900">{station.name}</div>
                           {station.altNames && station.altNames.length > 0 && (
@@ -576,108 +764,129 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                     </div>
                   )}
                 </div>
-              </div>
 
-              <div className="rounded-lg border border-gray-100 bg-white p-2 shadow-sm sm:p-3">
-                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                  <Filter className="h-4 w-4 text-blue-600" />
-                  Verkehrsmittel
-                </h3>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {([
-                    ["all", "Alle", productCounts.all],
-                    ["longDistance", "Fernverkehr", productCounts.longDistance],
-                    ["regional", "Nahverkehr", productCounts.regional],
-                  ] as const).map(([value, label, count]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setProductFilter(value)}
-                      className={`rounded-lg border-2 px-3 py-2 text-sm font-medium transition-all ${
-                        productFilter === value
-                          ? "border-blue-600 bg-blue-600 text-white shadow-sm"
-                          : "border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        <Train className="h-4 w-4" />
-                        <span>{label}</span>
-                        {selectedStation && <span className="text-xs opacity-80">({count})</span>}
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  <fieldset className="min-w-0 rounded-lg border border-gray-200 bg-white p-3">
+                    <legend className="sr-only">Verkehrsmittel</legend>
+                    <div className="mb-3 flex items-start gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                        <TrainFront className="h-4 w-4" />
+                      </span>
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">Verkehrsmittel</div>
+                        <p className="mt-0.5 text-xs text-gray-500">Welche direkten Züge sollen zählen?</p>
                       </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
+                    </div>
+                    <div className="grid grid-cols-3 rounded-lg bg-gray-200/70 p-1" role="group" aria-label="Verkehrsmittel wählen">
+                      {([
+                        ["all", "Alle", productCounts.all, RailSymbol],
+                        ["longDistance", "Fernverkehr", productCounts.longDistance, TrainFront],
+                        ["regional", "Nahverkehr", productCounts.regional, TramFront],
+                      ] as const).map(([value, label, count, ProductIcon]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => changeProductFilter(value)}
+                          className={`min-w-0 rounded-md px-1.5 py-2 text-xs font-semibold transition sm:px-3 sm:text-sm ${
+                            productFilter === value
+                              ? "bg-white text-blue-700 shadow-sm"
+                              : "text-gray-600 hover:text-gray-900"
+                          }`}
+                          aria-pressed={productFilter === value}
+                        >
+                          <span className="flex items-center justify-center gap-1.5">
+                            <ProductIcon className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{label}</span>
+                            {selectedStation && <span className="hidden text-xs opacity-70 sm:inline">({count})</span>}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
 
-              <div className="rounded-lg border border-gray-100 bg-white p-2 shadow-sm sm:p-3">
-                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                  <Filter className="h-4 w-4 text-blue-600" />
-                  Maximale Fahrtdauer
-                </h3>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                  {([
-                    ["all", "Alle", durationCounts.all],
-                    ["120", "bis 2 h", durationCounts["120"]],
-                    ["240", "bis 4 h", durationCounts["240"]],
-                    ["480", "bis 8 h", durationCounts["480"]],
-                    ["720", "bis 12 h", durationCounts["720"]],
-                  ] as const).map(([value, label, count]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setMaxDuration(value)}
-                      className={`rounded-lg border-2 px-3 py-2 text-sm font-medium transition-all ${
-                        maxDuration === value
-                          ? "border-blue-600 bg-blue-600 text-white shadow-sm"
-                          : "border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50"
-                      }`}
-                    >
-                      <div className="flex flex-col items-center justify-center gap-0.5 leading-tight">
-                        <span>{label}</span>
-                        {selectedStation && <span className="text-xs opacity-80">({count})</span>}
+                  <fieldset className="min-w-0 rounded-lg border border-gray-200 bg-white p-3">
+                    <legend className="sr-only">Maximale Fahrtdauer</legend>
+                    <div className="mb-3 flex items-start gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                        <Clock3 className="h-4 w-4" />
+                      </span>
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">Maximale Fahrtdauer</div>
+                        <p className="mt-0.5 text-xs text-gray-500">Wie lange darf die direkte Fahrt dauern?</p>
                       </div>
-                    </button>
-                  ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 rounded-lg bg-gray-200/70 p-1 sm:grid-cols-5" role="group" aria-label="Maximale Fahrtdauer wählen">
+                      {([
+                        ["all", "Alle", durationCounts.all],
+                        ["120", "bis 2 h", durationCounts["120"]],
+                        ["240", "bis 4 h", durationCounts["240"]],
+                        ["480", "bis 8 h", durationCounts["480"]],
+                        ["720", "bis 12 h", durationCounts["720"]],
+                      ] as const).map(([value, label, count]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => changeMaxDuration(value)}
+                          className={`rounded-md px-2 py-2 text-xs font-semibold transition sm:text-sm ${
+                            maxDuration === value
+                              ? "bg-white text-blue-700 shadow-sm"
+                              : "text-gray-600 hover:text-gray-900"
+                          }`}
+                          aria-pressed={maxDuration === value}
+                        >
+                          <span className="block">{label}</span>
+                          {selectedStation && <span className="block text-[10px] font-medium opacity-70">{count} Ziele</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
                 </div>
+
+                <fieldset className="mt-3 min-w-0 rounded-lg border border-gray-200 bg-white p-3">
+                  <legend className="sr-only">Mindestangebot pro Tag</legend>
+                  <div className="mb-3 flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                      <CalendarClock className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">Verbindungen pro Tag</div>
+                      <p className="mt-0.5 text-xs text-gray-500">Wie häufig soll das Ziel direkt erreichbar sein?</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 rounded-lg bg-gray-200/70 p-1 sm:grid-cols-6" role="group" aria-label="Mindestanzahl täglicher Verbindungen wählen">
+                    {([
+                      ["all", "Alle", tripFrequencyCounts.all],
+                      ["1", "ab 1", tripFrequencyCounts["1"]],
+                      ["3", "ab 3", tripFrequencyCounts["3"]],
+                      ["5", "ab 5", tripFrequencyCounts["5"]],
+                      ["10", "ab 10", tripFrequencyCounts["10"]],
+                      ["20", "ab 20", tripFrequencyCounts["20"]],
+                    ] as const).map(([value, label, count]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => changeMinTripsPerDay(value)}
+                        className={`rounded-md px-2 py-2 text-xs font-semibold transition sm:text-sm ${
+                          minTripsPerDay === value
+                            ? "bg-white text-blue-700 shadow-sm"
+                            : "text-gray-600 hover:text-gray-900"
+                        }`}
+                        aria-pressed={minTripsPerDay === value}
+                      >
+                        <span className="block">{label}</span>
+                        {selectedStation && <span className="block text-[10px] font-medium opacity-70">{count} Ziele</span>}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
 
-              <div className="rounded-lg border border-gray-100 bg-white p-2 shadow-sm sm:p-3">
-                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                  <Filter className="h-4 w-4 text-blue-600" />
-                  Mindestangebot
-                </h3>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
-                  {([
-                    ["all", "Alle", tripFrequencyCounts.all],
-                    ["1", "ab 1/Tag", tripFrequencyCounts["1"]],
-                    ["3", "ab 3/Tag", tripFrequencyCounts["3"]],
-                    ["5", "ab 5/Tag", tripFrequencyCounts["5"]],
-                    ["10", "ab 10/Tag", tripFrequencyCounts["10"]],
-                    ["20", "ab 20/Tag", tripFrequencyCounts["20"]],
-                  ] as const).map(([value, label, count]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setMinTripsPerDay(value)}
-                      className={`rounded-lg border-2 px-3 py-2 text-sm font-medium transition-all ${
-                        minTripsPerDay === value
-                          ? "border-blue-600 bg-blue-600 text-white shadow-sm"
-                          : "border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50"
-                      }`}
-                    >
-                      <div className="flex flex-col items-center justify-center gap-0.5 leading-tight">
-                        <span>{label}</span>
-                        {selectedStation && <span className="text-xs opacity-80">({count})</span>}
-                      </div>
-                    </button>
-                  ))}
-                </div>
+              <div className="sticky bottom-2 z-30 rounded-xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
+                <Button type="submit" className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700">
+                  <Route className="h-4 w-4" />
+                  Direktziele anzeigen
+                </Button>
               </div>
-
-              <Button type="submit" className="w-full rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white shadow-sm hover:bg-blue-700">
-                <ArrowRight className="h-4 w-4" />
-                Direktziele anzeigen
-              </Button>
             </form>
           </div>
         </section>
@@ -714,9 +923,9 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
           </section>
         )}
 
-        <section className="mb-8 space-y-4">
-          <div className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm sm:p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <section ref={resultsSectionRef} className="mb-8 scroll-mt-4 space-y-4">
+          <div className="border-y border-gray-200 bg-white p-2 sm:rounded-lg sm:border sm:p-4 sm:shadow-sm">
+            <div className="mb-3 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-md font-semibold text-gray-800">Karte</h3>
                 <p className="text-xs text-gray-500">
@@ -727,11 +936,11 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                       : "Wähle einen Bahnhof aus, um Direktziele auf der Karte zu sehen"}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge className="border-red-200 bg-red-50 text-red-700 hover:bg-red-50">Fernverkehr</Badge>
-                <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">Nahverkehr</Badge>
-                <Badge className="border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-50">Beides</Badge>
-                <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 shadow-sm">
+              <div className="flex w-full flex-nowrap items-center gap-1.5 sm:w-auto sm:gap-2">
+                <Badge className="border-red-200 bg-red-50 text-[10px] text-red-700 hover:bg-red-50 sm:text-xs">Fernverkehr</Badge>
+                <Badge className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700 hover:bg-emerald-50 sm:text-xs">Nahverkehr</Badge>
+                <Badge className="border-purple-200 bg-purple-50 text-[10px] text-purple-700 hover:bg-purple-50 sm:text-xs">Beides</Badge>
+                <div className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 py-1 shadow-sm sm:gap-2 sm:px-3 sm:py-1.5">
                   <Switch
                     id="duration-overlay-toggle"
                     checked={showDurationOverlay}
@@ -742,7 +951,8 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                     htmlFor="duration-overlay-toggle"
                     className="cursor-pointer select-none text-xs font-semibold text-gray-700"
                   >
-                    Fahrtdauer-Zonen
+                    <span className="sm:hidden">Zonen</span>
+                    <span className="hidden sm:inline">Fahrtdauer-Zonen</span>
                   </Label>
                 </div>
               </div>
@@ -762,7 +972,7 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
             />
           </div>
 
-          <div className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm sm:p-4">
+          <div className="border-y border-gray-200 bg-white p-2 sm:rounded-lg sm:border sm:p-4 sm:shadow-sm">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-md font-semibold text-gray-800">Direkt erreichbare Ziele</h3>
@@ -863,7 +1073,11 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                 Für diesen Filter wurden keine Direktziele gefunden.
               </div>
             ) : (
-              <div className="grid max-h-[640px] gap-2 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
+              <div
+                ref={resultsGridRef}
+                className="grid gap-2 md:max-h-[640px] md:grid-cols-2 md:overflow-y-auto md:pr-1 xl:grid-cols-3"
+                style={desktopResultsHeight ? { maxHeight: `${desktopResultsHeight}px` } : undefined}
+              >
                 {connections.map(connection => {
                   const detailState = detailsByConnection[connection.station.id]
                   const isExpanded = expandedConnectionId === connection.station.id
@@ -1032,6 +1246,18 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
             )}
           </div>
         </section>
+
+        {selectedStation && connections.length > 0 && showMobileBackToTop && (
+          <button
+            type="button"
+            onClick={() => resultsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-3 z-[1400] inline-flex min-h-11 items-center gap-2 rounded-full border border-blue-200 bg-white px-3.5 py-2 text-xs font-semibold text-blue-700 shadow-lg transition-colors hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 md:hidden"
+            aria-label="Zum Ergebnisbereich bei der Karte scrollen"
+          >
+            <ArrowUp className="h-4 w-4" />
+            Nach oben
+          </button>
+        )}
 
         <Footer show={showFooter} />
       </PageContainer>
