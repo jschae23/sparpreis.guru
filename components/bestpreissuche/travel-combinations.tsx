@@ -1191,8 +1191,8 @@ function CombinationResultListItem({
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-lg border bg-white shadow-sm transition",
-        isBestPrice ? "border-l-4 border-l-green-500" : "border-gray-200",
+        "overflow-hidden rounded-lg border shadow-sm transition",
+        isBestPrice ? "border-green-400 bg-green-100/60" : "border-gray-200 bg-white",
         outsideStayFilter && "border-amber-300 bg-amber-50/60",
         active && !manuallySelected && "ring-2 ring-blue-500 ring-offset-1",
         manuallySelected && "border-blue-500 ring-2 ring-blue-600"
@@ -1209,7 +1209,11 @@ function CombinationResultListItem({
         type="button"
         className={cn(
           "w-full text-left transition-colors",
-          outsideStayFilter ? "hover:bg-amber-50" : "hover:bg-gray-50"
+          outsideStayFilter
+            ? "hover:bg-amber-50"
+            : isBestPrice
+              ? "hover:bg-green-100/80"
+              : "hover:bg-gray-50"
         )}
         onClick={onSelect}
         aria-pressed={active}
@@ -1865,13 +1869,10 @@ function CombinationComparisonPanel({
     }
   }, [shouldOfferExpandedMatrix])
 
-  const scrollToMatrixFocus = () => {
+  const scrollToMatrix = () => {
     const matrixViewport = inlineMatrixViewportRef.current
     if (!matrixViewport) return
 
-    matrixAutoSnapDoneRef.current = true
-    setIsInlineMatrixFocused(true)
-    setIsInlineMatrixCaptured(true)
     const targetOffset = window.innerHeight * 0.02
     const bounds = matrixViewport.getBoundingClientRect()
     window.scrollTo({
@@ -2095,7 +2096,7 @@ function CombinationComparisonPanel({
             ? "fixed top-3"
             : "absolute top-0 -translate-y-1/2"
         )}
-        onClick={isInlineMatrixCaptured ? scrollToCombinationList : scrollToMatrixFocus}
+        onClick={isInlineMatrixCaptured ? scrollToCombinationList : scrollToMatrix}
         aria-label={isInlineMatrixCaptured ? "Zur Ergebnisliste springen" : "Zur Preismatrix springen"}
       >
         {isInlineMatrixCaptured ? (
