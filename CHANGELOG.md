@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.1.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.0.0...v2.1.0) (2026-08-09)
+
+
+### Features
+
+* **direktverbindungen:** improve filters and result navigation ([e5a7abd](https://github.com/sparpreis-guru/sparpreis.guru/commit/e5a7abd2cc59fc01d1b2f8da2ca904b9f3b65bb9))
+* **search:** add lazy pricing and unified journey results ([adae92b](https://github.com/sparpreis-guru/sparpreis.guru/commit/adae92bd48d39f8c6280514c2198ddeac6078657))
+* **urlaubsfinder:** align journey results with best-price search ([4810263](https://github.com/sparpreis-guru/sparpreis.guru/commit/48102633049ce8be9a49e8371a36f8591728e427))
+
+
+### Bug Fixes
+
+* **klassik:** improve responsive legacy finder ([4dbe1a8](https://github.com/sparpreis-guru/sparpreis.guru/commit/4dbe1a8e5a4beb2410eb63eafb7af32126b2a8af))
+* **layout:** optimize mobile page spacing ([48b4652](https://github.com/sparpreis-guru/sparpreis.guru/commit/48b46520c9349c0950012b38e0defe3bca64c857))
+* **search:** improve mobile night spacing ([2e1057b](https://github.com/sparpreis-guru/sparpreis.guru/commit/2e1057b4cd5c0b16b7077de74445dcf40a9396a0))
+* **search:** improve restarts and progress feedback ([f058b03](https://github.com/sparpreis-guru/sparpreis.guru/commit/f058b03a1da7f5eac16b1f0280bf6e110f6fca84))
+* **search:** preserve vehicle types in journey details ([28892bc](https://github.com/sparpreis-guru/sparpreis.guru/commit/28892bc937fab1383178833c530e4ffaf967e5f9))
+* **ui:** keep badge colors static ([394cea7](https://github.com/sparpreis-guru/sparpreis.guru/commit/394cea7487a217be0e4bd62733a792d5671d5cf4))
+
 ## [2.0.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v1.4.1...v2.0.0) (2026-08-08)
 
 > [!IMPORTANT]
