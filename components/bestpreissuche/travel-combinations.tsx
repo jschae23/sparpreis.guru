@@ -1191,8 +1191,8 @@ function CombinationResultListItem({
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-lg border bg-white shadow-sm transition",
-        isBestPrice ? "border-l-4 border-l-green-500" : "border-gray-200",
+        "overflow-hidden rounded-lg border shadow-sm transition",
+        isBestPrice ? "border-green-400 bg-green-100/60" : "border-gray-200 bg-white",
         outsideStayFilter && "border-amber-300 bg-amber-50/60",
         active && !manuallySelected && "ring-2 ring-blue-500 ring-offset-1",
         manuallySelected && "border-blue-500 ring-2 ring-blue-600"
@@ -1209,7 +1209,11 @@ function CombinationResultListItem({
         type="button"
         className={cn(
           "w-full text-left transition-colors",
-          outsideStayFilter ? "hover:bg-amber-50" : "hover:bg-gray-50"
+          outsideStayFilter
+            ? "hover:bg-amber-50"
+            : isBestPrice
+              ? "hover:bg-green-100/80"
+              : "hover:bg-gray-50"
         )}
         onClick={onSelect}
         aria-pressed={active}

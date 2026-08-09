@@ -242,7 +242,7 @@ function ResultCard({
   return (
     <article
       id={`result-card-${encodeURIComponent(result.destination)}`}
-      className={`overflow-hidden rounded-lg border border-gray-200 bg-white text-sm shadow-sm transition hover:shadow-md ${priceBand === "best" ? "border-l-4 border-l-green-500" : ""} ${isExpanded ? "ring-2 ring-blue-300 ring-offset-1" : ""}`}
+      className={`overflow-hidden rounded-lg border text-sm shadow-sm transition hover:shadow-md ${priceBand === "best" ? "border-green-400 bg-green-100/60" : "border-gray-200 bg-white"} ${isExpanded ? "ring-2 ring-blue-300 ring-offset-1" : ""}`}
     >
       <header className="border-b border-gray-200 bg-white/80 px-3 py-2.5 sm:px-4">
         <div className="min-w-0">

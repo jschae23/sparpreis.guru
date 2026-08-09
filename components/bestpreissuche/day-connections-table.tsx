@@ -170,7 +170,7 @@ export function ConnectionsTable({
           return (
             <article
               key={rowKey}
-              className={`overflow-hidden rounded-lg border bg-white shadow-sm transition hover:shadow-md ${isBestPrice ? "border-l-4 border-l-green-500" : "border-gray-200"}`}
+              className={`overflow-hidden rounded-lg border shadow-sm transition hover:shadow-md ${isBestPrice ? "border-green-400 bg-green-100/60" : "border-gray-200 bg-white"}`}
             >
               <OneWayJourneySummary
                 journey={journey}
