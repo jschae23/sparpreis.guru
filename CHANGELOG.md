@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.1](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.1.0...v2.1.1) (2026-08-09)
+
+
+### Bug Fixes
+
+* **search:** highlight best-price results without layout shift ([3455928](https://github.com/sparpreis-guru/sparpreis.guru/commit/345592824b3aa23cb07a20d9e78395c2538341bf))
+* **search:** prevent matrix jump from forcing focus mode ([bf5e2f9](https://github.com/sparpreis-guru/sparpreis.guru/commit/bf5e2f9770fe662c2591b44410bec54959791c7b))
+
 ## [2.1.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.0.0...v2.1.0) (2026-08-09)
 
 
