@@ -1865,13 +1865,10 @@ function CombinationComparisonPanel({
     }
   }, [shouldOfferExpandedMatrix])
 
-  const scrollToMatrixFocus = () => {
+  const scrollToMatrix = () => {
     const matrixViewport = inlineMatrixViewportRef.current
     if (!matrixViewport) return
 
-    matrixAutoSnapDoneRef.current = true
-    setIsInlineMatrixFocused(true)
-    setIsInlineMatrixCaptured(true)
     const targetOffset = window.innerHeight * 0.02
     const bounds = matrixViewport.getBoundingClientRect()
     window.scrollTo({
@@ -2095,7 +2092,7 @@ function CombinationComparisonPanel({
             ? "fixed top-3"
             : "absolute top-0 -translate-y-1/2"
         )}
-        onClick={isInlineMatrixCaptured ? scrollToCombinationList : scrollToMatrixFocus}
+        onClick={isInlineMatrixCaptured ? scrollToCombinationList : scrollToMatrix}
         aria-label={isInlineMatrixCaptured ? "Zur Ergebnisliste springen" : "Zur Preismatrix springen"}
       >
         {isInlineMatrixCaptured ? (
