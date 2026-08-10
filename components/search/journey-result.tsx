@@ -1,5 +1,5 @@
 import { Children, type ReactNode } from "react"
-import { ArrowRight, ChevronDown, ChevronUp, Clock, Shuffle, Train } from "lucide-react"
+import { ArrowRight, ChevronDown, ChevronUp, Clock, Moon, Shuffle, Train, TrainFront } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -22,6 +22,10 @@ export interface RoundTripJourneyData {
   outwardArrival: string
   returnDeparture?: string
   returnArrival?: string
+  outwardOrigin?: string
+  outwardDestination?: string
+  returnOrigin?: string
+  returnDestination?: string
   outwardTransfers?: number
   returnTransfers?: number
   outwardLegs?: JourneyLeg[]
@@ -140,7 +144,7 @@ export function JourneyResultActionBar({
       "flex flex-col gap-2 border-t border-gray-100 bg-gray-50/70 px-3",
       tableLayout
         ? "py-2 md:grid md:grid-cols-[minmax(7rem,1fr)_minmax(7rem,1fr)_minmax(10rem,1.5fr)_minmax(7rem,0.85fr)_minmax(7rem,0.85fr)] md:items-center md:gap-4 md:px-4"
-        : cn("sm:flex-row sm:items-center sm:justify-between", dense ? "py-1.5" : "py-2 sm:px-4")
+        : cn("sm:flex-row sm:items-center sm:justify-between", dense ? "py-1" : "py-1.5 sm:px-4")
     )}>
       <div className={cn(
         tableLayout
@@ -257,220 +261,303 @@ function transferLabel(transfers?: number) {
   return `${transfers} Umstieg${transfers === 1 ? "" : "e"}`
 }
 
-function DirectionSummary({
-  direction,
-  date,
+function getArrivalDayOffset(departure?: string, arrival?: string) {
+  const departureDate = departure?.match(/^\d{4}-\d{2}-\d{2}/)?.[0]
+  const arrivalDate = arrival?.match(/^\d{4}-\d{2}-\d{2}/)?.[0]
+  if (!departureDate || !arrivalDate) return 0
+
+  const [departureYear, departureMonth, departureDay] = departureDate.split("-").map(Number)
+  const [arrivalYear, arrivalMonth, arrivalDay] = arrivalDate.split("-").map(Number)
+  const offset = Math.round((
+    Date.UTC(arrivalYear, arrivalMonth - 1, arrivalDay) -
+    Date.UTC(departureYear, departureMonth - 1, departureDay)
+  ) / 86_400_000)
+
+  return Math.max(0, offset)
+}
+
+function getStayNights(outwardDate?: string, returnDate?: string) {
+  const outwardDay = outwardDate?.match(/^\d{4}-\d{2}-\d{2}/)?.[0]
+  const returnDay = returnDate?.match(/^\d{4}-\d{2}-\d{2}/)?.[0]
+  if (!outwardDay || !returnDay) return undefined
+
+  const [outwardYear, outwardMonth, outwardDateOfMonth] = outwardDay.split("-").map(Number)
+  const [returnYear, returnMonth, returnDateOfMonth] = returnDay.split("-").map(Number)
+  const nightCount = Math.round((
+    Date.UTC(returnYear, returnMonth - 1, returnDateOfMonth) -
+    Date.UTC(outwardYear, outwardMonth - 1, outwardDateOfMonth)
+  ) / 86_400_000)
+
+  return nightCount >= 0 ? nightCount : undefined
+}
+
+function JourneySummaryHeader({
+  leadingContent,
+  mobileBadges,
+  desktopBadges,
+  price,
+  priceTone,
+  totalDuration,
+  totalTransfers,
+  stackOnMobile = false,
+}: {
+  leadingContent?: ReactNode
+  mobileBadges?: ReactNode
+  desktopBadges?: ReactNode
+  price: number
+  priceTone: string
+  totalDuration?: string | null
+  totalTransfers?: number | null
+  stackOnMobile?: boolean
+}) {
+  const showTotals = Boolean(totalDuration) || typeof totalTransfers === "number"
+  const leadingBlock = (
+    <div className="flex min-w-0 items-center gap-3">
+      {leadingContent && <div className="min-w-0">{leadingContent}</div>}
+      <span className="contents sm:hidden">{mobileBadges}</span>
+      <span className="hidden shrink-0 flex-wrap items-center gap-1.5 sm:flex">{desktopBadges}</span>
+    </div>
+  )
+  const totalsBlock = (
+    <>
+      {totalDuration && (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-gray-500">
+          <Clock className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+          <strong className="font-semibold text-gray-700">{totalDuration}</strong>
+        </span>
+      )}
+      {totalDuration && typeof totalTransfers === "number" && (
+        <span className="text-xs text-gray-300" aria-hidden="true">·</span>
+      )}
+      {typeof totalTransfers === "number" && (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-gray-500" aria-label={`${totalTransfers} Umstiege insgesamt`}>
+          <Shuffle className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+          <strong className="font-semibold text-gray-700 sm:hidden">{totalTransfers}</strong>
+          <span className="hidden sm:inline">{transferLabel(totalTransfers)}</span>
+        </span>
+      )}
+    </>
+  )
+  const priceBlock = (
+    <span
+      className={cn(
+        "shrink-0 rounded-md border px-1.5 py-0.5 text-lg font-bold leading-tight tabular-nums sm:px-2 sm:py-1 sm:text-xl",
+        priceTone
+      )}
+      aria-label={`${showTotals ? "Gesamtpreis" : "Preis"} ${formatPrice(price)}`}
+    >
+      {formatPrice(price)}
+    </span>
+  )
+
+  if (stackOnMobile) {
+    return (
+      <header className="grid min-h-[3.25rem] grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_auto] items-center gap-x-3 gap-y-1 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:gap-2 sm:px-4">
+        <div className="col-start-1 row-start-1 min-w-0">{leadingBlock}</div>
+        {showTotals && (
+          <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1.5 sm:ml-auto sm:shrink-0">
+            {totalsBlock}
+          </div>
+        )}
+        {showTotals && <span className="hidden text-xs text-gray-300 sm:inline" aria-hidden="true">·</span>}
+        <div className="col-start-2 row-span-2 row-start-1 self-center">{priceBlock}</div>
+      </header>
+    )
+  }
+
+  return (
+    <header className="flex min-h-[3.25rem] items-center justify-between gap-3 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:px-4">
+      {leadingBlock}
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+        {totalsBlock}
+        {showTotals && <span className="text-xs text-gray-300" aria-hidden="true">·</span>}
+        {priceBlock}
+      </div>
+    </header>
+  )
+}
+
+function JourneyConnectionOverview({
   departure,
   arrival,
-  price,
+  origin,
+  destination,
   transfers,
   legs,
+  showVehicleTypes = true,
+  hideVehicleTypesOnMobile = false,
+  widthReferenceOrigin,
+  widthReferenceDestination,
 }: {
-  direction: "Einfache Fahrt" | "Hinfahrt" | "Rückfahrt"
-  date?: string
   departure?: string
   arrival?: string
-  price?: number
+  origin?: string
+  destination?: string
   transfers?: number
   legs?: JourneyLeg[]
+  showVehicleTypes?: boolean
+  hideVehicleTypesOnMobile?: boolean
+  widthReferenceOrigin?: string
+  widthReferenceDestination?: string
 }) {
+  const arrivalDayOffset = getArrivalDayOffset(departure, arrival)
+
   return (
-    <div className="min-w-0">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-        <span className="font-semibold uppercase tracking-wide text-blue-700">{direction}</span>
-        <span className="hidden text-gray-300 sm:inline" aria-hidden="true">·</span>
-        <span className="hidden font-medium text-gray-500 sm:inline">Einzelpreis {formatPrice(price)}</span>
+    <div className={cn(
+      "grid w-full min-w-0 items-center",
+      showVehicleTypes
+        ? "grid-cols-1 gap-y-1.5 sm:grid-cols-[minmax(18rem,max-content)_minmax(0,1fr)] sm:gap-x-8 sm:gap-y-0 lg:gap-x-10"
+        : "grid-cols-[minmax(0,18rem)_minmax(0,1fr)] gap-x-8 sm:grid-cols-[minmax(18rem,max-content)_minmax(0,1fr)] lg:gap-x-10"
+    )}>
+      <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] items-center gap-x-1 sm:w-fit sm:min-w-[18rem] sm:grid-cols-[minmax(0,max-content)_1.25rem_minmax(0,max-content)] sm:justify-between sm:gap-x-2">
+          <div className="min-w-0 sm:max-w-[13rem]">
+            <div className="text-lg font-bold leading-none tabular-nums text-gray-950">{formatTime(departure)}</div>
+            <div className="mt-1.5 truncate text-xs font-medium text-gray-700" title={origin}>{origin || "–"}</div>
+          </div>
+          <ArrowRight className="h-4 w-4 justify-self-center text-blue-400" />
+          <div className="min-w-0 pr-3 text-right sm:max-w-[13rem] sm:pr-0">
+            <div className="relative inline-block text-lg font-bold leading-none tabular-nums text-gray-950">
+              {formatTime(arrival)}
+              {arrivalDayOffset > 0 && (
+                <sup
+                  className="absolute left-full top-0 ml-0.5 text-[10px] font-semibold leading-none text-blue-600"
+                  aria-label={`Ankunft ${arrivalDayOffset === 1 ? "am Folgetag" : `${arrivalDayOffset} Tage später`}`}
+                  title={arrivalDayOffset === 1 ? "Ankunft am Folgetag" : `Ankunft ${arrivalDayOffset} Tage später`}
+                >
+                  +{arrivalDayOffset}
+                </sup>
+              )}
+            </div>
+            <div className="mt-1.5 truncate text-xs font-medium text-gray-700" title={destination}>{destination || "–"}</div>
+          </div>
+          {widthReferenceOrigin && (
+            <span className="pointer-events-none invisible col-start-1 row-start-2 hidden h-0 max-w-[13rem] whitespace-nowrap text-xs font-medium sm:block" aria-hidden="true">
+              {widthReferenceOrigin}
+            </span>
+          )}
+          {widthReferenceDestination && (
+            <span className="pointer-events-none invisible col-start-3 row-start-2 hidden h-0 max-w-[13rem] whitespace-nowrap text-xs font-medium sm:block" aria-hidden="true">
+              {widthReferenceDestination}
+            </span>
+          )}
+        </div>
+      <div className={cn(
+        "min-w-0 items-center text-[11px] text-gray-600 sm:grid sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-x-8 sm:gap-y-0 sm:text-xs lg:gap-x-10",
+        hideVehicleTypesOnMobile
+          ? "grid grid-cols-1"
+          : "flex flex-wrap gap-x-5 gap-y-1.5"
+      )}>
+        <div className={cn(
+          "flex shrink-0 items-center gap-2",
+          showVehicleTypes && "sm:w-max sm:justify-self-center sm:flex-col sm:items-start sm:gap-1",
+          !showVehicleTypes && "flex-col items-start gap-1"
+        )}>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-gray-700">
+            <Clock className="h-3.5 w-3.5 text-gray-400" />
+            {departure && arrival ? calculateDuration(departure, arrival) : "–"}
+          </span>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap">
+            <Shuffle className="h-3.5 w-3.5 text-gray-400" />
+            {transferLabel(transfers)}
+          </span>
+        </div>
+        {showVehicleTypes && (
+          <div className={cn(
+            hideVehicleTypesOnMobile
+              ? "hidden sm:block"
+              : "w-max max-w-full shrink-0 sm:w-auto sm:max-w-none"
+          )}>
+            <VehicleTypesSummary interval={{ abschnitte: legs || [] }} />
+          </div>
+        )}
       </div>
-      <div className="mt-0.5 truncate text-xs font-semibold text-gray-900 sm:text-sm">{formatFullDate(date)}</div>
-      <div className="mt-0.5 flex items-center gap-1 text-base font-bold tabular-nums text-gray-950 sm:mt-1 sm:gap-1.5 sm:text-lg">
-        <span>{formatTime(departure)}</span>
-        <ArrowRight className="h-3 w-3 shrink-0 text-gray-400 sm:h-3.5 sm:w-3.5" />
-        <span>{formatTime(arrival)}</span>
-      </div>
-      <div className="mt-0.5 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-600 sm:mt-1 sm:min-h-[1.375rem] sm:text-xs">
-        <span className="inline-flex items-center gap-1 whitespace-nowrap font-semibold text-gray-800">
-          <Clock className="h-3.5 w-3.5 text-gray-400" />
-          {departure && arrival ? calculateDuration(departure, arrival) : "–"}
-        </span>
-        <span className="inline-flex items-center gap-1 whitespace-nowrap">
-          <Shuffle className="h-3.5 w-3.5 text-gray-400" />
-          {transferLabel(transfers)}
-        </span>
-        <span className="hidden sm:inline-flex">
-          <VehicleTypesSummary interval={{ abschnitte: legs || [] }} />
-        </span>
-      </div>
-      <div className="mt-0.5 text-[11px] font-medium text-gray-500 sm:hidden">{formatPrice(price)}</div>
     </div>
   )
 }
 
 export function OneWayJourneySummary({
   journey,
+  leadingContent,
   mobileBadges,
   desktopBadges,
   priceTone,
-  layout = "card",
-  showMobileRoute = true,
+  showDate = false,
+  priceInMobileHeader = false,
+  stationWidthReference,
 }: {
   journey: OneWayJourneyData
+  leadingContent?: ReactNode
   mobileBadges?: ReactNode
   desktopBadges?: ReactNode
   priceTone: string
   layout?: "card" | "table"
   showMobileRoute?: boolean
+  showDate?: boolean
+  priceInMobileHeader?: boolean
+  stationWidthReference?: { origin?: string; destination?: string }
 }) {
-  if (layout === "table") {
-    return (
-      <>
-        <div className="min-h-[10.75rem] p-2.5 md:hidden">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-1">{mobileBadges}</div>
-            <div className="shrink-0 text-right">
-              <div className="text-[10px] text-gray-500">Preis</div>
-              <div className={cn("rounded-md px-1.5 py-0.5 text-lg font-bold leading-tight tabular-nums", priceTone)}>
-                {formatPrice(journey.price)}
-              </div>
-            </div>
-          </div>
-          <section className="mt-2 min-w-0" aria-label="Einfache Fahrt">
-            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-blue-700">
-                Einfache Fahrt
-              </span>
-              <span className="min-w-0 truncate text-xs font-semibold text-gray-700">
-                {formatFullDate(journey.date)}
-              </span>
-            </div>
-
-            <div className="mt-2 flex items-center gap-1 text-xl font-bold tabular-nums text-gray-950">
-              <span>{formatTime(journey.departure)}</span>
-              <ArrowRight className="h-4 w-4 shrink-0 text-gray-400" />
-              <span>{formatTime(journey.arrival)}</span>
-            </div>
-            {showMobileRoute && (journey.origin || journey.destination) && (
-              <div
-                className="mt-0.5 min-h-4 truncate text-[10px] font-medium leading-tight text-gray-500"
-                title={`${journey.origin || "Start"} → ${journey.destination || "Ziel"}`}
-              >
-                {journey.origin || "Start"} → {journey.destination || "Ziel"}
-              </div>
-            )}
-            <div className="mt-1 flex min-h-[1.375rem] flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
-              <span className="inline-flex items-center gap-1 whitespace-nowrap font-semibold text-gray-800">
-                <Clock className="h-3.5 w-3.5 text-gray-400" />
-                {calculateDuration(journey.departure, journey.arrival)}
-              </span>
-              <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                <Shuffle className="h-3.5 w-3.5 text-gray-400" />
-                {transferLabel(journey.transfers)}
-              </span>
-              <span className="inline-flex">
-                <VehicleTypesSummary interval={{ abschnitte: journey.legs || [] }} />
-              </span>
-            </div>
-          </section>
-        </div>
-
-        <div className="hidden px-4 py-3 md:block">
-          <div className="mb-2 flex min-h-6 flex-wrap items-center gap-1.5">{desktopBadges}</div>
-          <div className="grid grid-cols-[minmax(7rem,1fr)_minmax(7rem,1fr)_minmax(10rem,1.5fr)_minmax(7rem,0.85fr)_minmax(7rem,0.85fr)] items-start gap-4 text-sm">
-            <div className="relative min-w-0">
-              <div className="text-lg font-bold tabular-nums text-gray-950">{formatTime(journey.departure)}</div>
-              <div className="truncate text-xs text-gray-500" title={journey.origin}>{journey.origin || "–"}</div>
-              <ArrowRight className="absolute -right-3 top-2 h-3.5 w-3.5 text-gray-300" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-lg font-bold tabular-nums text-gray-950">{formatTime(journey.arrival)}</div>
-              <div className="truncate text-xs text-gray-500" title={journey.destination}>{journey.destination || "–"}</div>
-            </div>
-            <div className="min-w-0">
-              <div className="inline-flex items-center gap-1 font-semibold text-gray-900">
-                <Clock className="h-3.5 w-3.5 text-gray-400" />
-                {calculateDuration(journey.departure, journey.arrival)}
-              </div>
-              <div className="mt-1 flex min-h-5 flex-wrap items-center gap-1">
-                <VehicleTypesSummary interval={{ abschnitte: journey.legs || [] }} />
-              </div>
-            </div>
-            <div>
-              <div className="inline-flex items-center gap-1 font-semibold text-gray-900">
-                <Shuffle className="h-3.5 w-3.5 text-gray-400" />
-                {transferLabel(journey.transfers)}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className={cn("inline-block rounded-md px-2 py-1 text-xl font-bold tabular-nums", priceTone)}>
-                {formatPrice(journey.price)}
-              </div>
-            </div>
-          </div>
-        </div>
-      </>
-    )
-  }
+  const hasHeaderRow = Boolean(leadingContent || mobileBadges || desktopBadges || priceInMobileHeader)
 
   return (
-    <div className="min-h-[9.5rem] p-2.5 sm:min-h-[8.5rem] sm:p-4">
-      <div className="flex items-start justify-between gap-2 sm:hidden">
-        <div className="flex min-w-0 flex-wrap items-center gap-1">{mobileBadges}</div>
-        <div className="shrink-0 text-right">
-          <div className="text-[10px] text-gray-500">Preis</div>
-          <div className={cn("rounded-md px-1.5 py-0.5 text-lg font-bold leading-tight tabular-nums", priceTone)}>
-            {formatPrice(journey.price)}
+    <div>
+      {hasHeaderRow && (
+        <div className={cn(
+          "min-h-9 min-w-0 items-center gap-3 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:px-4",
+          priceInMobileHeader ? "grid grid-cols-[minmax(0,1fr)_auto]" : "flex"
+        )}>
+          <div className="flex min-w-0 items-center gap-3">
+            {leadingContent && <div className="min-w-0">{leadingContent}</div>}
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:hidden">{mobileBadges}</div>
+            <div className="hidden shrink-0 flex-wrap items-center gap-1.5 sm:flex">{desktopBadges}</div>
           </div>
-        </div>
-      </div>
-      <div className="mt-2 sm:hidden">
-        <DirectionSummary
-          direction="Einfache Fahrt"
-          date={journey.date}
-          departure={journey.departure}
-          arrival={journey.arrival}
-          price={journey.price}
-          transfers={journey.transfers}
-          legs={journey.legs}
-        />
-        {(journey.origin || journey.destination) && (
-          <div className="mt-2 truncate border-t border-gray-100 pt-1.5 text-[11px] font-medium text-gray-600">
-            {journey.origin || "Start"} → {journey.destination || "Ziel"}
-          </div>
-        )}
-      </div>
-
-      <div className="mb-2 hidden min-h-6 flex-wrap items-center gap-1.5 sm:flex">{desktopBadges}</div>
-      <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_7rem] items-center gap-4 sm:grid">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Einfache Fahrt</div>
-          <div className="mt-0.5 truncate text-sm font-semibold text-gray-900">{formatFullDate(journey.date)}</div>
-          {(journey.origin || journey.destination) && (
-            <div className="mt-1 truncate text-xs text-gray-500">{journey.origin || "Start"} → {journey.destination || "Ziel"}</div>
+          {priceInMobileHeader && (
+            <div className={cn("shrink-0 rounded-md border px-2 py-1 text-right shadow-sm sm:hidden", priceTone)} aria-label={`Preis ${formatPrice(journey.price)}`}>
+              <span className="whitespace-nowrap text-lg font-bold leading-none tabular-nums">{formatPrice(journey.price)}</span>
+            </div>
           )}
         </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-lg font-bold tabular-nums text-gray-950">
-            <span>{formatTime(journey.departure)}</span>
-            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-            <span>{formatTime(journey.arrival)}</span>
+      )}
+      <div className="p-2 sm:p-2.5">
+        <section className={cn(
+          "items-center gap-3 rounded-lg bg-slate-50/80 px-3 py-2 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-5 sm:px-4",
+          priceInMobileHeader ? "block" : "grid grid-cols-[minmax(0,1fr)_auto]"
+        )} aria-label="Einfache Fahrt">
+          <div className="min-w-0">
+            {showDate && (
+              <div className="mb-2 text-xs font-semibold text-gray-700">
+                {formatFullDate(journey.date)}
+              </div>
+            )}
+            <JourneyConnectionOverview
+              departure={journey.departure}
+              arrival={journey.arrival}
+              origin={journey.origin}
+              destination={journey.destination}
+              transfers={journey.transfers}
+              legs={journey.legs}
+              hideVehicleTypesOnMobile
+              widthReferenceOrigin={stationWidthReference?.origin}
+              widthReferenceDestination={stationWidthReference?.destination}
+            />
           </div>
-          <div className="mt-1 flex min-h-[1.375rem] flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
-            <span className="inline-flex items-center gap-1 whitespace-nowrap font-semibold text-gray-800">
-              <Clock className="h-3.5 w-3.5 text-gray-400" />
-              {calculateDuration(journey.departure, journey.arrival)}
+          <div
+            className={cn(
+              "shrink-0 rounded-md border px-2 py-1 text-right shadow-sm sm:-mr-2.5 sm:block sm:px-3",
+              priceInMobileHeader ? "hidden" : "-mr-2 block",
+              priceTone
+            )}
+            aria-label={`Preis ${formatPrice(journey.price)}`}
+          >
+            <span className="whitespace-nowrap text-lg font-bold leading-none tabular-nums sm:text-xl">
+              {formatPrice(journey.price)}
             </span>
-            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-              <Shuffle className="h-3.5 w-3.5 text-gray-400" />
-              {transferLabel(journey.transfers)}
-            </span>
-            <VehicleTypesSummary interval={{ abschnitte: journey.legs || [] }} />
           </div>
-        </div>
-        <div className="text-right">
-          <div className="text-xs text-gray-500">Preis</div>
-          <div className={cn("inline-block rounded-md px-2 py-1 text-xl font-bold tabular-nums", priceTone)}>
-            {formatPrice(journey.price)}
-          </div>
-        </div>
+          {journey.legs && journey.legs.length > 0 && (
+            <div className="col-span-2 mt-1.5 min-w-0 sm:hidden">
+              <VehicleTypesSummary interval={{ abschnitte: journey.legs }} />
+            </div>
+          )}
+        </section>
       </div>
     </div>
   )
@@ -491,96 +578,78 @@ export function OneWayJourneyDetails({ journey }: { journey: OneWayJourneyData }
   )
 }
 
-export function OneWayJourneySummaryPlaceholder({ layout = "card" }: { layout?: "card" | "table" }) {
-  if (layout === "table") {
-    return (
-      <>
-        <div className="min-h-[10.75rem] animate-pulse p-2.5 md:hidden">
-          <div className="flex items-start justify-between gap-2">
-            <div className="h-5 w-24 rounded-full bg-blue-100" />
-            <div className="text-right">
-              <div className="text-[10px] text-gray-500">Preis</div>
-              <div className="mt-0.5 h-7 w-20 rounded bg-green-100" />
+export function OneWayJourneySummaryPlaceholder({
+  showDate = false,
+  showBadges = false,
+  priceInMobileHeader = false,
+}: {
+  layout?: "card" | "table"
+  showDate?: boolean
+  showBadges?: boolean
+  priceInMobileHeader?: boolean
+}) {
+  return (
+    <div className="animate-pulse">
+      {(showBadges || priceInMobileHeader) && (
+        <div className={cn(
+          "min-h-9 items-center gap-3 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:px-4",
+          priceInMobileHeader ? "grid grid-cols-[minmax(0,1fr)_auto]" : "flex"
+        )}>
+          <div className="h-5 w-24 rounded-full bg-blue-100" />
+          {priceInMobileHeader && <div className="h-8 w-20 rounded-md border border-green-200 bg-green-100 sm:hidden" />}
+        </div>
+      )}
+      <div className="p-2 sm:p-2.5">
+        <div className={cn(
+          "items-center gap-3 rounded-lg bg-slate-50/80 px-3 py-2 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-5 sm:px-4",
+          priceInMobileHeader ? "block" : "grid grid-cols-[minmax(0,1fr)_auto]"
+        )}>
+          <div className="min-w-0">
+            {showDate && <div className="mb-2 h-4 w-32 rounded bg-gray-100" />}
+            <div className="grid w-full grid-cols-1 items-center gap-y-1.5 sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] sm:gap-x-12 sm:gap-y-0 md:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:gap-x-16">
+              <div className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] items-center gap-x-1 sm:gap-x-2">
+                <div>
+                  <div className="h-5 w-14 rounded bg-gray-200" />
+                  <div className="mt-1.5 h-3 w-20 max-w-full rounded bg-gray-100" />
+                </div>
+                <ArrowRight className="h-4 w-4 text-gray-300" />
+                <div>
+                  <div className="ml-auto h-5 w-14 rounded bg-gray-200" />
+                  <div className="ml-auto mt-1.5 h-3 w-24 max-w-full rounded bg-gray-100" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 items-center sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-x-12 lg:gap-x-16">
+                <div className="flex shrink-0 items-center gap-2 sm:w-max sm:justify-self-center sm:flex-col sm:items-start sm:gap-1">
+                  <div className="h-4 w-16 rounded bg-gray-200" />
+                  <div className="h-4 w-16 rounded bg-gray-100" />
+                </div>
+                <div className="hidden h-4 w-14 rounded bg-blue-100 sm:block" />
+              </div>
             </div>
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <div className="h-3 w-20 rounded bg-blue-100" />
-            <div className="h-4 w-32 rounded bg-gray-100" />
-          </div>
-          <div className="mt-2 flex items-center gap-1">
-            <div className="h-6 w-14 rounded bg-gray-200" />
-            <ArrowRight className="h-4 w-4 text-gray-300" />
-            <div className="h-6 w-14 rounded bg-gray-200" />
-          </div>
-          <div className="mt-1 h-3 w-40 rounded bg-gray-100" />
-          <div className="mt-1 flex min-h-[1.375rem] items-center gap-2">
-            <div className="h-4 w-16 rounded bg-gray-200" />
-            <div className="h-4 w-20 rounded bg-gray-100" />
-            <div className="h-4 w-14 rounded bg-blue-100" />
-          </div>
+          <div className={cn(
+            "h-8 w-20 rounded-md border border-green-200 bg-green-100 sm:-mr-2.5 sm:block sm:w-24",
+            priceInMobileHeader ? "hidden" : "-mr-2 block"
+          )} />
+          <div className="col-span-2 mt-1.5 h-4 w-28 rounded bg-blue-100 sm:hidden" />
         </div>
-        <div className="hidden animate-pulse px-4 py-3 md:block">
-          <div className="mb-2 flex min-h-6 items-center">
-            <div className="h-5 w-24 rounded-full bg-blue-100" />
-          </div>
-          <div className="grid grid-cols-[minmax(7rem,1fr)_minmax(7rem,1fr)_minmax(10rem,1.5fr)_minmax(7rem,0.85fr)_minmax(7rem,0.85fr)] items-start gap-4">
-            <div><div className="h-6 w-14 rounded bg-gray-200" /><div className="mt-1 h-3 w-24 max-w-full rounded bg-gray-100" /></div>
-            <div><div className="h-6 w-14 rounded bg-gray-200" /><div className="mt-1 h-3 w-24 max-w-full rounded bg-gray-100" /></div>
-            <div><div className="h-4 w-16 rounded bg-gray-200" /><div className="mt-2 h-4 w-28 max-w-full rounded bg-gray-100" /></div>
-            <div><div className="h-4 w-16 rounded bg-gray-200" /><div className="mt-2 h-3 w-20 rounded bg-gray-100" /></div>
-            <div className="text-right"><div className="ml-auto h-8 w-20 rounded bg-green-100" /></div>
-          </div>
-        </div>
-      </>
-    )
-  }
+      </div>
+    </div>
+  )
+}
 
+function RoundTripTimelineNode({ position }: { position: "first" | "last" }) {
   return (
-    <div className="min-h-[9.5rem] animate-pulse p-2.5 sm:min-h-[8.5rem] sm:p-4">
-      <div className="flex items-start justify-between gap-2 sm:hidden">
-        <div className="h-5 w-24 rounded-full bg-blue-100" />
-        <div className="text-right">
-          <div className="text-[10px] text-gray-500">Preis</div>
-          <div className="mt-0.5 h-7 w-20 rounded bg-green-100" />
-        </div>
-      </div>
-      <div className="mt-2 sm:hidden">
-        <div className="h-4 w-24 rounded bg-blue-100" />
-        <div className="mt-0.5 h-4 w-28 rounded bg-gray-100" />
-        <div className="mt-0.5 flex h-6 items-center gap-1.5">
-          <div className="h-5 w-12 rounded bg-gray-200" />
-          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-300" />
-          <div className="h-5 w-12 rounded bg-gray-200" />
-        </div>
-        <div className="mt-0.5 h-4 w-28 rounded bg-gray-100" />
-        <div className="mt-0.5 h-4 w-14 rounded bg-gray-100" />
-        <div className="mt-2 border-t border-gray-100 pt-1.5">
-          <div className="h-3 w-40 rounded bg-gray-100" />
-        </div>
-      </div>
-
-      <div className="mb-2 hidden min-h-6 items-center sm:flex">
-        <div className="h-5 w-28 rounded-full bg-blue-100" />
-      </div>
-      <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_7rem] items-center gap-4 sm:grid">
-        <div>
-          <div className="h-4 w-24 rounded bg-blue-100" />
-          <div className="mt-1 h-5 w-32 rounded bg-gray-100" />
-          <div className="mt-1 h-4 w-40 max-w-full rounded bg-gray-100" />
-        </div>
-        <div>
-          <div className="flex h-7 items-center gap-1.5">
-            <div className="h-6 w-12 rounded bg-gray-200" />
-            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-300" />
-            <div className="h-6 w-12 rounded bg-gray-200" />
-          </div>
-          <div className="mt-1 h-[1.375rem] w-36 rounded bg-gray-100" />
-        </div>
-        <div className="text-right">
-          <div className="text-xs text-gray-500">Preis</div>
-          <div className="ml-auto h-9 w-20 rounded bg-green-100" />
-        </div>
-      </div>
+    <div className="relative">
+      <span
+        className={cn(
+          "absolute left-1/2 w-px -translate-x-1/2 bg-blue-200",
+          position === "first" ? "top-1/2 -bottom-1" : "-top-1 bottom-1/2"
+        )}
+      />
+      <span className="absolute left-1/2 top-1/2 z-10 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-blue-400 bg-white">
+        <TrainFront className="h-3.5 w-3.5 text-blue-700" />
+      </span>
     </div>
   )
 }
@@ -593,6 +662,12 @@ function RoundTripDirectionPanel({
   price,
   transfers,
   legs,
+  origin,
+  destination,
+  widthReferenceOrigin,
+  widthReferenceDestination,
+  position,
+  dense,
 }: {
   direction: "Hinfahrt" | "Rückfahrt"
   date?: string
@@ -601,174 +676,142 @@ function RoundTripDirectionPanel({
   price?: number
   transfers?: number
   legs?: JourneyLeg[]
+  origin?: string
+  destination?: string
+  widthReferenceOrigin?: string
+  widthReferenceDestination?: string
+  position: "first" | "last"
+  dense?: boolean
 }) {
-  const departureStation = legs?.[0]?.abfahrtsOrt
-  const arrivalStation = legs?.[legs.length - 1]?.ankunftsOrt
-  const stationRoute = departureStation && arrivalStation
-    ? `${departureStation} → ${arrivalStation}`
-    : departureStation || arrivalStation || ""
+  const departureStation = legs?.[0]?.abfahrtsOrt || origin
+  const arrivalStation = legs?.[legs.length - 1]?.ankunftsOrt || destination
 
   return (
-    <section
-      className="flex min-h-[7.25rem] min-w-0 flex-col sm:min-h-[5.25rem]"
-      aria-label={direction}
-    >
-      <div className="pb-1">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-blue-700">
-            {direction}
-          </span>
-          <span className="min-w-0 truncate text-xs font-semibold text-gray-700 sm:text-sm" title={formatFullDate(date)}>
-            {formatFullDate(date)}
-          </span>
-          <span className="shrink-0 text-[11px] font-medium tabular-nums text-gray-500 sm:text-xs">
-            · {formatPrice(price)}
-          </span>
+    <section className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 py-0.5 sm:grid-cols-[1.75rem_minmax(0,1fr)] sm:gap-x-3" aria-label={direction}>
+      <RoundTripTimelineNode position={position} />
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] overflow-hidden rounded-lg bg-slate-100 sm:grid-cols-[10.5rem_minmax(0,1fr)_6.5rem] sm:items-stretch">
+        <div className={cn(
+          "min-w-0 px-3 pt-2 sm:flex sm:flex-col sm:justify-center sm:bg-blue-100/60 sm:py-2",
+          dense && "sm:py-1.5"
+        )}>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-blue-700">{direction}</div>
+          <div className="mt-0.5 whitespace-nowrap text-sm font-bold leading-tight text-blue-950 sm:text-base">{formatFullDate(date)}</div>
+        </div>
+
+        <div className={cn(
+          "col-span-2 row-start-2 min-w-0 px-3 pb-2 pt-1 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:px-4 sm:py-2",
+          dense && "sm:py-1.5"
+        )}>
+          <JourneyConnectionOverview
+            departure={departure}
+            arrival={arrival}
+            origin={departureStation}
+            destination={arrivalStation}
+            transfers={transfers}
+            legs={legs}
+            widthReferenceOrigin={widthReferenceOrigin}
+            widthReferenceDestination={widthReferenceDestination}
+          />
+        </div>
+
+        <div className="col-start-2 row-start-1 self-center px-3 text-right sm:col-start-3">
+          <div className="text-[13px] font-medium tabular-nums text-gray-700">{formatPrice(price)}</div>
         </div>
       </div>
-
-      <div className="flex-1 py-1">
-        <div className="flex items-center gap-1 text-lg font-bold tabular-nums text-gray-950">
-          <span>{formatTime(departure)}</span>
-          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-          <span>{formatTime(arrival)}</span>
-        </div>
-        <div className="mt-0.5 min-h-4 truncate text-[10px] font-medium leading-tight text-gray-500 sm:text-[11px]" title={stationRoute}>
-          {stationRoute}
-        </div>
-        <div className="mt-0.5 flex min-h-[2.625rem] flex-wrap content-start items-center gap-x-2 gap-y-1 text-xs text-gray-600 sm:min-h-[1.375rem]">
-          <span className="inline-flex items-center gap-1 whitespace-nowrap font-semibold text-gray-800">
-            <Clock className="h-3.5 w-3.5 text-gray-400" />
-            {departure && arrival ? calculateDuration(departure, arrival) : "–"}
-          </span>
-          <span className="inline-flex items-center gap-1 whitespace-nowrap">
-            <Shuffle className="h-3.5 w-3.5 text-gray-400" />
-            {transferLabel(transfers)}
-          </span>
-          <span className="inline-flex">
-            <VehicleTypesSummary interval={{ abschnitte: legs || [] }} />
-          </span>
-        </div>
-      </div>
-
     </section>
+  )
+}
+
+function RoundTripStayConnector({ nights }: { nights?: number }) {
+  return (
+    <div className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 sm:grid-cols-[1.75rem_minmax(0,1fr)] sm:gap-x-3">
+      <div className="relative min-h-7">
+        <span className="absolute -inset-y-1 left-1/2 w-px -translate-x-1/2 bg-blue-200" />
+        <span className="absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-green-300 bg-green-50 text-green-700">
+          <Moon className="h-3.5 w-3.5" />
+        </span>
+      </div>
+      <div className="flex min-h-7 items-center gap-3">
+        <span className="whitespace-nowrap text-xs font-medium text-green-800">
+          {typeof nights === "number" ? (
+            <><strong className="font-bold">{nights}</strong><span className="ml-1">{nights === 1 ? "Nacht" : "Nächte"} Aufenthalt</span></>
+          ) : "Hin- und Rückfahrt"}
+        </span>
+        <span className="h-px flex-1 bg-gray-100" />
+      </div>
+    </div>
   )
 }
 
 export function RoundTripJourneySummary({
   journey,
+  leadingContent,
   mobileBadges,
   desktopBadges,
   priceTone,
   dense = false,
+  stackHeaderOnMobile = false,
+  stationWidthReference,
 }: {
   journey: RoundTripJourneyData
+  leadingContent?: ReactNode
   mobileBadges?: ReactNode
   desktopBadges?: ReactNode
   priceTone: string
   dense?: boolean
+  stackHeaderOnMobile?: boolean
+  stationWidthReference?: { origin?: string; destination?: string }
 }) {
-  const nights = journey.nights
   const totalTravelTime = formatTravelMinutes(getRoundTripTravelMinutes(journey))
+  const totalTransfers = typeof journey.outwardTransfers === "number" && typeof journey.returnTransfers === "number"
+    ? journey.outwardTransfers + journey.returnTransfers
+    : null
 
   return (
-    <div className={cn(
-      "min-h-[10.75rem] p-2.5",
-      dense ? "sm:min-h-[8.25rem]" : "sm:min-h-[9rem] sm:p-4"
-    )}>
-      <div className="flex items-start justify-between gap-2 sm:hidden">
-        <div className="flex min-w-0 flex-wrap items-center gap-1">{mobileBadges}</div>
-        <div className="shrink-0 text-right">
-          <div className="text-[10px] text-gray-500">Gesamt</div>
-          <div className={cn("rounded-md px-1.5 py-0.5 text-lg font-bold leading-tight tabular-nums", priceTone)}>
-            {formatPrice(journey.totalPrice)}
-          </div>
-        </div>
-      </div>
-      <div className="mt-2 grid grid-cols-2 divide-x divide-gray-200 sm:hidden [&>section:first-child]:pr-2 [&>section:last-child]:pl-2">
-        <RoundTripDirectionPanel
-          direction="Hinfahrt"
-          date={journey.outwardDate}
-          departure={journey.outwardDeparture}
-          arrival={journey.outwardArrival}
-          price={journey.outwardPrice}
-          transfers={journey.outwardTransfers}
-          legs={journey.outwardLegs}
-        />
-        <RoundTripDirectionPanel
-          direction="Rückfahrt"
-          date={journey.returnDate}
-          departure={journey.returnDeparture}
-          arrival={journey.returnArrival}
-          price={journey.returnPrice}
-          transfers={journey.returnTransfers}
-          legs={journey.returnLegs}
-        />
-      </div>
-
-      <div className="mt-2 grid min-h-5 grid-cols-2 divide-x divide-gray-100 border-t border-gray-100 pt-1.5 text-xs text-gray-600 sm:hidden">
-        <span className="flex items-center justify-center px-2 text-center whitespace-nowrap">
-          {typeof nights === "number" ? (
-            <span className="inline-flex items-baseline gap-1">
-              <span className="font-bold text-gray-900">{nights}</span>
-              <span>{nights === 1 ? "Nacht" : "Nächte"}</span>
-            </span>
-          ) : "Hin- und Rückfahrt"}
-        </span>
-        {totalTravelTime && (
-          <span className="flex items-center justify-center gap-1 px-2 text-center whitespace-nowrap text-gray-800">
-            <Clock className="h-3.5 w-3.5 text-gray-400" />
-            <span className="font-semibold">{totalTravelTime}</span>
-            <span className="font-normal">Fahrzeit</span>
-          </span>
-        )}
-      </div>
-
-      <div className="mb-2 hidden min-h-6 flex-wrap items-center gap-1.5 sm:flex">{desktopBadges}</div>
-      <div className="hidden gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_4rem_minmax(0,1fr)_7rem] sm:items-center">
-        <RoundTripDirectionPanel
-          direction="Hinfahrt"
-          date={journey.outwardDate}
-          departure={journey.outwardDeparture}
-          arrival={journey.outwardArrival}
-          price={journey.outwardPrice}
-          transfers={journey.outwardTransfers}
-          legs={journey.outwardLegs}
-        />
-
-        <div className="border-x border-gray-100 px-2 text-center">
-          {typeof nights === "number" ? (
-            <>
-              <div className="text-lg font-bold text-gray-900">{nights}</div>
-              <div className="text-xs text-gray-500">{nights === 1 ? "Nacht" : "Nächte"}</div>
-            </>
-          ) : <div className="text-xs font-medium text-gray-500">Hin &amp; zurück</div>}
-        </div>
-
-        <RoundTripDirectionPanel
-          direction="Rückfahrt"
-          date={journey.returnDate}
-          departure={journey.returnDeparture}
-          arrival={journey.returnArrival}
-          price={journey.returnPrice}
-          transfers={journey.returnTransfers}
-          legs={journey.returnLegs}
-        />
-
-        <div className="text-right">
-          <div className="text-xs text-gray-500">Gesamtpreis</div>
-          <div className={cn("inline-block rounded-md px-2 py-1 text-xl font-bold tabular-nums", priceTone)}>
-            {formatPrice(journey.totalPrice)}
-          </div>
-          <div className="mt-1 flex min-h-[1.375rem] items-center justify-end text-xs text-gray-800">
-            {totalTravelTime && (
-              <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                <Clock className="h-3.5 w-3.5 text-gray-400" />
-                <span className="font-semibold">{totalTravelTime}</span>
-                <span className="font-normal">Fahrzeit</span>
-              </span>
-            )}
-          </div>
+    <div>
+      <JourneySummaryHeader
+        leadingContent={leadingContent}
+        mobileBadges={mobileBadges}
+        desktopBadges={desktopBadges}
+        price={journey.totalPrice}
+        priceTone={priceTone}
+        totalDuration={totalTravelTime}
+        totalTransfers={totalTransfers}
+        stackOnMobile={stackHeaderOnMobile}
+      />
+      <div className={cn("p-2.5 sm:p-3.5", dense && "sm:p-2.5")}>
+        <div className="relative">
+          <RoundTripDirectionPanel
+            direction="Hinfahrt"
+            date={journey.outwardDate}
+            departure={journey.outwardDeparture}
+            arrival={journey.outwardArrival}
+            price={journey.outwardPrice}
+            transfers={journey.outwardTransfers}
+            legs={journey.outwardLegs}
+            origin={journey.outwardOrigin}
+            destination={journey.outwardDestination}
+            widthReferenceOrigin={stationWidthReference?.origin}
+            widthReferenceDestination={stationWidthReference?.destination}
+            position="first"
+            dense={dense}
+          />
+          <RoundTripStayConnector nights={journey.nights} />
+          <RoundTripDirectionPanel
+            direction="Rückfahrt"
+            date={journey.returnDate}
+            departure={journey.returnDeparture}
+            arrival={journey.returnArrival}
+            price={journey.returnPrice}
+            transfers={journey.returnTransfers}
+            legs={journey.returnLegs}
+            origin={journey.returnOrigin}
+            destination={journey.returnDestination}
+            widthReferenceOrigin={stationWidthReference?.destination}
+            widthReferenceDestination={stationWidthReference?.origin}
+            position="last"
+            dense={dense}
+          />
         </div>
       </div>
     </div>
@@ -808,6 +851,7 @@ export function RoundTripJourneySummaryPlaceholder({
   dense = false,
   mobileBadge,
   desktopBadge,
+  stackHeaderOnMobile = false,
 }: {
   outwardDate?: string
   returnDate?: string
@@ -815,81 +859,90 @@ export function RoundTripJourneySummaryPlaceholder({
   dense?: boolean
   mobileBadge?: ReactNode
   desktopBadge?: ReactNode
+  stackHeaderOnMobile?: boolean
 }) {
+  const resolvedNights = typeof nights === "number" ? nights : getStayNights(outwardDate, returnDate)
+
   const DirectionPlaceholder = ({ direction, date }: { direction: string; date?: string }) => (
-    <div className="flex min-h-[7.25rem] min-w-0 flex-col sm:min-h-[5.25rem]">
-      <div className="pb-1">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-blue-700">{direction}</span>
-          {date ? (
-            <span className="min-w-0 truncate text-xs font-semibold text-gray-700 sm:text-sm">{formatFullDate(date)}</span>
-          ) : <span className="h-3 w-20 rounded bg-gray-100" />}
-          <span className="h-3 w-14 shrink-0 rounded bg-gray-100" />
+    <div className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 py-0.5 sm:grid-cols-[1.75rem_minmax(0,1fr)] sm:gap-x-3">
+      <div className="relative">
+        <span className="absolute left-1/2 top-1/2 z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-200 bg-white" />
+      </div>
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] overflow-hidden rounded-lg bg-slate-100 sm:grid-cols-[10.5rem_minmax(0,1fr)_6.5rem] sm:items-stretch">
+        <div className={cn("min-w-0 px-3 pt-2 sm:bg-blue-100/40 sm:py-2", dense && "sm:py-1.5")}>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-blue-300">{direction}</div>
+          {date
+            ? <div className="mt-0.5 whitespace-nowrap text-sm font-bold text-gray-400 sm:text-base">{formatFullDate(date)}</div>
+            : <div className="mt-1 h-4 w-32 rounded bg-gray-100" />}
+        </div>
+        <div className={cn(
+          "col-span-2 row-start-2 min-w-0 px-3 pb-2 pt-1 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:px-4 sm:py-2",
+          dense && "sm:py-1.5"
+        )}>
+          <div className="grid w-full grid-cols-1 items-center gap-y-1.5 sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] sm:gap-x-12 sm:gap-y-0 lg:gap-x-16">
+            <div className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] items-center gap-x-1 sm:gap-x-2">
+              <div><div className="h-5 w-14 rounded bg-gray-200" /><div className="mt-1.5 h-3 w-20 max-w-full rounded bg-gray-100" /></div>
+              <ArrowRight className="h-4 w-4 text-gray-300" />
+              <div><div className="ml-auto h-5 w-14 rounded bg-gray-200" /><div className="ml-auto mt-1.5 h-3 w-20 max-w-full rounded bg-gray-100" /></div>
+            </div>
+            <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-5 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-x-12 lg:gap-x-16">
+              <div className="flex shrink-0 items-center gap-2 sm:w-max sm:justify-self-center sm:flex-col sm:items-start sm:gap-1">
+                <div className="h-4 w-16 rounded bg-gray-200" />
+                <div className="h-4 w-16 rounded bg-gray-100" />
+              </div>
+              <div className="h-4 w-14 rounded bg-blue-100" />
+            </div>
+          </div>
+        </div>
+        <div className="col-start-2 row-start-1 self-center px-3 text-right sm:col-start-3">
+          <div className="ml-auto h-3.5 w-14 rounded bg-gray-100" />
         </div>
       </div>
-
-      <div className="flex-1 py-1">
-        <div className="flex h-7 items-center gap-1">
-          <div className="h-5 w-12 rounded bg-gray-200" />
-          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-300" />
-          <div className="h-5 w-12 rounded bg-gray-200" />
-        </div>
-        <div className="mt-0.5 flex h-4 items-center">
-          <div className="h-2.5 w-3/4 rounded bg-gray-100" />
-        </div>
-        <div className="mt-0.5 flex min-h-[2.625rem] flex-wrap content-start items-center gap-x-2 gap-y-1 sm:min-h-[1.375rem]">
-          <div className="h-4 w-12 rounded bg-gray-100" />
-          <div className="h-4 w-14 rounded bg-gray-100" />
-          <div className="h-[1.375rem] w-10 rounded bg-blue-50" />
-        </div>
-      </div>
-
     </div>
   )
 
   return (
-    <div className={cn(
-      "min-h-[10.75rem] animate-pulse p-2.5",
-      dense ? "sm:min-h-[8.25rem]" : "sm:min-h-[9rem] sm:p-4"
-      )}>
-      <div className="flex items-start justify-between gap-2 sm:hidden">
-        {mobileBadge || <div className="h-5 w-24 rounded-full bg-blue-100" />}
-        <div className="text-right">
-          <div className="text-[10px] text-gray-500">Gesamt</div>
-          <div className="mt-0.5 h-7 w-20 rounded bg-green-100" />
+    <div className="animate-pulse">
+      {stackHeaderOnMobile ? (
+        <div className="grid min-h-[3.25rem] grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_auto] items-center gap-x-3 gap-y-1 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:gap-2 sm:px-4">
+          <div className="col-start-1 row-start-1 min-w-0">
+            <div className="sm:hidden">{mobileBadge || <div className="h-5 w-24 rounded-full bg-blue-100" />}</div>
+            <div className="hidden sm:block">{desktopBadge || <div className="h-5 w-28 rounded-full bg-blue-100" />}</div>
+          </div>
+          <div className="col-start-1 row-start-2 flex items-center gap-2 sm:ml-auto">
+            <div className="h-3 w-16 rounded bg-gray-100" />
+            <div className="h-3 w-8 rounded bg-gray-100" />
+          </div>
+          <div className="col-start-2 row-span-2 row-start-1 h-8 w-20 self-center rounded-md border border-green-200 bg-green-100" />
         </div>
-      </div>
-      <div className="mt-2 grid grid-cols-2 divide-x divide-gray-200 sm:hidden [&>div:first-child]:pr-2 [&>div:last-child]:pl-2">
-        <DirectionPlaceholder direction="Hinfahrt" date={outwardDate} />
-        <DirectionPlaceholder direction="Rückfahrt" date={returnDate} />
-      </div>
-      <div className="mt-2 grid min-h-5 grid-cols-2 divide-x divide-gray-100 border-t border-gray-100 pt-1.5 text-xs text-gray-600 sm:hidden">
-        <span className="flex items-center justify-center px-2 text-center">
-          {typeof nights === "number" ? (
-            <span className="inline-flex items-baseline gap-1">
-              <span className="font-bold text-gray-900">{nights}</span>
-              <span>{nights === 1 ? "Nacht" : "Nächte"}</span>
-            </span>
-          ) : <span className="inline-block h-3 w-20 rounded bg-gray-100" />}
-        </span>
-        <span className="flex items-center justify-center px-2">
-          <span className="inline-block h-3 w-24 rounded bg-gray-100" />
-        </span>
-      </div>
-      <div className="mb-2 hidden min-h-6 items-center sm:flex">
-        {desktopBadge || <div className="h-5 w-28 rounded-full bg-blue-100" />}
-      </div>
-      <div className="hidden gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_4rem_minmax(0,1fr)_7rem] sm:items-center">
-        <DirectionPlaceholder direction="Hinfahrt" date={outwardDate} />
-        <div className="border-x border-gray-100 px-2 text-center">
-          <div className="mx-auto h-6 w-6 rounded bg-gray-200" />
-          <div className="mx-auto mt-1 h-3 w-10 rounded bg-gray-100" />
+      ) : (
+        <div className="flex min-h-[3.25rem] items-center justify-between gap-3 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:px-4">
+          <div className="sm:hidden">{mobileBadge || <div className="h-5 w-24 rounded-full bg-blue-100" />}</div>
+          <div className="hidden sm:block">{desktopBadge || <div className="h-5 w-28 rounded-full bg-blue-100" />}</div>
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-16 rounded bg-gray-100" />
+            <div className="h-3 w-8 rounded bg-gray-100" />
+            <div className="h-8 w-20 rounded-md border border-green-200 bg-green-100" />
+          </div>
         </div>
-        <DirectionPlaceholder direction="Rückfahrt" date={returnDate} />
-        <div className="text-right">
-          <div className="text-xs text-gray-500">Gesamtpreis</div>
-          <div className="ml-auto h-9 w-20 rounded bg-green-100" />
-          <div className="ml-auto mt-1 h-3 w-20 rounded bg-gray-100" />
+      )}
+      <div className={cn("p-2.5 sm:p-3.5", dense && "sm:p-2.5")}>
+        <div className="relative">
+          <span className="absolute inset-y-0 left-3 w-px -translate-x-1/2 bg-blue-100 sm:left-3.5" />
+          <DirectionPlaceholder direction="Hinfahrt" date={outwardDate} />
+          <div className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 sm:grid-cols-[1.75rem_minmax(0,1fr)] sm:gap-x-3">
+            <div className="relative min-h-7"><span className="absolute left-1/2 top-1/2 z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border border-green-200 bg-green-50" /></div>
+            <div className="flex min-h-7 items-center gap-3">
+              {typeof resolvedNights === "number" ? (
+                <span className="whitespace-nowrap text-xs font-medium text-green-800">
+                  <strong className="font-bold">{resolvedNights}</strong>
+                  <span className="ml-1">{resolvedNights === 1 ? "Nacht" : "Nächte"} Aufenthalt</span>
+                </span>
+              ) : <div className="h-3 w-24 rounded bg-gray-100" />}
+              <span className="h-px flex-1 bg-gray-100" />
+            </div>
+          </div>
+          <DirectionPlaceholder direction="Rückfahrt" date={returnDate} />
         </div>
       </div>
     </div>

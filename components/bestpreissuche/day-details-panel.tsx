@@ -250,7 +250,7 @@ export function DayDetailsPanel({
 
   const getIntervalPriceColor = (price: number) => {
     const style = PRICE_BAND_STYLES[intervalPriceScale.getBand(price)]
-    return `${style.text} ${style.background} ${style.emphasis}`
+    return `${style.text} ${style.background} ${style.border} ${style.emphasis}`
   }
 
   // Empfohlene Fahrt immer oben einfügen, falls nicht enthalten

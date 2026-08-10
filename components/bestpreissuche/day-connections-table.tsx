@@ -108,7 +108,7 @@ export function ConnectionsTable({
         </div>
       </header>
 
-      <div className="space-y-2 bg-gray-50 p-2.5 sm:p-3">
+      <div className="space-y-3 bg-slate-100/80 p-2.5 sm:p-3">
         {displayedIntervals.map((interval: any, index: number) => {
           const isFastest = minDuration !== null && getDurationMinutes(interval.abfahrtsZeitpunkt, interval.ankunftsZeitpunkt) === minDuration
           const isBestPrice = interval.preis === data.preis
@@ -148,7 +148,9 @@ export function ConnectionsTable({
           const journeyOpen = expandedItems.has(rowKey)
           const historyOpen = expandedItems.has(historyKey)
           const hasHistory = interval.priceHistory?.length > 1
-          const metadataBadges = (
+          const hasMetadataBadges =
+            isBestPrice || isRecommended || isFastest || interval.umstiegsAnzahl === 0
+          const metadataBadges = hasMetadataBadges ? (
             <>
               {isBestPrice && (
                 <Badge className="rounded-full border border-green-400 bg-green-100 font-semibold text-green-800 shadow-sm">
@@ -165,23 +167,22 @@ export function ConnectionsTable({
                 <DirectJourneyBadge />
               )}
             </>
-          )
+          ) : undefined
 
           return (
             <article
               key={rowKey}
-              className={`overflow-hidden rounded-lg border shadow-sm transition hover:shadow-md ${isBestPrice ? "border-green-400 bg-green-100/60" : "border-gray-200 bg-white"}`}
+              className={`overflow-hidden rounded-lg border shadow-[0_1px_4px_rgba(15,23,42,0.10)] transition hover:shadow-md ${isBestPrice ? "border-green-400 bg-green-100/60" : "border-gray-300 bg-white"}`}
             >
               <OneWayJourneySummary
                 journey={journey}
                 mobileBadges={metadataBadges}
                 desktopBadges={metadataBadges}
                 priceTone={getIntervalPriceColor(interval.preis)}
-                layout="table"
+                priceInMobileHeader
               />
 
               <JourneyResultActionBar
-                layout="table"
                 secondaryColumns={interval.abschnitte?.length > 0 && hasHistory ? 2 : 1}
                 bookingActions={bookingLink ? (
                   <JourneyBookingButtonGroup>
@@ -198,7 +199,6 @@ export function ConnectionsTable({
                       mobileLabel="Fahrtverlauf"
                       expanded={journeyOpen}
                       onClick={() => toggleExclusive(rowKey, historyKey)}
-                      layout="table"
                     />
                   )}
                   {hasHistory && (
@@ -209,7 +209,6 @@ export function ConnectionsTable({
                       mobileLabel="Preisentwicklung"
                       expanded={historyOpen}
                       onClick={() => toggleExclusive(historyKey, rowKey)}
-                      layout="table"
                     />
                   )}
                   </>

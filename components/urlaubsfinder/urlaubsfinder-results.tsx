@@ -156,6 +156,7 @@ function ResultCard({
   priceBand,
   searchParams,
   homeStation,
+  stationWidthReference,
   isExpanded,
   onToggle,
 }: {
@@ -163,6 +164,7 @@ function ResultCard({
   priceBand: PriceBand
   searchParams: SearchParams | null | undefined
   homeStation: string
+  stationWidthReference?: { origin?: string; destination?: string }
   isExpanded: boolean
   onToggle: () => void
 }) {
@@ -220,6 +222,10 @@ function ResultCard({
     outwardArrival: result.outwardArrival,
     returnDeparture: result.returnDeparture,
     returnArrival: result.returnArrival,
+    outwardOrigin: homeStation || result.homeStationName,
+    outwardDestination: result.destination,
+    returnOrigin: result.destination,
+    returnDestination: homeStation || result.homeStationName,
     outwardTransfers: result.outwardTransfers,
     returnTransfers: result.returnTransfers,
     outwardLegs: result.outwardLegs,
@@ -238,38 +244,40 @@ function ResultCard({
   const metadataBadges = isDirect
     ? <DirectJourneyBadge />
     : undefined
+  const destinationHeader = (
+    <div className="flex max-w-full flex-wrap items-center gap-3">
+      <strong className="min-w-0 max-w-full truncate text-sm font-bold text-gray-950 sm:text-base" title={result.destination}>
+        {result.destination}
+      </strong>
+      {metadataBadges}
+    </div>
+  )
 
   return (
     <article
       id={`result-card-${encodeURIComponent(result.destination)}`}
-      className={`overflow-hidden rounded-lg border text-sm shadow-sm transition hover:shadow-md ${priceBand === "best" ? "border-green-400 bg-green-100/60" : "border-gray-200 bg-white"} ${isExpanded ? "ring-2 ring-blue-300 ring-offset-1" : ""}`}
+      className={`overflow-hidden rounded-lg border text-sm shadow-[0_1px_4px_rgba(15,23,42,0.10)] transition hover:shadow-md ${priceBand === "best" ? "border-green-400 bg-green-100/60" : "border-gray-300 bg-white"} ${isExpanded ? "ring-2 ring-blue-300 ring-offset-1" : ""}`}
     >
-      <header className="border-b border-gray-200 bg-white/80 px-3 py-2.5 sm:px-4">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-700">Reiseziel</div>
-          <h4 className="truncate text-base font-bold text-gray-950 sm:text-lg">{result.destination}</h4>
-        </div>
-      </header>
-
       {isRoundTrip ? (
         <RoundTripJourneySummary
           journey={roundTripJourney}
-          mobileBadges={metadataBadges}
-          desktopBadges={metadataBadges}
+          leadingContent={destinationHeader}
           priceTone={priceTone}
+          stackHeaderOnMobile
+          stationWidthReference={stationWidthReference}
         />
       ) : (
         <OneWayJourneySummary
           journey={oneWayJourney}
-          mobileBadges={metadataBadges}
-          desktopBadges={metadataBadges}
+          leadingContent={destinationHeader}
           priceTone={priceTone}
-          layout="table"
+          showDate
+          priceInMobileHeader
+          stationWidthReference={stationWidthReference}
         />
       )}
 
       <JourneyResultActionBar
-        layout={isRoundTrip ? "default" : "table"}
         bookingActions={searchParams ? (
             <JourneyBookingButtonGroup>
                 <JourneyBookingButton direction={isRoundTrip ? "outward" : "one-way"} href={outBooking} />
@@ -286,7 +294,6 @@ function ResultCard({
             mobileLabel="Fahrtverlauf"
             expanded={isExpanded}
             onClick={handleToggle}
-            layout={isRoundTrip ? "default" : "table"}
           />
         ) : undefined}
       />
@@ -302,17 +309,9 @@ function ResultCard({
 
 function ResultCardPlaceholder({ isRoundTrip }: { isRoundTrip: boolean }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm" aria-hidden="true">
-      <div className="flex animate-pulse items-center justify-between gap-3 border-b border-gray-200 px-3 py-2.5 sm:px-4">
-        <div className="space-y-1.5">
-          <div className="h-3 w-16 rounded bg-blue-100" />
-          <div className="h-5 w-36 rounded bg-gray-200" />
-        </div>
-        <div className="h-4 w-24 rounded bg-gray-100" />
-      </div>
-      {isRoundTrip ? <RoundTripJourneySummaryPlaceholder /> : <OneWayJourneySummaryPlaceholder layout="table" />}
+    <div className="overflow-hidden rounded-lg border border-gray-300 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.10)]" aria-hidden="true">
+      {isRoundTrip ? <RoundTripJourneySummaryPlaceholder stackHeaderOnMobile /> : <OneWayJourneySummaryPlaceholder showDate showBadges priceInMobileHeader />}
       <JourneyResultActionBar
-        layout={isRoundTrip ? "default" : "table"}
         bookingActions={(
           <div className={`grid w-full gap-2 sm:flex sm:w-auto ${isRoundTrip ? "grid-cols-2" : "grid-cols-1"}`}>
             <div className="h-8 rounded-md bg-blue-100 sm:w-28" />
@@ -401,6 +400,21 @@ export function UrlauberfinderResults({
         getJourneyDuration(right.outwardDeparture, right.outwardArrival)
     })
   }, [results, sortDir, sortKey])
+  const widestDestination = useMemo(() => (
+    results.reduce<string | undefined>((widest, result) => (
+      !widest || result.destination.length > widest.length ? result.destination : widest
+    ), undefined)
+  ), [results])
+  const homeStationReference = homeStation || results[0]?.homeStationName
+  const widestStationReference = [homeStationReference, widestDestination]
+    .filter((station): station is string => Boolean(station))
+    .reduce<string | undefined>((widest, station) => (
+      !widest || station.length > widest.length ? station : widest
+    ), undefined)
+  const stationWidthReference = {
+    origin: widestStationReference,
+    destination: widestStationReference,
+  }
   const queueStatus = useSearchQueueStatus({
     sessionId,
     isActive: isLoading,
@@ -529,7 +543,7 @@ export function UrlauberfinderResults({
             />
           </header>
 
-          <div className="space-y-2 bg-gray-50 p-2.5 sm:p-3">
+          <div className="space-y-3 bg-slate-100/80 p-2.5 sm:p-3">
             {sortedResults.map((result) => (
               <ResultCard
                 key={result.destination}
@@ -537,6 +551,7 @@ export function UrlauberfinderResults({
                 priceBand={priceScale.getBand(result.totalPrice)}
                 searchParams={searchParams}
                 homeStation={homeStation}
+                stationWidthReference={stationWidthReference}
                 isExpanded={expandedDestination === result.destination}
                 onToggle={() =>
                   setExpandedDestination((prev) =>

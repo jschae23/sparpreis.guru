@@ -141,6 +141,7 @@ interface PriceData {
 }
 
 const LAZY_LOADING_INDICATOR_DELAY_MS = 150
+const PINNED_COMBINATION_TRANSITION_MS = 550
 
 function useDelayedLoadingIndicator(active: boolean, requestKey: string) {
   const [visible, setVisible] = useState(false)
@@ -526,7 +527,7 @@ function ComboMatrix({
                 disabled={isStreaming || isFullMatrixLoading}
               >
                 {isFullMatrixLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Table2 className="h-3.5 w-3.5" />}
-                Alle Preise abfragen (Filter ignorieren)
+                Alle Preise ohne Nächtefilter abfragen
               </Button>
             )}
             {onResetMatrix && (
@@ -1177,7 +1178,7 @@ function CombinationResultListItem({
   const hasJourneyDetails = outwardLegs.length > 0 || returnLegs.length > 0
   const hasPriceHistory = Boolean(outwardPriceHistory?.length || returnPriceHistory?.length)
   const priceStyle = PRICE_BAND_STYLES[priceBand]
-  const priceTone = `${priceStyle.background} ${priceStyle.text} ${priceStyle.emphasis}`
+  const priceTone = `${priceStyle.background} ${priceStyle.border} ${priceStyle.text} ${priceStyle.emphasis}`
   const filterRangeLabel = typeof maxNights === "number"
     ? minNights === maxNights ? `${minNights}` : `${minNights}–${maxNights}`
     : `ab ${minNights}`
@@ -1191,11 +1192,11 @@ function CombinationResultListItem({
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-lg border shadow-sm transition",
-        isBestPrice ? "border-green-400 bg-green-100/60" : "border-gray-200 bg-white",
+        "overflow-hidden rounded-lg border shadow-[0_1px_4px_rgba(15,23,42,0.10)] transition",
+        isBestPrice ? "border-green-400 bg-green-100/60" : "border-gray-300 bg-white",
         outsideStayFilter && "border-amber-300 bg-amber-50/60",
         active && !manuallySelected && "ring-2 ring-blue-500 ring-offset-1",
-        manuallySelected && "border-blue-500 ring-2 ring-blue-600"
+        manuallySelected && "border-blue-500"
       )}
     >
       {manuallySelected && (
@@ -1219,7 +1220,13 @@ function CombinationResultListItem({
         aria-pressed={active}
       >
         <RoundTripJourneySummary
-          journey={combination}
+          journey={{
+            ...combination,
+            outwardOrigin: startStation?.name,
+            outwardDestination: zielStation?.name,
+            returnOrigin: zielStation?.name,
+            returnDestination: startStation?.name,
+          }}
           mobileBadges={(
             <CombinationBadges
               state={badgeState}
@@ -1382,7 +1389,10 @@ function SelectedCombinationListItem({
     lazyRequestKey
   )
 
-  if (lazyCombinationRequest?.status === "loading" && showLoadingPlaceholder) {
+  if (
+    lazyCombinationRequest?.status === "loading" &&
+    (manuallySelected || showLoadingPlaceholder)
+  ) {
     return (
       <LazyCombinationListPlaceholder
         request={lazyCombinationRequest}
@@ -1442,7 +1452,7 @@ function LazyCombinationListPlaceholder({
       className={cn(
         "overflow-hidden rounded-lg border bg-white shadow-sm ring-2",
         manuallySelected
-          ? "border-blue-500 ring-blue-600"
+          ? "border-blue-500 ring-0"
           : "border-dashed border-blue-300 ring-blue-500 ring-offset-1"
       )}
       aria-live="polite"
@@ -1542,12 +1552,18 @@ function CombinationComparisonPanel({
   const [pendingResultFocus, setPendingResultFocus] = useState<string | null>(null)
   const [expandedCombinationKeys, setExpandedCombinationKeys] = useState<Set<string>>(new Set())
   const [revealedMatrixCombinationKeys, setRevealedMatrixCombinationKeys] = useState<Set<string>>(new Set())
+  const [pinSelectedCombination, setPinSelectedCombination] = useState(false)
+  const [renderPinnedCombination, setRenderPinnedCombination] = useState(false)
+  const [showPinnedCombination, setShowPinnedCombination] = useState(false)
+  const [pendingTimelineSelection, setPendingTimelineSelection] = useState<{
+    outwardDate: string
+    returnDate: string
+  } | null>(null)
   const combinationResultRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
   const combinationListRef = useRef<HTMLDivElement>(null)
   const combinationListSectionRef = useRef<HTMLElement>(null)
-  const lazyRequestKey = lazyCombinationRequest
-    ? `${lazyCombinationRequest.outwardDate}|${lazyCombinationRequest.returnDate}`
-    : ""
+  const pinnedCombinationFrameRef = useRef<number | null>(null)
+  const pinnedCombinationTimerRef = useRef<number | null>(null)
   const outwardDayData = outwardResults[selectedCombination.outwardDate]
   const returnDayData = returnResults[selectedCombination.returnDate]
   const outwardRideCount = outwardDayData?.allIntervals?.length || (outwardDayData?.preis > 0 ? 1 : 0)
@@ -1602,6 +1618,66 @@ function CombinationComparisonPanel({
     })
   }
 
+  const revealPinnedCombination = () => {
+    if (pinnedCombinationTimerRef.current !== null) {
+      window.clearTimeout(pinnedCombinationTimerRef.current)
+      pinnedCombinationTimerRef.current = null
+    }
+    if (pinnedCombinationFrameRef.current !== null) {
+      window.cancelAnimationFrame(pinnedCombinationFrameRef.current)
+      pinnedCombinationFrameRef.current = null
+    }
+
+    setRenderPinnedCombination(true)
+    if (renderPinnedCombination) {
+      setShowPinnedCombination(true)
+      return
+    }
+
+    setShowPinnedCombination(false)
+    pinnedCombinationFrameRef.current = window.requestAnimationFrame(() => {
+      setShowPinnedCombination(true)
+      pinnedCombinationFrameRef.current = null
+    })
+  }
+
+  const dismissPinnedCombination = () => {
+    if (pinnedCombinationFrameRef.current !== null) {
+      window.cancelAnimationFrame(pinnedCombinationFrameRef.current)
+      pinnedCombinationFrameRef.current = null
+    }
+    if (pinnedCombinationTimerRef.current !== null) {
+      window.clearTimeout(pinnedCombinationTimerRef.current)
+    }
+
+    setPinSelectedCombination(false)
+    setShowPinnedCombination(false)
+    pinnedCombinationTimerRef.current = window.setTimeout(() => {
+      setRenderPinnedCombination(false)
+      setPendingTimelineSelection(null)
+      pinnedCombinationTimerRef.current = null
+    }, PINNED_COMBINATION_TRANSITION_MS)
+  }
+
+  useEffect(() => () => {
+    if (pinnedCombinationFrameRef.current !== null) {
+      window.cancelAnimationFrame(pinnedCombinationFrameRef.current)
+    }
+    if (pinnedCombinationTimerRef.current !== null) {
+      window.clearTimeout(pinnedCombinationTimerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!pendingTimelineSelection) return
+    if (
+      selectedCombination.outwardDate === pendingTimelineSelection.outwardDate &&
+      selectedCombination.returnDate === pendingTimelineSelection.returnDate
+    ) {
+      setPendingTimelineSelection(null)
+    }
+  }, [pendingTimelineSelection, selectedCombination])
+
   useEffect(() => {
     if (!pendingResultFocus) return
     if (getCombinationKey(selectedCombination.outwardDate, selectedCombination.returnDate) !== pendingResultFocus) return
@@ -1634,7 +1710,14 @@ function CombinationComparisonPanel({
   ) => {
     if (focusResult) {
       setPinSelectedCombination(true)
+      revealPinnedCombination()
       setPendingResultFocus(getCombinationKey(outwardDate, returnDate))
+      const hasLoadedCombination =
+        (outwardResults[outwardDate]?.preis ?? 0) > 0 &&
+        (returnResults[returnDate]?.preis ?? 0) > 0
+      setPendingTimelineSelection(
+        hasLoadedCombination ? null : { outwardDate, returnDate }
+      )
     }
     onSelectTimelineCombination(outwardDate, returnDate)
   }
@@ -1642,7 +1725,7 @@ function CombinationComparisonPanel({
   const handleMatrixSelection = (outwardDate: string, returnDate: string) => {
     matrixViewportAnchorTopRef.current = inlineMatrixRef.current?.getBoundingClientRect().top ?? null
     revealMatrixCombination(outwardDate, returnDate)
-    setPinSelectedCombination(false)
+    dismissPinnedCombination()
     onSelectCombination(outwardDate, returnDate)
   }
 
@@ -1743,11 +1826,6 @@ function CombinationComparisonPanel({
   const [isInlineMatrixFocused, setIsInlineMatrixFocused] = useState(false)
   const [isInlineMatrixCaptured, setIsInlineMatrixCaptured] = useState(false)
   const [showAllCombinations, setShowAllCombinations] = useState(false)
-  const [pinSelectedCombination, setPinSelectedCombination] = useState(false)
-  const showLazyListPlaceholder = useDelayedLoadingIndicator(
-    pinSelectedCombination && lazyCombinationRequest?.status === "loading",
-    lazyRequestKey
-  )
   const inlineMatrixRef = useRef<HTMLDivElement>(null)
   const inlineMatrixViewportRef = useRef<HTMLDivElement>(null)
   const matrixViewportAnchorTopRef = useRef<number | null>(null)
@@ -1758,13 +1836,28 @@ function CombinationComparisonPanel({
   const sortedAlternativeCombinations = visibleCombinations.filter(
     (combination) => !isSameCombination(combination, selectedCombination)
   )
+  const matchingTimelineRequest = pendingTimelineSelection &&
+    lazyCombinationRequest?.outwardDate === pendingTimelineSelection.outwardDate &&
+    lazyCombinationRequest.returnDate === pendingTimelineSelection.returnDate
+      ? lazyCombinationRequest
+      : null
+  const pinnedTimelineRequest: LazyCombinationRequestState | null = pendingTimelineSelection
+    ? matchingTimelineRequest?.status === "error"
+      ? matchingTimelineRequest
+      : {
+          outwardDate: pendingTimelineSelection.outwardDate,
+          returnDate: pendingTimelineSelection.returnDate,
+          status: "loading",
+        }
+    : null
   const listedCombinations = showAllCombinations
-    ? pinSelectedCombination
-      ? [selectedCombination, ...sortedAlternativeCombinations]
+    ? renderPinnedCombination
+      ? sortedAlternativeCombinations
       : visibleCombinations
-    : pinSelectedCombination
-      ? [selectedCombination, ...sortedAlternativeCombinations.slice(0, 4)]
+    : renderPinnedCombination
+      ? sortedAlternativeCombinations.slice(0, 4)
       : visibleCombinations.slice(0, 5)
+  const displayedCombinationCount = listedCombinations.length + (renderPinnedCombination ? 1 : 0)
 
   useLayoutEffect(() => {
     const anchorTop = matrixViewportAnchorTopRef.current
@@ -1797,6 +1890,9 @@ function CombinationComparisonPanel({
   useEffect(() => {
     setShowAllCombinations(false)
     setPinSelectedCombination(false)
+    setRenderPinnedCombination(false)
+    setShowPinnedCombination(false)
+    setPendingTimelineSelection(null)
   }, [searchStart, searchEnd, startStation?.id, zielStation?.id])
 
   useEffect(() => {
@@ -1978,10 +2074,10 @@ function CombinationComparisonPanel({
       <div className="flex flex-col gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
-            <Train className="h-4 w-4" /> Verbindungen ({listedCombinations.length} von {visibleCombinations.length})
+            <Train className="h-4 w-4" /> Verbindungen ({displayedCombinationCount} von {visibleCombinations.length})
           </div>
           <div className="mt-0.5 text-xs text-blue-700">
-            {pinSelectedCombination
+            {renderPinnedCombination
               ? `Slider-Auswahl oben angeheftet · alle weiteren nach ${activeCombinationSortLabel} ${combinationSortDir === "asc" ? "aufsteigend" : "absteigend"} sortiert`
               : `Alle ${visibleCombinations.length} Verbindungen nach ${activeCombinationSortLabel} ${combinationSortDir === "asc" ? "aufsteigend" : "absteigend"} sortiert`}
           </div>
@@ -2007,13 +2103,56 @@ function CombinationComparisonPanel({
 
       <div
         ref={combinationListRef}
-        className="space-y-2 bg-gray-50 p-2.5 sm:p-3"
+        className="space-y-3 bg-slate-100/80 p-2.5 sm:p-3"
       >
-        {pinSelectedCombination && lazyCombinationRequest?.status === "loading" && showLazyListPlaceholder && (
-          <LazyCombinationListPlaceholder
-            request={lazyCombinationRequest}
-            manuallySelected={pinSelectedCombination}
-          />
+        {renderPinnedCombination && (
+          <div
+            className={cn(
+              "grid transition-[grid-template-rows,opacity,margin] duration-[550ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+              showPinnedCombination
+                ? "mb-0 grid-rows-[1fr] opacity-100"
+                : "-mb-3 grid-rows-[0fr] opacity-0"
+            )}
+            aria-hidden={!showPinnedCombination}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div
+                key={pendingTimelineSelection
+                  ? `${pendingTimelineSelection.outwardDate}|${pendingTimelineSelection.returnDate}|pending`
+                  : `${selectedCombination.outwardDate}|${selectedCombination.returnDate}|complete`}
+                className="animate-in fade-in-0 duration-[400ms] ease-out motion-reduce:animate-none"
+              >
+                <SelectedCombinationListItem
+                  combination={selectedCombination}
+                  badgeState={selectedBadgeState}
+                  priceBand={priceScale.getBand(selectedCombination.totalPrice)}
+                  detailsOpen={expandedCombinationKeys.has(getCombinationKey(selectedCombination.outwardDate, selectedCombination.returnDate))}
+                  manuallySelected
+                  minNights={minNights}
+                  maxNights={maxNights}
+                  startStation={startStation}
+                  zielStation={zielStation}
+                  searchParams={searchParams}
+                  outwardPriceHistory={getJourneyPriceHistory(
+                    outwardResults[selectedCombination.outwardDate],
+                    selectedCombination.outwardDeparture,
+                    selectedCombination.outwardArrival
+                  )}
+                  returnPriceHistory={getJourneyPriceHistory(
+                    returnResults[selectedCombination.returnDate],
+                    selectedCombination.returnDeparture,
+                    selectedCombination.returnArrival
+                  )}
+                  lazyCombinationRequest={pinnedTimelineRequest}
+                  onSelect={() => {
+                    dismissPinnedCombination()
+                    onSelectCombination(selectedCombination.outwardDate, selectedCombination.returnDate)
+                  }}
+                  onToggleDetails={() => toggleCombinationDetails(getCombinationKey(selectedCombination.outwardDate, selectedCombination.returnDate))}
+                />
+              </div>
+            </div>
+          </div>
         )}
         {listedCombinations.map((combination) => {
           const combinationKey = getCombinationKey(combination.outwardDate, combination.returnDate)
@@ -2033,7 +2172,7 @@ function CombinationComparisonPanel({
               priceBand={priceScale.getBand(combination.totalPrice)}
               active={isSameCombination(combination, selectedCombination)}
               detailsOpen={expandedCombinationKeys.has(combinationKey)}
-              manuallySelected={pinSelectedCombination && isSameCombination(combination, selectedCombination)}
+              manuallySelected={false}
               minNights={minNights}
               maxNights={maxNights}
               startStation={startStation}
@@ -2054,14 +2193,14 @@ function CombinationComparisonPanel({
                 else combinationResultRefs.current.delete(combinationKey)
               }}
               onSelect={() => {
-                setPinSelectedCombination(false)
+                dismissPinnedCombination()
                 onSelectCombination(combination.outwardDate, combination.returnDate)
               }}
               onToggleDetails={() => toggleCombinationDetails(combinationKey)}
             />
           )
         })}
-        {(showAllCombinations || visibleCombinations.length > listedCombinations.length) && (
+        {(showAllCombinations || visibleCombinations.length > displayedCombinationCount) && (
           <div className="flex justify-center pt-2">
             <Button
               type="button"
@@ -2073,7 +2212,7 @@ function CombinationComparisonPanel({
               {showAllCombinations ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               {showAllCombinations
                 ? "Weniger Verbindungen anzeigen"
-                : `${visibleCombinations.length - listedCombinations.length} weitere Verbindungen anzeigen`}
+                : `${visibleCombinations.length - displayedCombinationCount} weitere Verbindungen anzeigen`}
             </Button>
           </div>
         )}
@@ -2147,9 +2286,9 @@ function CombinationComparisonPanel({
               selectedCombination.returnDeparture,
               selectedCombination.returnArrival
             )}
-            lazyCombinationRequest={lazyCombinationRequest}
+            lazyCombinationRequest={pinSelectedCombination ? pinnedTimelineRequest : lazyCombinationRequest}
             onSelect={() => {
-              setPinSelectedCombination(false)
+              dismissPinnedCombination()
               onSelectCombination(selectedCombination.outwardDate, selectedCombination.returnDate)
             }}
             onToggleDetails={() => toggleCombinationDetails(getCombinationKey(selectedCombination.outwardDate, selectedCombination.returnDate))}
@@ -2204,9 +2343,9 @@ function CombinationComparisonPanel({
               selectedCombination.returnDeparture,
               selectedCombination.returnArrival
             )}
-            lazyCombinationRequest={lazyCombinationRequest}
+            lazyCombinationRequest={pinSelectedCombination ? pinnedTimelineRequest : lazyCombinationRequest}
             onSelect={() => {
-              setPinSelectedCombination(false)
+              dismissPinnedCombination()
               onSelectCombination(selectedCombination.outwardDate, selectedCombination.returnDate)
             }}
             onToggleDetails={() => toggleCombinationDetails(getCombinationKey(selectedCombination.outwardDate, selectedCombination.returnDate))}
@@ -2373,7 +2512,7 @@ function DayRideList({
 
   const getIntervalPriceColor = (price: number) => {
     const style = PRICE_BAND_STYLES[intervalPriceScale.getBand(price)]
-    return `${style.text} ${style.background} ${style.emphasis}`
+    return `${style.text} ${style.background} ${style.border} ${style.emphasis}`
   }
 
   return (
@@ -2483,9 +2622,9 @@ function TravelCombinationsPlaceholder({
             Wird berechnet
           </span>
         </div>
-        <div className="flex-1 space-y-2 bg-gray-50 p-2.5 sm:p-3">
+        <div className="flex-1 space-y-3 bg-slate-100/80 p-2.5 sm:p-3">
           {[0, 1].map((item) => (
-            <div key={item} className="animate-pulse rounded-lg border border-gray-200 bg-white p-3 sm:p-4">
+            <div key={item} className="animate-pulse rounded-lg border border-gray-300 bg-white p-3 shadow-[0_1px_4px_rgba(15,23,42,0.10)] sm:p-4">
               <div className="mb-3 flex items-center justify-between gap-4">
                 <div className="h-4 w-24 rounded bg-gray-200" />
                 <div className="h-6 w-20 rounded bg-gray-200" />
