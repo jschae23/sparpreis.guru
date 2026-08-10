@@ -31,7 +31,7 @@ const bestpreissucheFaqs: FAQItem[] = [
   },
   {
     question: "Kann ich weitere Tage oder Kombinationen nachladen?",
-    answer: "Ja. In der einfachen Suche kannst du einzelne noch nicht geladene Kalendertage bis zu vier Wochen vor oder nach dem ursprünglichen Zeitraum abfragen, frühestens ab morgen. Bei Hin- und Rückfahrt lassen sich zusätzliche Kombinationen direkt in der Preismatrix abfragen. Kombinationen außerhalb der gewählten Aufenthaltsdauer werden dort entsprechend gekennzeichnet."
+    answer: "Ja. In der einfachen Suche kannst du einzelne noch nicht geladene Kalendertage bis zu 14 Tage vor oder nach dem ursprünglichen Zeitraum abfragen, frühestens ab morgen. Bei Hin- und Rückfahrt lassen sich zusätzliche Kombinationen direkt in der Preismatrix abfragen. Kombinationen außerhalb der gewählten Aufenthaltsdauer werden dort entsprechend gekennzeichnet."
   },
   {
     question: "Sind die Preise verbindlich?",

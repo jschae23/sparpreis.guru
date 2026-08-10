@@ -10,6 +10,24 @@ import { createPriceBandScale, PRICE_BAND_STYLES } from "@/lib/train-search/pric
 import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 
 const LOG_SCOPE = "bestpreissuche.price-calendar"
+const LAZY_LOADING_INDICATOR_DELAY_MS = 150
+
+function useDelayedLoadingIndicator(active: boolean, requestKey: string) {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    setVisible(false)
+    if (!active) return
+
+    const timer = window.setTimeout(() => {
+      setVisible(true)
+    }, LAZY_LOADING_INDICATOR_DELAY_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [active, requestKey])
+
+  return active && visible
+}
 
 interface IntervalData {
   preis: number
@@ -88,6 +106,11 @@ export function PriceCalendar({
   lazyDayRequest,
   onRequestDay,
 }: PriceCalendarProps) {
+  const lazyDayRequestKey = lazyDayRequest?.date || ""
+  const showLazyDayLoadingIndicator = useDelayedLoadingIndicator(
+    lazyDayRequest?.status === "loading",
+    lazyDayRequestKey
+  )
   const resultDates = Object.keys(results).filter(key => key !== '_meta').sort()
   const tomorrow = getEarliestSearchDateKey()
   const originalStartDate = searchParams?.reisezeitraumAb || resultDates[0] || tomorrow
@@ -387,22 +410,26 @@ export function PriceCalendar({
               const isExpectedDay = expectedDateRange.includes(dateKey)
               const isRequestableDay = dateKey >= earliestRequestableDate && dateKey <= latestRequestableDate
               const isLazyPending = lazyDayRequest?.date === dateKey && lazyDayRequest.status === "loading"
+              const showLazyPending = isLazyPending && showLazyDayLoadingIndicator
               const lazyRequestFailed = lazyDayRequest?.date === dateKey && lazyDayRequest.status === "error"
-              const isPendingDay = (isStreaming && isExpectedDay && !hasResult) || isLazyPending
-              const canRequestDay = isRequestableDay && !hasResult && !isPendingDay && Boolean(onRequestDay)
+              const isInitialPending = Boolean(isStreaming && isExpectedDay && !hasResult)
+              const isPendingDay = isInitialPending || showLazyPending
+              const canRequestDay = isRequestableDay && !hasResult && !isInitialPending && !isLazyPending && Boolean(onRequestDay)
+              const showRequestPrompt = isRequestableDay && !hasResult && !isInitialPending && !showLazyPending && Boolean(onRequestDay)
 
               return (
                 <div
                   key={dateKey}
                   className={`
-                    relative min-h-[90px] sm:min-h-[100px] p-1 sm:p-3 border rounded-lg transition-all hover:shadow-sm flex flex-col justify-between
+                    relative h-[90px] sm:h-[100px] p-1 sm:p-3 border rounded-lg transition-all hover:shadow-sm flex flex-col justify-between
                     ${!isCurrentMonth ? "opacity-30" : ""}
                     ${isToday ? "ring-2 ring-blue-500" : ""}
                     ${selectedDay === dateKey ? "ring-2 ring-blue-700 ring-offset-2" : ""}
                     ${hasPrice ? getPriceBg(priceData.preis) : 
                       hasResult ? "bg-gray-50" : 
                       isPendingDay ? "bg-blue-50 border-blue-200" :
-                      canRequestDay ? "cursor-pointer border-dashed border-blue-200 bg-white text-blue-700 hover:border-blue-300 hover:bg-blue-50/60" : "bg-white"}
+                      showRequestPrompt ? "border-dashed border-blue-200 bg-white text-blue-700" : "bg-white"}
+                    ${canRequestDay ? "cursor-pointer hover:border-blue-300 hover:bg-blue-50/60" : ""}
                     ${hasPrice ? "cursor-pointer hover:shadow-md hover:scale-105" : ""}
                   `}
                   onClick={() => {
@@ -474,12 +501,13 @@ export function PriceCalendar({
                     </div>
                   )}
 
-                  {canRequestDay && (
+                  {showRequestPrompt && (
                     <button
                       type="button"
+                      disabled={!canRequestDay}
                       onClick={(event) => {
                         event.stopPropagation()
-                        onRequestDay?.(dateKey)
+                        if (canRequestDay) onRequestDay?.(dateKey)
                       }}
                       className={`mx-auto my-auto px-0.5 py-1 text-center text-[9px] font-medium transition-opacity sm:text-[10px] ${
                         lazyRequestFailed
@@ -507,7 +535,7 @@ export function PriceCalendar({
         </div>
 
         <div className="border-t bg-gray-50 p-4 text-center text-xs text-gray-600">
-          Wähle einen Tag mit Preis oder frage einen ungeladenen Tag bis zu vier Wochen vor oder nach dem Suchzeitraum ab
+          Wähle einen Tag mit Preis oder frage einen ungeladenen Tag bis zu zwei Wochen vor oder nach dem Suchzeitraum ab
           {isStreaming && (
             <span className="ml-2 text-blue-600">
               (Weitere Ergebnisse werden geladen...)

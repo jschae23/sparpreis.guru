@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { FAQPopup } from "@/components/layout/faq-popup"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowLeftRight, Ticket, MapPin, Calendar, AlertTriangle, CheckCircle, Lightbulb, Moon, Sparkles } from "lucide-react"
+import { ArrowLeftRight, Ticket, MapPin, Calendar, AlertTriangle, Check, CheckCircle, Lightbulb, Moon, Sparkles } from "lucide-react"
 import { logError } from "@/lib/shared/logger"
 import { useBerlinEarliestSearchDate } from "@/hooks/use-berlin-earliest-search-date"
 import {
@@ -69,37 +69,43 @@ function getDayDistanceISO(startDate: string, endDate: string) {
 
 interface WeekdaySelectorProps {
   direction: "Hinfahrt" | "Rückfahrt"
+  showDirection?: boolean
   selected: number[]
   onChange: (weekdays: number[]) => void
 }
 
-function WeekdaySelector({ direction, selected, onChange }: WeekdaySelectorProps) {
+function WeekdaySelector({ direction, showDirection = true, selected, onChange }: WeekdaySelectorProps) {
+  const allDaysSelected = selected.length === ALL_WEEKDAYS.length
+  const selectionLabel = showDirection ? `Wochentage der ${direction}` : "Wochentage"
+
   return (
     <fieldset>
-      <legend className="mb-2 text-sm font-medium text-gray-700">
-        Wochentage der {direction}
-      </legend>
-      <div className="flex flex-wrap gap-2" role="group" aria-label={`Wochentage der ${direction} auswählen`}>
+      <legend className="sr-only">{selectionLabel}</legend>
+      <div className="mb-2 text-sm font-medium text-gray-700">{selectionLabel}</div>
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label={`${selectionLabel} auswählen`}>
         <button
           type="button"
-          className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-            selected.length === 7
-              ? "bg-blue-600 text-white shadow-sm"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          className={`inline-flex min-h-9 items-center gap-1 rounded-md border border-dashed px-2.5 text-xs font-semibold transition-colors ${
+            allDaysSelected
+              ? "border-blue-200 bg-blue-50/60 text-blue-700"
+              : "border-blue-300 bg-white text-blue-700 hover:border-blue-400 hover:bg-blue-50"
           }`}
           onClick={() => onChange([...ALL_WEEKDAYS])}
-          aria-pressed={selected.length === 7}
+          disabled={allDaysSelected}
+          aria-label={`Alle Wochentage der ${direction} auswählen`}
         >
-          Alle
+          {allDaysSelected && <Check className="h-3.5 w-3.5" />}
+          {allDaysSelected ? "Alle Tage aktiv" : "Alle Tage auswählen"}
         </button>
+        <span className="hidden h-7 w-px bg-gray-200 sm:block" aria-hidden="true" />
         {WEEKDAY_OPTIONS.map((weekday) => (
           <button
             key={weekday.value}
             type="button"
-            className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex min-w-[3.25rem] items-center justify-center gap-1 rounded-md border px-2.5 py-2 text-sm font-medium transition-colors ${
               selected.includes(weekday.value)
-                ? "bg-blue-600 text-white shadow-sm"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                ? "border-blue-400 bg-blue-100/70 text-blue-900 hover:bg-blue-100"
+                : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
             }`}
             onClick={() => {
               onChange(
@@ -110,6 +116,10 @@ function WeekdaySelector({ direction, selected, onChange }: WeekdaySelectorProps
             }}
             aria-pressed={selected.includes(weekday.value)}
           >
+            <Check
+              className={`h-3.5 w-3.5 ${selected.includes(weekday.value) ? "opacity-100" : "opacity-0"}`}
+              aria-hidden="true"
+            />
             {weekday.label}
           </button>
         ))}
@@ -1045,6 +1055,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
               outboundBefore={(
                 <WeekdaySelector
                   direction="Hinfahrt"
+                  showDirection={rueckfahrtAktiv}
                   selected={selectedWeekdays}
                   onChange={setSelectedWeekdays}
                 />
