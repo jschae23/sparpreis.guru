@@ -1081,15 +1081,17 @@ function getCombinationBadgeState({
 function CombinationBadges({
   state,
   compact = false,
+  primaryOnly = false,
   outsideStayFilterLabel,
   outsideStayFilterDescription,
 }: {
   state: CombinationBadgeState
   compact?: boolean
+  primaryOnly?: boolean
   outsideStayFilterLabel?: string
   outsideStayFilterDescription?: string
 }) {
-  const spacing = compact ? "px-1.5 text-[10px]" : "px-2 text-[11px]"
+  const spacing = compact ? "whitespace-nowrap px-1.5 text-[10px]" : "whitespace-nowrap px-2 text-[11px]"
 
   return (
     <>
@@ -1099,13 +1101,13 @@ function CombinationBadges({
           Bestpreis
         </Badge>
       )}
-      {state.hasShortestTravelTime && (
+      {!primaryOnly && state.hasShortestTravelTime && (
         <Badge className={cn("inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-50 py-0.5 font-semibold text-purple-700 shadow-none", spacing)}>
           <Clock className="h-3 w-3" />
           Schnellste
         </Badge>
       )}
-      {state.isDirectCombination && (
+      {!primaryOnly && state.isDirectCombination && (
         <DirectJourneyBadge compact={compact} />
       )}
       {state.outsideStayFilter && (
@@ -1115,7 +1117,7 @@ function CombinationBadges({
           aria-label={outsideStayFilterDescription}
         >
           <AlertTriangle className="h-3 w-3" />
-          {outsideStayFilterLabel || "Außerhalb des Filters"}
+          {primaryOnly ? "Nicht im Filter" : outsideStayFilterLabel || "Außerhalb des Filters"}
         </Badge>
       )}
     </>
@@ -1231,6 +1233,7 @@ function CombinationResultListItem({
             <CombinationBadges
               state={badgeState}
               compact
+              primaryOnly
               outsideStayFilterLabel={outsideStayFilterLabel}
               outsideStayFilterDescription={outsideStayFilterDescription}
             />
@@ -1245,6 +1248,8 @@ function CombinationResultListItem({
           )}
           priceTone={priceTone}
           dense={dense}
+          hasDirectBadge={badgeState.isDirectCombination}
+          isFastestJourney={badgeState.hasShortestTravelTime}
         />
       </button>
 

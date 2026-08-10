@@ -242,7 +242,7 @@ function ResultCard({
     legs: result.outwardLegs,
   }
   const metadataBadges = isDirect
-    ? <DirectJourneyBadge />
+    ? <DirectJourneyBadge className={isRoundTrip ? "hidden sm:inline-flex" : undefined} />
     : undefined
   const destinationHeader = (
     <div className="flex max-w-full flex-wrap items-center gap-3">
@@ -264,6 +264,7 @@ function ResultCard({
           leadingContent={destinationHeader}
           priceTone={priceTone}
           stackHeaderOnMobile
+          hasDirectBadge={isDirect}
           stationWidthReference={stationWidthReference}
         />
       ) : (

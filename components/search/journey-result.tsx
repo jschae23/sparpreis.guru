@@ -1,5 +1,5 @@
 import { Children, type ReactNode } from "react"
-import { ArrowRight, ChevronDown, ChevronUp, Clock, Moon, Shuffle, Train, TrainFront } from "lucide-react"
+import { ArrowRight, ChevronDown, ChevronUp, Clock, Moon, Shuffle, Train, TrainFront, Zap } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -43,11 +43,18 @@ export interface OneWayJourneyData {
   legs?: JourneyLeg[]
 }
 
-export function DirectJourneyBadge({ compact = false }: { compact?: boolean }) {
+export function DirectJourneyBadge({
+  compact = false,
+  className,
+}: {
+  compact?: boolean
+  className?: string
+}) {
   return (
     <Badge className={cn(
       "inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-0.5 font-semibold text-blue-700 shadow-none",
-      compact ? "px-1.5 text-[10px]" : "px-2 text-[11px]"
+      compact ? "px-1.5 text-[10px]" : "px-2 text-[11px]",
+      className
     )}>
       <Train className="h-3 w-3" />
       Direkt
@@ -299,6 +306,8 @@ function JourneySummaryHeader({
   priceTone,
   totalDuration,
   totalTransfers,
+  hasDirectBadge = false,
+  highlightTotalDurationOnMobile = false,
   stackOnMobile = false,
 }: {
   leadingContent?: ReactNode
@@ -308,9 +317,13 @@ function JourneySummaryHeader({
   priceTone: string
   totalDuration?: string | null
   totalTransfers?: number | null
+  hasDirectBadge?: boolean
+  highlightTotalDurationOnMobile?: boolean
   stackOnMobile?: boolean
 }) {
   const showTotals = Boolean(totalDuration) || typeof totalTransfers === "number"
+  const hideDesktopTransferTotal = hasDirectBadge && totalTransfers === 0
+  const showDesktopTotals = Boolean(totalDuration) || (typeof totalTransfers === "number" && !hideDesktopTransferTotal)
   const leadingBlock = (
     <div className="flex min-w-0 items-center gap-3">
       {leadingContent && <div className="min-w-0">{leadingContent}</div>}
@@ -321,18 +334,38 @@ function JourneySummaryHeader({
   const totalsBlock = (
     <>
       {totalDuration && (
-        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-gray-500">
-          <Clock className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-          <strong className="font-semibold text-gray-700">{totalDuration}</strong>
+        <span
+          className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-gray-500"
+          aria-label={highlightTotalDurationOnMobile
+            ? `Schnellste Verbindung, Gesamtreisezeit ${totalDuration}`
+            : `Gesamtreisezeit ${totalDuration}`}
+        >
+          {highlightTotalDurationOnMobile ? (
+            <>
+              <Zap className="h-3.5 w-3.5 shrink-0 text-purple-600 sm:hidden" />
+              <Clock className="hidden h-3.5 w-3.5 shrink-0 text-gray-400 sm:block" />
+            </>
+          ) : (
+            <Clock className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+          )}
+          <strong className={cn(
+            "font-semibold text-gray-700",
+            highlightTotalDurationOnMobile && "text-purple-700 sm:text-gray-700"
+          )}>{totalDuration}</strong>
         </span>
       )}
       {totalDuration && typeof totalTransfers === "number" && (
-        <span className="text-xs text-gray-300" aria-hidden="true">·</span>
+        <span className={cn("text-xs text-gray-300", hideDesktopTransferTotal && "sm:hidden")} aria-hidden="true">·</span>
       )}
       {typeof totalTransfers === "number" && (
-        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-gray-500" aria-label={`${totalTransfers} Umstiege insgesamt`}>
+        <span className={cn(
+          "inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-gray-500",
+          hideDesktopTransferTotal && "sm:hidden"
+        )} aria-label={totalTransfers === 1 ? "1 Umstieg insgesamt" : `${totalTransfers} Umstiege insgesamt`}>
           <Shuffle className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-          <strong className="font-semibold text-gray-700 sm:hidden">{totalTransfers}</strong>
+          <strong className="font-semibold text-gray-700 sm:hidden">
+            {totalTransfers === 0 ? "Direkt" : totalTransfers}
+          </strong>
           <span className="hidden sm:inline">{transferLabel(totalTransfers)}</span>
         </span>
       )}
@@ -352,15 +385,21 @@ function JourneySummaryHeader({
 
   if (stackOnMobile) {
     return (
-      <header className="grid min-h-[3.25rem] grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_auto] items-center gap-x-3 gap-y-1 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:gap-2 sm:px-4">
-        <div className="col-start-1 row-start-1 min-w-0">{leadingBlock}</div>
-        {showTotals && (
-          <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1.5 sm:ml-auto sm:shrink-0">
-            {totalsBlock}
-          </div>
-        )}
-        {showTotals && <span className="hidden text-xs text-gray-300 sm:inline" aria-hidden="true">·</span>}
-        <div className="col-start-2 row-span-2 row-start-1 self-center">{priceBlock}</div>
+      <header className="grid min-h-[3.25rem] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:gap-2 sm:px-4">
+        <div className="col-start-1 min-w-0 sm:contents">
+          {leadingBlock}
+        </div>
+        <div className="col-start-2 flex shrink-0 items-center gap-1.5 sm:contents">
+          {showTotals && (
+            <div className="flex shrink-0 items-center gap-1 sm:ml-auto sm:gap-1.5">
+              {totalsBlock}
+            </div>
+          )}
+          {showTotals && (
+            <span className={cn("text-xs text-gray-300", !showDesktopTotals && "sm:hidden")} aria-hidden="true">·</span>
+          )}
+          <div className="self-center">{priceBlock}</div>
+        </div>
       </header>
     )
   }
@@ -505,9 +544,9 @@ export function OneWayJourneySummary({
           "min-h-9 min-w-0 items-center gap-3 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:px-4",
           priceInMobileHeader ? "grid grid-cols-[minmax(0,1fr)_auto]" : "flex"
         )}>
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:flex-nowrap sm:gap-3">
             {leadingContent && <div className="min-w-0">{leadingContent}</div>}
-            <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:hidden">{mobileBadges}</div>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:hidden">{mobileBadges}</div>
             <div className="hidden shrink-0 flex-wrap items-center gap-1.5 sm:flex">{desktopBadges}</div>
           </div>
           {priceInMobileHeader && (
@@ -750,7 +789,9 @@ export function RoundTripJourneySummary({
   desktopBadges,
   priceTone,
   dense = false,
-  stackHeaderOnMobile = false,
+  stackHeaderOnMobile = true,
+  hasDirectBadge = false,
+  isFastestJourney = false,
   stationWidthReference,
 }: {
   journey: RoundTripJourneyData
@@ -760,6 +801,8 @@ export function RoundTripJourneySummary({
   priceTone: string
   dense?: boolean
   stackHeaderOnMobile?: boolean
+  hasDirectBadge?: boolean
+  isFastestJourney?: boolean
   stationWidthReference?: { origin?: string; destination?: string }
 }) {
   const totalTravelTime = formatTravelMinutes(getRoundTripTravelMinutes(journey))
@@ -777,6 +820,8 @@ export function RoundTripJourneySummary({
         priceTone={priceTone}
         totalDuration={totalTravelTime}
         totalTransfers={totalTransfers}
+        hasDirectBadge={hasDirectBadge}
+        highlightTotalDurationOnMobile={isFastestJourney}
         stackOnMobile={stackHeaderOnMobile}
       />
       <div className={cn("p-2.5 sm:p-3.5", dense && "sm:p-2.5")}>
@@ -851,7 +896,7 @@ export function RoundTripJourneySummaryPlaceholder({
   dense = false,
   mobileBadge,
   desktopBadge,
-  stackHeaderOnMobile = false,
+  stackHeaderOnMobile = true,
 }: {
   outwardDate?: string
   returnDate?: string
@@ -904,16 +949,19 @@ export function RoundTripJourneySummaryPlaceholder({
   return (
     <div className="animate-pulse">
       {stackHeaderOnMobile ? (
-        <div className="grid min-h-[3.25rem] grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_auto] items-center gap-x-3 gap-y-1 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:gap-2 sm:px-4">
-          <div className="col-start-1 row-start-1 min-w-0">
+        <div className="grid min-h-[3.25rem] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:gap-2 sm:px-4">
+          <div className="col-start-1 min-w-0 sm:contents">
             <div className="sm:hidden">{mobileBadge || <div className="h-5 w-24 rounded-full bg-blue-100" />}</div>
             <div className="hidden sm:block">{desktopBadge || <div className="h-5 w-28 rounded-full bg-blue-100" />}</div>
           </div>
-          <div className="col-start-1 row-start-2 flex items-center gap-2 sm:ml-auto">
-            <div className="h-3 w-16 rounded bg-gray-100" />
-            <div className="h-3 w-8 rounded bg-gray-100" />
+          <div className="col-start-2 flex shrink-0 items-center gap-1.5 sm:contents">
+            <div className="flex shrink-0 items-center gap-2 sm:ml-auto">
+              <div className="h-3 w-16 rounded bg-gray-100" />
+              <div className="h-3 w-8 rounded bg-gray-100" />
+            </div>
+            <div className="h-3 w-1 rounded bg-gray-100" />
+            <div className="h-8 w-20 self-center rounded-md border border-green-200 bg-green-100" />
           </div>
-          <div className="col-start-2 row-span-2 row-start-1 h-8 w-20 self-center rounded-md border border-green-200 bg-green-100" />
         </div>
       ) : (
         <div className="flex min-h-[3.25rem] items-center justify-between gap-3 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:px-4">
