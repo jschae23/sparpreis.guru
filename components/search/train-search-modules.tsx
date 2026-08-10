@@ -41,6 +41,30 @@ export interface TimeRestrictionValues {
   arrivalUntil: string
 }
 
+function normalizeTimeValue(rawValue: string) {
+  const value = rawValue.trim().replace(/[.,]/, ":")
+  if (!value) return ""
+
+  let hours: number
+  let minutes: number
+
+  if (/^\d{1,2}$/.test(value)) {
+    hours = Number(value)
+    minutes = 0
+  } else if (/^\d{3,4}$/.test(value)) {
+    hours = Number(value.slice(0, -2))
+    minutes = Number(value.slice(-2))
+  } else {
+    const match = value.match(/^(\d{1,2}):(\d{0,2})$/)
+    if (!match) return null
+    hours = Number(match[1])
+    minutes = match[2] ? Number(match[2]) : 0
+  }
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
+}
+
 export function getTimeRestrictionSummary(values: TimeRestrictionValues) {
   return TIME_PRESETS.find((preset) =>
     preset.departureFrom === values.departureFrom &&
@@ -111,11 +135,16 @@ function TimeRestrictionFields({
   )
   const [customMode, setCustomMode] = useState(!activePreset)
   const [customTimesOpen, setCustomTimesOpen] = useState(activePreset?.id !== "all-day")
+  const [draftValues, setDraftValues] = useState<TimeRestrictionValues>(values)
 
   useEffect(() => {
     setCustomMode(!activePreset)
     setCustomTimesOpen(activePreset?.id !== "all-day")
   }, [activePreset?.id])
+
+  useEffect(() => {
+    setDraftValues(values)
+  }, [values.arrivalFrom, values.arrivalUntil, values.departureFrom, values.departureUntil])
 
   const updateCustomValues = (nextValues: TimeRestrictionValues) => {
     setCustomMode(true)
@@ -132,7 +161,18 @@ function TimeRestrictionFields({
     label: string,
     ariaLabel: string
   ) => {
-    const openBoundary = field.endsWith("From") ? "00:00" : "23:59"
+    const commitDraftValue = () => {
+      const normalizedValue = normalizeTimeValue(draftValues[field])
+      if (normalizedValue === null) {
+        setDraftValues((current) => ({ ...current, [field]: values[field] }))
+        return
+      }
+
+      setDraftValues((current) => ({ ...current, [field]: normalizedValue }))
+      if (normalizedValue !== values[field]) {
+        updateCustomValues({ ...values, [field]: normalizedValue })
+      }
+    }
 
     return (
       <div className="min-w-0">
@@ -142,22 +182,42 @@ function TimeRestrictionFields({
         <div className="relative">
           <Input
             id={`${idPrefix}-${field}`}
-            type="time"
-            value={values[field] || openBoundary}
-            onChange={(event) => updateCustomValues({ ...values, [field]: event.target.value })}
-            className={`${dateTimeControlClass} ${values[field] ? "" : "text-gray-500"}`}
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={5}
+            value={draftValues[field]}
+            placeholder="offen"
+            onChange={(event) => {
+              const nextValue = event.target.value
+              if (/^[\d:.,]*$/.test(nextValue)) {
+                setDraftValues((current) => ({ ...current, [field]: nextValue }))
+              }
+            }}
+            onBlur={commitDraftValue}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                event.currentTarget.blur()
+              }
+            }}
+            className={`${dateTimeControlClass} pr-8 ${draftValues[field] ? "" : "text-gray-500"}`}
             aria-label={ariaLabel}
           />
-          {values[field] && (
+          {draftValues[field] ? (
             <button
               type="button"
               className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
-              onClick={() => updateCustomValues({ ...values, [field]: "" })}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setDraftValues((current) => ({ ...current, [field]: "" }))
+                updateCustomValues({ ...values, [field]: "" })
+              }}
               aria-label={`${ariaLabel} zurücksetzen`}
             >
               <X className="h-3.5 w-3.5" />
             </button>
-          )}
+          ) : <Clock className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />}
         </div>
       </div>
     )
@@ -357,12 +417,7 @@ export function DirectionTimeFiltersModule({
                 </span>
               </button>
             </div>
-          ) : (
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-800">
-              <ArrowRight className="h-4 w-4 text-blue-600" />
-              Hinfahrt
-            </div>
-          )}
+          ) : null}
 
           {!showingReturn ? (
             <div className="space-y-5">
