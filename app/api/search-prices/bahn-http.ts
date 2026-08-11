@@ -10,6 +10,7 @@ interface BahnHttpOptions {
 interface BahnHttpResponse {
   status: number
   ok: boolean
+  getHeader: (name: string) => string | null
   text: () => Promise<string>
   json: <T = unknown>() => Promise<T>
 }
@@ -77,6 +78,7 @@ export async function fetchBahn(url: string, options: BahnHttpOptions = {}): Pro
     return {
       status: response.status,
       ok: response.ok,
+      getHeader: (name: string) => response.headers.get(name),
       text: () => response.text(),
       json: <T = unknown>() => response.json() as Promise<T>,
     }

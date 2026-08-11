@@ -8,16 +8,18 @@ import { generateConnectionId } from './utils'
 import { connectionKey } from '@/lib/database/connection-key.cjs'
 import { initializeEmptyDatabase } from '@/lib/database/database-migrations.cjs'
 import databaseSchema from '@/lib/database/database-schema.json'
+import databasePolicy from '@/lib/database/database-policy.json'
+import { getBerlinDateKey } from '@/lib/shared/berlin-date'
 
 const LOG_SCOPE = "bestpreissuche.cache"
 
 // Cache-Konfiguration
 const CACHE_FRESHNESS_TTL = 60 * 60 * 1000 // 60 Minuten - nach dieser Zeit werden Daten neu abgefragt
-const DATA_RETENTION_DAYS = 90 // Daten werden 90 Tage aufbewahrt
+const DATA_RETENTION_DAYS = databasePolicy.connectionRetentionDays
 const DATA_RETENTION_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000
-const STATION_SEARCH_RETENTION_DAYS = 7 // Station-Suche Cache wird nach 7 Tagen gelöscht
+const STATION_SEARCH_RETENTION_DAYS = databasePolicy.stationSearchRetentionDays
 const STATION_SEARCH_RETENTION_MS = STATION_SEARCH_RETENTION_DAYS * 24 * 60 * 60 * 1000
-const STATION_USAGE_RETENTION_DAYS = 180 // Click-Prioritäten bleiben länger stabil, werden aber begrenzt
+const STATION_USAGE_RETENTION_DAYS = databasePolicy.stationUsageRetentionDays
 const STATION_USAGE_RETENTION_MS = STATION_USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000
 
 // ENV-Variable für das Löschen vergangener Fahrten (standardmäßig aktiviert)
@@ -155,7 +157,7 @@ const stmtGetStationSearch = db.prepare(`
   FROM station_search_cache c
   LEFT JOIN station_search_usage u
     ON u.search_term = c.search_term AND u.ext_id = c.ext_id
-  WHERE c.search_term = ?
+  WHERE c.search_term = ? AND c.created_at >= ?
   ORDER BY COALESCE(u.click_count, 0) DESC, c.result_rank ASC, c.name ASC
   LIMIT 10
 `)
@@ -165,6 +167,7 @@ const stmtInsertStationSearch = db.prepare(`
   (search_term, ext_id, station_id, name, lat, lon, station_type, products, result_rank, created_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
+const stmtDeleteStationSearchTerm = db.prepare('DELETE FROM station_search_cache WHERE search_term = ?')
 
 const stmtCleanupStationSearch = db.prepare('DELETE FROM station_search_cache WHERE created_at < ?')
 const stmtCleanupStationSearchUsage = db.prepare('DELETE FROM station_search_usage WHERE last_clicked_at < ?')
@@ -458,9 +461,7 @@ function cleanupPastConnections(): void {
   }
   
   try {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const todayStr = today.toISOString().split('T')[0] // Format: YYYY-MM-DD
+    const todayStr = getBerlinDateKey()
     
     // Lösche Cache-Einträge mit Datum in der Vergangenheit
     let cacheRemoved = 0
@@ -542,8 +543,6 @@ if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production' || t
         disableWith: "CLEANUP_PAST_CONNECTIONS=false",
       })
       scheduleNextPastConnectionsCleanup()
-      // Führe sofort einen Cleanup durch beim Start
-      setTimeout(cleanupPastConnections, 5000)
     } else {
       logWarn(LOG_SCOPE, "Past connection cleanup disabled", {
         enableWith: "CLEANUP_PAST_CONNECTIONS=true or unset",
@@ -664,59 +663,7 @@ export function getConnectionPriceHistory(params: {
   }
 }
 
-// Station Cache - NUR SQLite, kein in-memory mehr
-// getCachedStation ist jetzt ein Wrapper für getCachedStationSearch
-export function getCachedStation(search: string): { id: string; normalizedId: string; name: string } | null {
-  const parsedLocation = parseBahnLocationId(search)
-  if (parsedLocation) {
-    return {
-      id: search,
-      normalizedId: parsedLocation.normalizedId,
-      name: parsedLocation.name,
-    }
-  }
-
-  const results = getCachedStationSearch(search)
-  
-  if (!results || results.length === 0) {
-    metricsCollector.recordCacheMiss('station')
-    return null
-  }
-  
-  const normalizedSearch = search.toLowerCase().trim()
-  const station =
-    results.find(result => result.name.toLowerCase().trim() === normalizedSearch) ||
-    results[0]
-  metricsCollector.recordCacheHit('station')
-  
-  // Normalisiere die Station-ID: Entferne den Timestamp-Parameter @p=
-  const normalizedId = station.id.replace(/@p=\d+@/g, '@')
-  
-  return {
-    id: station.id,
-    normalizedId: normalizedId,
-    name: station.name
-  }
-}
-
-// setCachedStation ist jetzt ein Wrapper für setCachedStationSearch
-export function setCachedStation(search: string, data: { id: string; normalizedId: string; name: string }): void {
-  const result: StationSearchResult = {
-    extId: getStableStationExtId({ extId: data.id, id: data.id }),
-    id: data.id,
-    name: data.name
-  }
-  
-  setCachedStationSearch(search, [result])
-  
-  logDebug(LOG_SCOPE, "💾 Station lookup cached", {
-    query: search,
-    stationName: data.name,
-    stationId: data.normalizedId,
-  })
-}
-
-// Neue Functions für Stationensuche mit Cache
+// Stationensuche mit gemeinsamem SQLite-Cache
 export interface StationSearchResult {
   extId: string
   id: string
@@ -782,7 +729,7 @@ export function getCachedStationSearch(searchTerm: string): StationSearchResult[
     }
 
     const normalizedTerm = searchTerm.toLowerCase().trim()
-    const rows = stmtGetStationSearch.all(normalizedTerm) as Array<{
+    const rows = stmtGetStationSearch.all(normalizedTerm, Date.now() - STATION_SEARCH_RETENTION_MS) as Array<{
       ext_id: string
       station_id: string
       name: string
@@ -897,31 +844,35 @@ export function setCachedStationSearch(searchTerm: string, results: StationSearc
     const normalizedTerm = normalizeStationSearchTerm(searchTerm)
     const now = Date.now()
     
-    results.forEach((result, index) => {
-      const stableExtId = getStableStationExtId(result)
+    const replaceStationSearch = db.transaction(() => {
+      stmtDeleteStationSearchTerm.run(normalizedTerm)
+      results.forEach((result, index) => {
+        const stableExtId = getStableStationExtId(result)
 
-      // Skip stations without extId (required field)
-      if (!stableExtId) {
-        logWarn(LOG_SCOPE, "Skipped station search result without extId", {
-          query: normalizedTerm,
-          stationName: result.name,
-        })
-        return
-      }
-      
-      stmtInsertStationSearch.run(
-        normalizedTerm,
-        stableExtId,
-        result.id || result.extId, // Fallback to extId if id is missing
-        result.name,
-        result.lat ?? null,
-        result.lon ?? null,
-        result.type ?? null,
-        result.products ? JSON.stringify(result.products) : null,
-        index,
-        now
-      )
+        // Skip stations without extId (required field)
+        if (!stableExtId) {
+          logWarn(LOG_SCOPE, "Skipped station search result without extId", {
+            query: normalizedTerm,
+            stationName: result.name,
+          })
+          return
+        }
+
+        stmtInsertStationSearch.run(
+          normalizedTerm,
+          stableExtId,
+          result.id || result.extId, // Fallback to extId if id is missing
+          result.name,
+          result.lat ?? null,
+          result.lon ?? null,
+          result.type ?? null,
+          result.products ? JSON.stringify(result.products) : null,
+          index,
+          now
+        )
+      })
     })
+    replaceStationSearch()
 
     metricsCollector.updateCacheMetrics(getStationSearchCacheSize(), getCacheSize())
   } catch (error) {

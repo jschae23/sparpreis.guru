@@ -3,8 +3,6 @@ import {
   generateCacheKey,
   getCachedResult,
   setCachedResult,
-  getCachedStation,
-  setCachedStation,
   getDayPriceHistory,
   getConnectionPriceHistory,
   type PriceHistoryEntry
@@ -13,6 +11,7 @@ import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logError, logWarn } from '@/lib/shared/logger'
 import { formatDateKey, generateConnectionId, passesTimeFilter } from './utils';
 import { fetchBahn } from './bahn-http'
+import { searchStations } from '@/app/api/station-search/search-stations'
 
 const LOG_SCOPE = "bestpreissuche.bahn"
 
@@ -45,45 +44,14 @@ function routeContext(config: any, travelDate: string) {
 export async function searchBahnhof(search: string): Promise<{ id: string; normalizedId: string; name: string } | null> {
   if (!search) return null
 
-  // Prüfe Cache zuerst
-  const cachedResult = getCachedStation(search)
-  if (cachedResult) {
-    return cachedResult
-  }
-
   try {
-    const encodedSearch = encodeURIComponent(search)
-    const url = `https://www.bahn.de/web/api/reiseloesung/orte?suchbegriff=${encodedSearch}&typ=ALL&limit=10`
-    const stationApiStartTime = Date.now()
-
-    logDebug(LOG_SCOPE, "🌐 Station lookup via Bahn API started", { query: search })
-
-    let response: Awaited<ReturnType<typeof fetchBahn>>
-    try {
-      response = await fetchBahn(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0",
-          Accept: "application/json",
-          "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
-          Referer: "https://www.bahn.de/",
-        },
-      })
-    } catch (error) {
-      metricsCollector.recordStationSearchApiRequest(Date.now() - stationApiStartTime, 500)
-      throw error
-    }
-
-    metricsCollector.recordStationSearchApiRequest(Date.now() - stationApiStartTime, response.status)
-
-    if (!response.ok) return null
-
-    const data = await response.json<Array<{ id: string; name: string }>>()
-    if (!data || data.length === 0) return null
+    const { results } = await searchStations(search)
+    if (results.length === 0) return null
 
     const normalizedSearch = search.toLowerCase().trim()
     const station =
-      data.find((item: { name?: string }) => item.name?.toLowerCase().trim() === normalizedSearch) ||
-      data[0]
+      results.find(item => item.name?.toLowerCase().trim() === normalizedSearch) ||
+      results[0]
     const originalId = station.id
 
     // Normalisiere die Station-ID: Entferne den Timestamp-Parameter @p=
@@ -100,9 +68,6 @@ export async function searchBahnhof(search: string): Promise<{ id: string; norma
       normalizedId: normalizedId, // Für Cache-Keys
       name: station.name 
     }
-
-    // Cache das Ergebnis für 24 Stunden
-    setCachedStation(search, result)
 
     return result
   } catch (error) {
