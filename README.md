@@ -43,6 +43,8 @@ docker run -p 3000:3000 \
 
 Das Volume unter `/app/data` bewahrt Cache, Preisverlauf und heruntergeladene Direktverbindungsdaten über Neustarts hinweg. Notwendige Datenbankanpassungen laufen beim Start automatisch.
 
+Aufbau und Wartung der SQLite-Datenbank sind unter [Datenbank und Wartung](docs/database-maintenance.md) dokumentiert.
+
 Das Docker-Image wird zusätzlich als `butti/sparpreis-guru:latest` auf Docker Hub gespiegelt.
 
 Die Direktverbindungsdaten werden beim ersten Aufruf automatisch geladen und danach regelmäßig aktualisiert. Für einen manuellen Neuaufbau aus den GTFS.de-Feeds wird Python 3 benötigt:

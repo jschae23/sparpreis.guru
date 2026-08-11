@@ -10,11 +10,15 @@
     "build": "next build",
     "build:direct-connections": "python scripts/build-direct-connections.py",
     "database:check": "node scripts/check-database.cjs",
+    "database:clear": "node scripts/database-maintenance.cjs clear",
     "database:migrate": "node scripts/migrate-database.cjs",
-    "predev": "node scripts/migrate-database.cjs",
+    "database:prepare": "node scripts/prepare-database.cjs",
+    "database:prune": "node scripts/database-maintenance.cjs prune",
+    "database:stats": "node scripts/database-maintenance.cjs stats",
+    "predev": "node scripts/prepare-database.cjs",
     "dev": "next dev",
     "lint": "next lint",
-    "prestart": "node scripts/migrate-database.cjs",
+    "prestart": "node scripts/prepare-database.cjs",
     "start": "next start"
   },
   "dependencies": {
