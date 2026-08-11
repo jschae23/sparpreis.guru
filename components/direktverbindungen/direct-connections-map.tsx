@@ -191,7 +191,7 @@ const DynamicLeafletMap = dynamic(async () => {
           iconSize: [1, 34],
           iconAnchor: [0, 34],
           html: `<div style="position:absolute;left:0;bottom:0;display:inline-flex;flex-direction:column;align-items:center;transform:translateX(-50%)">
-            <div style="background:#2563eb;color:white;padding:5px 9px;border-radius:8px;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.28);line-height:1.25">Start: ${selectedStationName}</div>
+            <div style="box-sizing:border-box;max-width:min(220px,calc(100vw - 120px));overflow:hidden;text-overflow:ellipsis;background:#2563eb;color:white;padding:5px 9px;border-radius:8px;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.28);line-height:1.25">Start: ${selectedStationName}</div>
             <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #2563eb;margin-top:-1px"></div>
           </div>`,
         })

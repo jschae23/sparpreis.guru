@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowUp,
-  ArrowDownAZ,
-  ArrowDownUp,
   ArrowRight,
   CalendarClock,
   CalendarDays,
@@ -18,7 +16,6 @@ import {
   RailSymbol,
   Route,
   Search,
-  Train,
   TrainFront,
   TramFront,
   X,
@@ -38,6 +35,7 @@ import { Footer } from "@/components/layout/footer"
 import { BrandLogo } from "@/components/layout/brand-logo"
 import { MainNavigation } from "@/components/layout/main-navigation"
 import { PageContainer } from "@/components/layout/page-container"
+import { JourneySortControls, type JourneySortOption } from "@/components/search/journey-sort-controls"
 import { logError } from "@/lib/shared/logger"
 
 const LOG_SCOPE = "direktverbindungen.client"
@@ -47,6 +45,13 @@ type ResultSort = "duration" | "name" | "product" | "frequency"
 type MaxDurationFilter = "all" | "120" | "240" | "480" | "720"
 type MinTripsFilter = "all" | "1" | "3" | "5" | "10" | "20"
 type SortDirection = "asc" | "desc"
+
+const resultSortOptions: readonly JourneySortOption<ResultSort>[] = [
+  { key: "duration", label: "Fahrzeit" },
+  { key: "name", label: "Name" },
+  { key: "product", label: "Verkehr" },
+  { key: "frequency", label: "Fahrten" },
+]
 
 const productFilterUrlValues: Record<ProductFilter, string | null> = {
   all: null,
@@ -678,6 +683,9 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                 <BrandLogo />
               </h1>
             </div>
+            <div className="sm:hidden">
+              <FAQPopup context="direktverbindungen" />
+            </div>
             <div className="hidden sm:block">
               <MainNavigation active="direktverbindungen" />
             </div>
@@ -693,7 +701,9 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                   Ziele entdecken, die du ohne Umstieg erreichst.
                 </p>
               </div>
-              <FAQPopup context="direktverbindungen" />
+              <div className="hidden sm:block">
+                <FAQPopup context="direktverbindungen" />
+              </div>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -936,7 +946,7 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                       : "Wähle einen Bahnhof aus, um Direktziele auf der Karte zu sehen"}
                 </p>
               </div>
-              <div className="flex w-full flex-nowrap items-center gap-1.5 sm:w-auto sm:gap-2">
+              <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:gap-2">
                 <Badge className="border-red-200 bg-red-50 text-[10px] text-red-700 hover:bg-red-50 sm:text-xs">Fernverkehr</Badge>
                 <Badge className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700 hover:bg-emerald-50 sm:text-xs">Nahverkehr</Badge>
                 <Badge className="border-purple-200 bg-purple-50 text-[10px] text-purple-700 hover:bg-purple-50 sm:text-xs">Beides</Badge>
@@ -1013,48 +1023,16 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                     )}
                   </div>
                 </div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <Label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Sortieren
-                  </Label>
-                  <button
-                    type="button"
-                    onClick={() => setSortDirection(direction => direction === "asc" ? "desc" : "asc")}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
-                  >
-                    <ArrowDownUp className="h-3.5 w-3.5" />
-                    {sortDirection === "asc" ? "Aufsteigend" : "Absteigend"}
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {([
-                    ["duration", "Fahrzeit", ArrowDownUp],
-                    ["name", "Name", ArrowDownAZ],
-                    ["product", "Verkehr", Train],
-                    ["frequency", "Fahrten", Database],
-                  ] as const).map(([value, label, Icon]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => handleSortClick(value)}
-                      className={`rounded-md border px-3 py-2 text-xs font-semibold transition-colors ${
-                        resultSort === value
-                          ? "border-blue-600 bg-blue-600 text-white"
-                          : "border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50"
-                      }`}
-                    >
-                      <span className="inline-flex items-center justify-center gap-1.5">
-                        <Icon className="h-3.5 w-3.5" />
-                        {label}
-                        {resultSort === value && (
-                          <span className="text-[10px] opacity-85">
-                            {sortDirection === "asc" ? "↑" : "↓"}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                <JourneySortControls
+                  options={resultSortOptions}
+                  sortKey={resultSort}
+                  sortDir={sortDirection}
+                  onSort={handleSortClick}
+                  ariaLabel="Direktziele sortieren"
+                  embedded
+                  desktopAlign="start"
+                  className="gap-2"
+                />
               </div>
             )}
 
