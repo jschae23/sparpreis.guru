@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -18,7 +19,6 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
-  Clock,
   Euro,
   GripVertical,
   Loader2,
@@ -39,7 +39,6 @@ import { PriceHistoryChart, type PriceHistoryEntry } from "./price-history-chart
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { SearchProgressPanel } from "@/components/search/search-progress-panel"
 import {
-  DirectJourneyBadge,
   JourneyBookingButton,
   JourneyBookingButtonGroup,
   JourneyDisclosureButton,
@@ -253,6 +252,10 @@ function formatPrice(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })} €`
+}
+
+function formatNightCount(value: number) {
+  return `${value} ${value === 1 ? "Nacht" : "Nächte"}`
 }
 
 function isSameCombination(left?: TravelCombination | null, right?: TravelCombination | null) {
@@ -549,7 +552,7 @@ function ComboMatrix({
 
         <div className="flex flex-col gap-2 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="shrink-0 text-xs font-medium text-gray-700">
-            Aufenthalt: mindestens {minNights} Nächte{typeof maxNights === "number" ? `, maximal ${maxNights} Nächte` : ""}
+            Aufenthalt: mindestens {formatNightCount(minNights)}{typeof maxNights === "number" ? `, maximal ${formatNightCount(maxNights)}` : ""}
           </p>
           <div className="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Preislegende">
             {priceScale.activeBands.map((band) => {
@@ -574,6 +577,7 @@ function ComboMatrix({
       )}
 
       <div
+        data-matrix-scroll-container
         className={cn(
           "relative isolate bg-white",
           focused
@@ -660,6 +664,7 @@ function ComboMatrix({
                     type="button"
                     key={`${outwardDate}-${returnDate}`}
                     disabled={!showPrice && !canTriggerRequest}
+                    data-selected-combination={isSelected ? "true" : undefined}
                     title={
                       isOutsideStayFilter
                         ? showPrice ? "Außerhalb des Filters" : "Außerhalb des Filters: Preis abfragen"
@@ -944,7 +949,7 @@ function CombinationSearchTimeline({
 
         <div
           className={cn(
-            "absolute hidden text-xs font-semibold text-blue-800 sm:block",
+            "absolute hidden whitespace-nowrap text-xs font-semibold text-blue-800 sm:block",
             markerAlignment(outwardPosition)
           )}
           style={{ left: `${outwardPosition}%`, top: 0 }}
@@ -976,7 +981,7 @@ function CombinationSearchTimeline({
 
         <div
           className={cn(
-            "absolute hidden text-xs font-semibold text-blue-800 sm:block",
+            "absolute hidden whitespace-nowrap text-xs font-semibold text-blue-800 sm:block",
             markerAlignment(returnPosition)
           )}
           style={{ left: `${returnPosition}%`, top: closeMarkers ? 20 : 0 }}
@@ -1010,7 +1015,7 @@ function CombinationSearchTimeline({
           className="absolute top-[3rem] -translate-x-1/2 whitespace-nowrap text-xs font-bold text-gray-900 sm:top-[4.9rem]"
           style={{ left: `${centerPosition}%` }}
         >
-          {getNights(displayedOutwardDate, displayedReturnDate)} Nächte
+          {formatNightCount(getNights(displayedOutwardDate, displayedReturnDate))}
         </div>
 
         <div className="absolute bottom-0 left-0 text-left">
@@ -1081,17 +1086,16 @@ function getCombinationBadgeState({
 function CombinationBadges({
   state,
   compact = false,
-  primaryOnly = false,
   outsideStayFilterLabel,
   outsideStayFilterDescription,
 }: {
   state: CombinationBadgeState
   compact?: boolean
-  primaryOnly?: boolean
   outsideStayFilterLabel?: string
   outsideStayFilterDescription?: string
 }) {
   const spacing = compact ? "whitespace-nowrap px-1.5 text-[10px]" : "whitespace-nowrap px-2 text-[11px]"
+  const [stayLabel, filterLabel] = outsideStayFilterLabel?.split(" · ") || []
 
   return (
     <>
@@ -1101,23 +1105,23 @@ function CombinationBadges({
           Bestpreis
         </Badge>
       )}
-      {!primaryOnly && state.hasShortestTravelTime && (
-        <Badge className={cn("inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-50 py-0.5 font-semibold text-purple-700 shadow-none", spacing)}>
-          <Clock className="h-3 w-3" />
-          Schnellste
-        </Badge>
-      )}
-      {!primaryOnly && state.isDirectCombination && (
-        <DirectJourneyBadge compact={compact} />
-      )}
       {state.outsideStayFilter && (
         <Badge
-          className={cn("inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 py-0.5 font-semibold text-amber-900 shadow-none", spacing)}
+          className={cn(
+            "inline-flex max-w-full items-center gap-1 rounded-full border border-amber-300 bg-amber-100 py-0.5 font-semibold text-amber-900 shadow-none",
+            spacing,
+            compact && "whitespace-normal text-left leading-tight"
+          )}
           title={outsideStayFilterDescription}
           aria-label={outsideStayFilterDescription}
         >
-          <AlertTriangle className="h-3 w-3" />
-          {primaryOnly ? "Nicht im Filter" : outsideStayFilterLabel || "Außerhalb des Filters"}
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          {stayLabel && filterLabel ? (
+            <span>
+              <span className="whitespace-nowrap">{stayLabel}</span>
+              <span className="whitespace-nowrap"> · {filterLabel}</span>
+            </span>
+          ) : outsideStayFilterLabel || "Außerhalb des Filters"}
         </Badge>
       )}
     </>
@@ -1185,11 +1189,12 @@ function CombinationResultListItem({
     ? minNights === maxNights ? `${minNights}` : `${minNights}–${maxNights}`
     : `ab ${minNights}`
   const outsideStayFilterDescription = outsideStayFilter
-    ? `Diese Auswahl hat ${combination.nights} ${combination.nights === 1 ? "Nacht" : "Nächte"} und liegt außerhalb des ursprünglichen Filters${typeof maxNights === "number" ? ` von ${minNights} bis ${maxNights} Nächten.` : ` von mindestens ${minNights} Nächten.`}`
+    ? `Diese Auswahl hat ${formatNightCount(combination.nights)} und liegt außerhalb des ursprünglichen Filters${typeof maxNights === "number" ? minNights === maxNights ? ` von ${formatNightCount(minNights)}.` : ` von ${minNights} bis ${maxNights} Nächten.` : ` von mindestens ${formatNightCount(minNights)}.`}`
     : undefined
   const outsideStayFilterLabel = outsideStayFilter
     ? `${combination.nights} ${combination.nights === 1 ? "Nacht" : "Nächte"} · Filter ${filterRangeLabel}`
     : undefined
+  const journeyDetailsId = `journey-details-${useId()}`
 
   return (
     <article
@@ -1207,51 +1212,59 @@ function CombinationResultListItem({
           Über Zeitraumregler ausgewählt
         </div>
       )}
-      <button
-        ref={resultRef}
-        type="button"
-        className={cn(
-          "w-full text-left transition-colors",
+      <div className="relative">
+        <button
+          ref={resultRef}
+          type="button"
+          className="pointer-events-none peer absolute inset-0 z-0 w-full text-left focus-visible:outline-none"
+          onClick={onSelect}
+          aria-pressed={active}
+          aria-label="Diese Hin- und Rückfahrt auswählen"
+        />
+        <div className={cn(
+          "relative z-10 cursor-pointer transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-inset peer-focus-visible:ring-blue-500",
           outsideStayFilter
             ? "hover:bg-amber-50"
             : isBestPrice
               ? "hover:bg-green-100/80"
               : "hover:bg-gray-50"
-        )}
-        onClick={onSelect}
-        aria-pressed={active}
-      >
-        <RoundTripJourneySummary
-          journey={{
-            ...combination,
-            outwardOrigin: startStation?.name,
-            outwardDestination: zielStation?.name,
-            returnOrigin: zielStation?.name,
-            returnDestination: startStation?.name,
-          }}
-          mobileBadges={(
+        )} onClick={onSelect}>
+          <RoundTripJourneySummary
+            journey={{
+              ...combination,
+              outwardOrigin: startStation?.name,
+              outwardDestination: zielStation?.name,
+              returnOrigin: zielStation?.name,
+              returnDestination: startStation?.name,
+            }}
+            mobileBadges={(
             <CombinationBadges
               state={badgeState}
               compact
-              primaryOnly
               outsideStayFilterLabel={outsideStayFilterLabel}
               outsideStayFilterDescription={outsideStayFilterDescription}
             />
-          )}
-          desktopBadges={(
-            <CombinationBadges
-              state={badgeState}
-              compact={dense}
-              outsideStayFilterLabel={outsideStayFilterLabel}
-              outsideStayFilterDescription={outsideStayFilterDescription}
-            />
-          )}
-          priceTone={priceTone}
-          dense={dense}
-          hasDirectBadge={badgeState.isDirectCombination}
-          isFastestJourney={badgeState.hasShortestTravelTime}
-        />
-      </button>
+            )}
+            desktopBadges={(
+              <CombinationBadges
+                state={badgeState}
+                compact={dense}
+                outsideStayFilterLabel={outsideStayFilterLabel}
+                outsideStayFilterDescription={outsideStayFilterDescription}
+              />
+            )}
+            priceTone={priceTone}
+            dense={dense}
+            isFastestJourney={badgeState.hasShortestTravelTime}
+            onTransfersClick={hasJourneyDetails ? () => {
+              setPriceHistoryOpen(false)
+              onToggleDetails()
+            } : undefined}
+            transfersExpanded={detailsOpen}
+            transfersControlsId={journeyDetailsId}
+          />
+        </div>
+      </div>
 
       <JourneyResultActionBar
         dense={dense}
@@ -1318,7 +1331,7 @@ function CombinationResultListItem({
       />
 
       {detailsOpen && hasJourneyDetails && (
-        <RoundTripJourneyDetails journey={combination} />
+        <RoundTripJourneyDetails journey={combination} id={journeyDetailsId} />
       )}
       {priceHistoryOpen && hasPriceHistory && (
         <RoundTripPriceHistoryDetails
@@ -1489,6 +1502,7 @@ function LazyCombinationListPlaceholder({
 
       <JourneyResultActionBar
         dense={dense}
+        secondaryColumns={2}
         bookingActions={(
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
             <div className="h-8 rounded-md bg-blue-100 sm:w-28" aria-hidden="true" />
@@ -1496,10 +1510,10 @@ function LazyCombinationListPlaceholder({
           </div>
         )}
         secondaryActions={(
-          <span className="inline-flex h-4 items-center justify-end gap-1.5 text-xs font-semibold text-blue-700 sm:justify-start">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Verbindung wird geladen
-          </span>
+          <>
+            <div className="h-8 rounded-md border border-gray-200 bg-white sm:h-4 sm:w-28 sm:border-0 sm:bg-gray-100" aria-hidden="true" />
+            <div className="h-8 rounded-md border border-gray-200 bg-white sm:h-4 sm:w-28 sm:border-0 sm:bg-gray-100" aria-hidden="true" />
+          </>
         )}
       />
     </article>
@@ -1553,6 +1567,7 @@ function CombinationComparisonPanel({
 }) {
   const [combinationSortKey, setCombinationSortKey] = useState<CombinationSortKey>("price")
   const [combinationSortDir, setCombinationSortDir] = useState<"asc" | "desc">("asc")
+  const [mobileResultsView, setMobileResultsView] = useState<"list" | "matrix">("list")
   const [dayDetailsDirection, setDayDetailsDirection] = useState<"outward" | "return" | null>(null)
   const [pendingResultFocus, setPendingResultFocus] = useState<string | null>(null)
   const [expandedCombinationKeys, setExpandedCombinationKeys] = useState<Set<string>>(new Set())
@@ -1893,12 +1908,43 @@ function CombinationComparisonPanel({
   }, [lazyCombinationRequest?.status])
 
   useEffect(() => {
+    setMobileResultsView("list")
     setShowAllCombinations(false)
     setPinSelectedCombination(false)
     setRenderPinnedCombination(false)
     setShowPinnedCombination(false)
     setPendingTimelineSelection(null)
   }, [searchStart, searchEnd, startStation?.id, zielStation?.id])
+
+  useEffect(() => {
+    if (mobileResultsView !== "matrix") return
+
+    let secondFrame: number | null = null
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        const matrixViewport = inlineMatrixViewportRef.current
+        const scrollContainer = matrixViewport?.querySelector<HTMLElement>("[data-matrix-scroll-container]")
+        const selectedCell = matrixViewport?.querySelector<HTMLElement>('[data-selected-combination="true"]')
+        if (!scrollContainer || !selectedCell) return
+
+        const containerRect = scrollContainer.getBoundingClientRect()
+        const cellRect = selectedCell.getBoundingClientRect()
+        const nextLeft = scrollContainer.scrollLeft + cellRect.left - containerRect.left - (containerRect.width - cellRect.width) / 2
+        const nextTop = scrollContainer.scrollTop + cellRect.top - containerRect.top - (containerRect.height - cellRect.height) / 2
+
+        scrollContainer.scrollTo({
+          left: Math.max(0, nextLeft),
+          top: Math.max(0, nextTop),
+          behavior: "auto",
+        })
+      })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame)
+      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
+    }
+  }, [mobileResultsView, selectedCombination.outwardDate, selectedCombination.returnDate])
 
   useEffect(() => {
     const focusStage = inlineMatrixRef.current
@@ -2026,6 +2072,46 @@ function CombinationComparisonPanel({
         </div>
       </header>
 
+      <div className="border-b border-blue-100 bg-white p-2 lg:hidden">
+        <div className="grid grid-cols-2 rounded-lg bg-gray-100 p-1" role="tablist" aria-label="Ergebnisansicht wählen">
+          <button
+            id="mobile-combination-list-tab"
+            type="button"
+            role="tab"
+            aria-selected={mobileResultsView === "list"}
+            aria-controls="mobile-combination-list-panel"
+            className={cn(
+              "inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1",
+              mobileResultsView === "list"
+                ? "bg-white text-blue-800 shadow-sm"
+                : "text-gray-600 hover:bg-white/70 hover:text-blue-700"
+            )}
+            onClick={() => setMobileResultsView("list")}
+          >
+            <Train className="h-4 w-4" />
+            Liste
+          </button>
+          <button
+            id="mobile-combination-matrix-tab"
+            type="button"
+            role="tab"
+            aria-selected={mobileResultsView === "matrix"}
+            aria-controls="mobile-combination-matrix-panel"
+            className={cn(
+              "inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1",
+              mobileResultsView === "matrix"
+                ? "bg-white text-blue-800 shadow-sm"
+                : "text-gray-600 hover:bg-white/70 hover:text-blue-700"
+            )}
+            onClick={() => setMobileResultsView("matrix")}
+          >
+            <Table2 className="h-4 w-4" />
+            Preismatrix
+          </button>
+        </div>
+      </div>
+
+      <div className={cn(mobileResultsView === "matrix" && "hidden lg:block")}>
       <div className="border-b border-gray-200 px-4 py-3 sm:px-5">
         <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reisezeitraum</div>
         <div className="mt-0.5 text-sm font-semibold text-gray-900">Hin- und Rückfahrt verschieben</div>
@@ -2073,9 +2159,17 @@ function CombinationComparisonPanel({
           </button>
         </div>
       </div>
+      </div>
     </section>
 
-    <section ref={combinationListSectionRef} className="mt-4 scroll-mt-4 overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm">
+    <section
+      id="mobile-combination-list-panel"
+      ref={combinationListSectionRef}
+      className={cn(
+        "mt-4 scroll-mt-4 overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm",
+        mobileResultsView === "matrix" && "hidden lg:block"
+      )}
+    >
       <div className="flex flex-col gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
@@ -2113,7 +2207,7 @@ function CombinationComparisonPanel({
         {renderPinnedCombination && (
           <div
             className={cn(
-              "grid transition-[grid-template-rows,opacity,margin] duration-[550ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+              "grid transition-[grid-template-rows,opacity,margin] [transition-duration:550ms] [transition-timing-function:cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
               showPinnedCombination
                 ? "mb-0 grid-rows-[1fr] opacity-100"
                 : "-mb-3 grid-rows-[0fr] opacity-0"
@@ -2125,7 +2219,7 @@ function CombinationComparisonPanel({
                 key={pendingTimelineSelection
                   ? `${pendingTimelineSelection.outwardDate}|${pendingTimelineSelection.returnDate}|pending`
                   : `${selectedCombination.outwardDate}|${selectedCombination.returnDate}|complete`}
-                className="animate-in fade-in-0 duration-[400ms] ease-out motion-reduce:animate-none"
+                className="animate-in fade-in-0 [animation-duration:400ms] ease-out motion-reduce:animate-none"
               >
                 <SelectedCombinationListItem
                   combination={selectedCombination}
@@ -2226,16 +2320,18 @@ function CombinationComparisonPanel({
     </section>
 
     <div
+        id="mobile-combination-matrix-panel"
         ref={inlineMatrixRef}
         className={cn(
-          "relative mt-8 w-full border-t border-gray-200 pt-8",
+          "relative w-full border-t border-gray-200 pt-4 lg:mt-8 lg:pt-8",
+          mobileResultsView === "list" && "hidden lg:block",
           shouldOfferExpandedMatrix && "xl:h-[112dvh]"
         )}
     >
       <button
         type="button"
         className={cn(
-          "left-1/2 z-50 inline-flex -translate-x-1/2 items-center gap-2 rounded-full border border-blue-200 bg-white px-4 py-2 text-xs font-semibold text-blue-700 shadow-md transition-colors hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+          "left-1/2 z-50 hidden -translate-x-1/2 items-center gap-2 rounded-full border border-blue-200 bg-white px-4 py-2 text-xs font-semibold text-blue-700 shadow-md transition-colors hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 lg:inline-flex",
           isInlineMatrixCaptured
             ? "fixed top-3"
             : "absolute top-0 -translate-y-1/2"

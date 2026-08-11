@@ -66,11 +66,13 @@ export function JourneyBookingButton({
   direction,
   href,
   onClick,
+  compactOnMobile = false,
   className,
 }: {
   direction: "one-way" | "outward" | "return"
   href?: string
   onClick?: () => void
+  compactOnMobile?: boolean
   className?: string
 }) {
   const label = direction === "one-way"
@@ -85,12 +87,22 @@ export function JourneyBookingButton({
       : "border-blue-200 bg-white text-blue-700 hover:bg-blue-50",
     className
   )
-  const content = <><Train className="h-3.5 w-3.5" />{label}</>
+  const content = (
+    <>
+      <Train className="h-3.5 w-3.5" />
+      {compactOnMobile ? (
+        <>
+          <span className="sm:hidden">Buchen</span>
+          <span className="hidden sm:inline">{label}</span>
+        </>
+      ) : label}
+    </>
+  )
 
   if (href) {
     return (
       <Button asChild size="sm" variant={direction === "return" ? "outline" : "default"} className={buttonClasses}>
-        <a href={href} target="_blank" rel="noopener noreferrer" title={label}>{content}</a>
+        <a href={href} target="_blank" rel="noopener noreferrer" aria-label={label} title={label}>{content}</a>
       </Button>
     )
   }
@@ -112,15 +124,18 @@ export function JourneyBookingButton({
 export function JourneyBookingButtonGroup({
   children,
   label,
+  compactOnMobile = false,
 }: {
   children: ReactNode
   label?: string
+  compactOnMobile?: boolean
 }) {
   const actions = Children.toArray(children)
 
   return (
     <div className={cn(
-      "grid w-full gap-2 sm:flex sm:w-auto sm:items-center",
+      "grid gap-2 sm:flex sm:w-auto sm:items-center",
+      compactOnMobile ? "w-auto" : "w-full",
       actions.length > 1 ? "grid-cols-2" : "grid-cols-1"
     )}>
       {label && <span className="hidden text-xs font-semibold text-blue-700 sm:inline">{label}</span>}
@@ -137,26 +152,34 @@ export function JourneyResultActionBar({
   layout = "default",
   dense = false,
   secondaryColumns = 1,
+  inlineBookingOnMobile = false,
 }: {
   bookingActions?: ReactNode
   secondaryActions?: ReactNode
   layout?: "default" | "table"
   dense?: boolean
   secondaryColumns?: 1 | 2
+  inlineBookingOnMobile?: boolean
 }) {
   const tableLayout = layout === "table"
 
   return (
     <div className={cn(
-      "flex flex-col gap-2 border-t border-gray-100 bg-gray-50/70 px-3",
+      "gap-2 border-t border-gray-100 bg-gray-50/70 px-3",
       tableLayout
-        ? "py-2 md:grid md:grid-cols-[minmax(7rem,1fr)_minmax(7rem,1fr)_minmax(10rem,1.5fr)_minmax(7rem,0.85fr)_minmax(7rem,0.85fr)] md:items-center md:gap-4 md:px-4"
-        : cn("sm:flex-row sm:items-center sm:justify-between", dense ? "py-1" : "py-1.5 sm:px-4")
+        ? "flex flex-col py-2 md:grid md:grid-cols-[minmax(7rem,1fr)_minmax(7rem,1fr)_minmax(10rem,1.5fr)_minmax(7rem,0.85fr)_minmax(7rem,0.85fr)] md:items-center md:gap-4 md:px-4"
+        : cn(
+            inlineBookingOnMobile
+              ? "grid grid-cols-[minmax(0,1fr)_auto] items-center sm:flex sm:flex-row"
+              : "flex flex-col sm:flex-row sm:items-center",
+            "sm:justify-between",
+            dense ? "py-1" : "py-1.5 sm:px-4"
+          )
     )}>
       <div className={cn(
         tableLayout
           ? "md:col-start-5 md:row-start-1 md:flex md:justify-end"
-          : "sm:order-2"
+          : cn("sm:order-2", inlineBookingOnMobile && "col-start-2 row-start-1 justify-self-end")
       )}>
         {bookingActions}
       </div>
@@ -165,7 +188,10 @@ export function JourneyResultActionBar({
         secondaryColumns === 2 ? "grid-cols-2" : "grid-cols-1",
         tableLayout
           ? "md:col-span-4 md:col-start-1 md:row-start-1 md:flex md:w-auto md:flex-wrap md:items-center md:justify-start md:gap-x-4"
-          : "sm:order-1 sm:flex sm:w-auto sm:items-center sm:justify-start"
+          : cn(
+              "sm:order-1 sm:flex sm:w-auto sm:items-center sm:justify-start",
+              inlineBookingOnMobile && "col-start-1 row-start-1 min-w-0"
+            )
       )}>
         {secondaryActions}
       </div>
@@ -268,6 +294,71 @@ function transferLabel(transfers?: number) {
   return `${transfers} Umstieg${transfers === 1 ? "" : "e"}`
 }
 
+function TransferFact({
+  transfers,
+  mobileCompact = false,
+  total = false,
+  onToggle,
+  expanded = false,
+  controlsId,
+}: {
+  transfers?: number
+  mobileCompact?: boolean
+  total?: boolean
+  onToggle?: () => void
+  expanded?: boolean
+  controlsId?: string
+}) {
+  const direct = transfers === 0
+  const factClasses = cn(
+    "inline-flex items-center gap-1 whitespace-nowrap",
+    direct ? "font-semibold text-blue-700" : "text-gray-500"
+  )
+  const content = (
+    <>
+      <Shuffle className={cn(
+        "h-3.5 w-3.5 shrink-0 transition-colors",
+        direct ? "text-blue-600" : "text-gray-400 group-hover:text-blue-500 group-focus-visible:text-blue-500"
+      )} />
+      {mobileCompact ? (
+        <>
+          <strong className={cn("font-semibold sm:hidden", direct ? "text-blue-700" : "text-gray-700")}>
+            {direct ? "Direkt" : transfers}
+          </strong>
+          <span className={cn("hidden sm:inline", direct && "font-semibold text-blue-700")}>{transferLabel(transfers)}</span>
+        </>
+      ) : transferLabel(transfers)}
+    </>
+  )
+
+  if (!onToggle) return <span className={factClasses}>{content}</span>
+
+  const factDescription = direct
+    ? "Direktverbindung ohne Umstieg"
+    : `${transferLabel(transfers)}${total ? " insgesamt" : ""}`
+  const actionLabel = expanded ? "Fahrtverlauf schließen" : "Fahrtverlauf anzeigen"
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        factClasses,
+        "group pointer-events-auto -mx-1.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+      )}
+      onClick={(event) => {
+        event.stopPropagation()
+        onToggle()
+      }}
+      aria-expanded={expanded}
+      aria-controls={controlsId}
+      aria-label={`${actionLabel}: ${factDescription}`}
+      title={actionLabel}
+    >
+      {content}
+    </button>
+  )
+}
+
 function getArrivalDayOffset(departure?: string, arrival?: string) {
   const departureDate = departure?.match(/^\d{4}-\d{2}-\d{2}/)?.[0]
   const arrivalDate = arrival?.match(/^\d{4}-\d{2}-\d{2}/)?.[0]
@@ -306,8 +397,10 @@ function JourneySummaryHeader({
   priceTone,
   totalDuration,
   totalTransfers,
-  hasDirectBadge = false,
-  highlightTotalDurationOnMobile = false,
+  highlightTotalDuration = false,
+  onTransfersClick,
+  transfersExpanded = false,
+  transfersControlsId,
   stackOnMobile = false,
 }: {
   leadingContent?: ReactNode
@@ -317,13 +410,13 @@ function JourneySummaryHeader({
   priceTone: string
   totalDuration?: string | null
   totalTransfers?: number | null
-  hasDirectBadge?: boolean
-  highlightTotalDurationOnMobile?: boolean
+  highlightTotalDuration?: boolean
+  onTransfersClick?: () => void
+  transfersExpanded?: boolean
+  transfersControlsId?: string
   stackOnMobile?: boolean
 }) {
   const showTotals = Boolean(totalDuration) || typeof totalTransfers === "number"
-  const hideDesktopTransferTotal = hasDirectBadge && totalTransfers === 0
-  const showDesktopTotals = Boolean(totalDuration) || (typeof totalTransfers === "number" && !hideDesktopTransferTotal)
   const leadingBlock = (
     <div className="flex min-w-0 items-center gap-3">
       {leadingContent && <div className="min-w-0">{leadingContent}</div>}
@@ -336,37 +429,34 @@ function JourneySummaryHeader({
       {totalDuration && (
         <span
           className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-gray-500"
-          aria-label={highlightTotalDurationOnMobile
+          aria-label={highlightTotalDuration
             ? `Schnellste Verbindung, Gesamtreisezeit ${totalDuration}`
             : `Gesamtreisezeit ${totalDuration}`}
         >
-          {highlightTotalDurationOnMobile ? (
-            <>
-              <Zap className="h-3.5 w-3.5 shrink-0 text-purple-600 sm:hidden" />
-              <Clock className="hidden h-3.5 w-3.5 shrink-0 text-gray-400 sm:block" />
-            </>
+          {highlightTotalDuration ? (
+            <Zap className="h-3.5 w-3.5 shrink-0 text-purple-600" />
           ) : (
             <Clock className="h-3.5 w-3.5 shrink-0 text-gray-400" />
           )}
           <strong className={cn(
             "font-semibold text-gray-700",
-            highlightTotalDurationOnMobile && "text-purple-700 sm:text-gray-700"
+            highlightTotalDuration && "text-purple-700"
           )}>{totalDuration}</strong>
         </span>
       )}
       {totalDuration && typeof totalTransfers === "number" && (
-        <span className={cn("text-xs text-gray-300", hideDesktopTransferTotal && "sm:hidden")} aria-hidden="true">·</span>
+        <span className="text-xs text-gray-300" aria-hidden="true">·</span>
       )}
       {typeof totalTransfers === "number" && (
-        <span className={cn(
-          "inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-gray-500",
-          hideDesktopTransferTotal && "sm:hidden"
-        )} aria-label={totalTransfers === 1 ? "1 Umstieg insgesamt" : `${totalTransfers} Umstiege insgesamt`}>
-          <Shuffle className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-          <strong className="font-semibold text-gray-700 sm:hidden">
-            {totalTransfers === 0 ? "Direkt" : totalTransfers}
-          </strong>
-          <span className="hidden sm:inline">{transferLabel(totalTransfers)}</span>
+        <span className="text-[11px]">
+          <TransferFact
+            transfers={totalTransfers}
+            mobileCompact
+            total
+            onToggle={onTransfersClick}
+            expanded={transfersExpanded}
+            controlsId={transfersControlsId}
+          />
         </span>
       )}
     </>
@@ -396,7 +486,7 @@ function JourneySummaryHeader({
             </div>
           )}
           {showTotals && (
-            <span className={cn("text-xs text-gray-300", !showDesktopTotals && "sm:hidden")} aria-hidden="true">·</span>
+            <span className="text-xs text-gray-300" aria-hidden="true">·</span>
           )}
           <div className="self-center">{priceBlock}</div>
         </div>
@@ -425,6 +515,10 @@ function JourneyConnectionOverview({
   legs,
   showVehicleTypes = true,
   hideVehicleTypesOnMobile = false,
+  highlightDuration = false,
+  onTransfersClick,
+  transfersExpanded = false,
+  transfersControlsId,
   widthReferenceOrigin,
   widthReferenceDestination,
 }: {
@@ -436,6 +530,10 @@ function JourneyConnectionOverview({
   legs?: JourneyLeg[]
   showVehicleTypes?: boolean
   hideVehicleTypesOnMobile?: boolean
+  highlightDuration?: boolean
+  onTransfersClick?: () => void
+  transfersExpanded?: boolean
+  transfersControlsId?: string
   widthReferenceOrigin?: string
   widthReferenceDestination?: string
 }) {
@@ -491,14 +589,23 @@ function JourneyConnectionOverview({
           showVehicleTypes && "sm:w-max sm:justify-self-center sm:flex-col sm:items-start sm:gap-1",
           !showVehicleTypes && "flex-col items-start gap-1"
         )}>
-          <span className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-gray-700">
-            <Clock className="h-3.5 w-3.5 text-gray-400" />
+          <span className={cn(
+            "inline-flex items-center gap-1 whitespace-nowrap font-medium text-gray-700",
+            highlightDuration && "font-semibold text-purple-700"
+          )}>
+            {highlightDuration ? (
+              <Zap className="h-3.5 w-3.5 text-purple-600" />
+            ) : (
+              <Clock className="h-3.5 w-3.5 text-gray-400" />
+            )}
             {departure && arrival ? calculateDuration(departure, arrival) : "–"}
           </span>
-          <span className="inline-flex items-center gap-1 whitespace-nowrap">
-            <Shuffle className="h-3.5 w-3.5 text-gray-400" />
-            {transferLabel(transfers)}
-          </span>
+          <TransferFact
+            transfers={transfers}
+            onToggle={onTransfersClick}
+            expanded={transfersExpanded}
+            controlsId={transfersControlsId}
+          />
         </div>
         {showVehicleTypes && (
           <div className={cn(
@@ -522,6 +629,10 @@ export function OneWayJourneySummary({
   priceTone,
   showDate = false,
   priceInMobileHeader = false,
+  highlightDuration = false,
+  onTransfersClick,
+  transfersExpanded = false,
+  transfersControlsId,
   stationWidthReference,
 }: {
   journey: OneWayJourneyData
@@ -533,6 +644,10 @@ export function OneWayJourneySummary({
   showMobileRoute?: boolean
   showDate?: boolean
   priceInMobileHeader?: boolean
+  highlightDuration?: boolean
+  onTransfersClick?: () => void
+  transfersExpanded?: boolean
+  transfersControlsId?: string
   stationWidthReference?: { origin?: string; destination?: string }
 }) {
   const hasHeaderRow = Boolean(leadingContent || mobileBadges || desktopBadges || priceInMobileHeader)
@@ -556,58 +671,54 @@ export function OneWayJourneySummary({
           )}
         </div>
       )}
-      <div className="p-2 sm:p-2.5">
-        <section className={cn(
-          "items-center gap-3 rounded-lg bg-slate-50/80 px-3 py-2 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-5 sm:px-4",
-          priceInMobileHeader ? "block" : "grid grid-cols-[minmax(0,1fr)_auto]"
-        )} aria-label="Einfache Fahrt">
-          <div className="min-w-0">
-            {showDate && (
-              <div className="mb-2 text-xs font-semibold text-gray-700">
-                {formatFullDate(journey.date)}
-              </div>
-            )}
-            <JourneyConnectionOverview
-              departure={journey.departure}
-              arrival={journey.arrival}
-              origin={journey.origin}
-              destination={journey.destination}
-              transfers={journey.transfers}
-              legs={journey.legs}
-              hideVehicleTypesOnMobile
-              widthReferenceOrigin={stationWidthReference?.origin}
-              widthReferenceDestination={stationWidthReference?.destination}
-            />
-          </div>
-          <div
-            className={cn(
-              "shrink-0 rounded-md border px-2 py-1 text-right shadow-sm sm:-mr-2.5 sm:block sm:px-3",
-              priceInMobileHeader ? "hidden" : "-mr-2 block",
-              priceTone
-            )}
-            aria-label={`Preis ${formatPrice(journey.price)}`}
-          >
-            <span className="whitespace-nowrap text-lg font-bold leading-none tabular-nums sm:text-xl">
-              {formatPrice(journey.price)}
-            </span>
-          </div>
-          {journey.legs && journey.legs.length > 0 && (
-            <div className="col-span-2 mt-1.5 min-w-0 sm:hidden">
-              <VehicleTypesSummary interval={{ abschnitte: journey.legs }} />
+      <section className={cn(
+        "items-center gap-3 px-3 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-5 sm:px-4",
+        priceInMobileHeader ? "block" : "grid grid-cols-[minmax(0,1fr)_auto]"
+      )} aria-label="Einfache Fahrt">
+        <div className="min-w-0">
+          {showDate && (
+            <div className="mb-2 text-xs font-semibold text-gray-700">
+              {formatFullDate(journey.date)}
             </div>
           )}
-        </section>
-      </div>
+          <JourneyConnectionOverview
+            departure={journey.departure}
+            arrival={journey.arrival}
+            origin={journey.origin}
+            destination={journey.destination}
+            transfers={journey.transfers}
+            legs={journey.legs}
+            highlightDuration={highlightDuration}
+            onTransfersClick={onTransfersClick}
+            transfersExpanded={transfersExpanded}
+            transfersControlsId={transfersControlsId}
+            widthReferenceOrigin={stationWidthReference?.origin}
+            widthReferenceDestination={stationWidthReference?.destination}
+          />
+        </div>
+        <div
+          className={cn(
+            "shrink-0 rounded-md border px-2 py-1 text-right shadow-sm sm:block sm:px-3",
+            priceInMobileHeader ? "hidden" : "block",
+            priceTone
+          )}
+          aria-label={`Preis ${formatPrice(journey.price)}`}
+        >
+          <span className="whitespace-nowrap text-lg font-bold leading-none tabular-nums sm:text-xl">
+            {formatPrice(journey.price)}
+          </span>
+        </div>
+      </section>
     </div>
   )
 }
 
-export function OneWayJourneyDetails({ journey }: { journey: OneWayJourneyData }) {
+export function OneWayJourneyDetails({ journey, id }: { journey: OneWayJourneyData; id?: string }) {
   const legs = journey.legs || []
   if (legs.length === 0) return null
 
   return (
-    <div className="border-t border-gray-200 bg-white p-3 sm:p-4">
+    <div id={id} className="border-t border-gray-200 bg-white p-3 sm:p-4">
       <section className="min-w-0 rounded-lg border border-gray-200 bg-gray-50 p-3">
         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-600">Fahrtverlauf</h4>
         <div className="hidden md:block"><JourneyTimelineHorizontal legs={legs} /></div>
@@ -638,40 +749,38 @@ export function OneWayJourneySummaryPlaceholder({
           {priceInMobileHeader && <div className="h-8 w-20 rounded-md border border-green-200 bg-green-100 sm:hidden" />}
         </div>
       )}
-      <div className="p-2 sm:p-2.5">
-        <div className={cn(
-          "items-center gap-3 rounded-lg bg-slate-50/80 px-3 py-2 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-5 sm:px-4",
-          priceInMobileHeader ? "block" : "grid grid-cols-[minmax(0,1fr)_auto]"
-        )}>
-          <div className="min-w-0">
-            {showDate && <div className="mb-2 h-4 w-32 rounded bg-gray-100" />}
-            <div className="grid w-full grid-cols-1 items-center gap-y-1.5 sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] sm:gap-x-12 sm:gap-y-0 md:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:gap-x-16">
-              <div className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] items-center gap-x-1 sm:gap-x-2">
-                <div>
-                  <div className="h-5 w-14 rounded bg-gray-200" />
-                  <div className="mt-1.5 h-3 w-20 max-w-full rounded bg-gray-100" />
-                </div>
-                <ArrowRight className="h-4 w-4 text-gray-300" />
-                <div>
-                  <div className="ml-auto h-5 w-14 rounded bg-gray-200" />
-                  <div className="ml-auto mt-1.5 h-3 w-24 max-w-full rounded bg-gray-100" />
-                </div>
+      <div className={cn(
+        "items-center gap-3 px-3 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-5 sm:px-4",
+        priceInMobileHeader ? "block" : "grid grid-cols-[minmax(0,1fr)_auto]"
+      )}>
+        <div className="min-w-0">
+          {showDate && <div className="mb-2 h-4 w-32 rounded bg-gray-100" />}
+          <div className="grid w-full grid-cols-1 items-center gap-y-1.5 sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] sm:gap-x-12 sm:gap-y-0 md:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:gap-x-16">
+            <div className="grid grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] items-center gap-x-1 sm:gap-x-2">
+              <div>
+                <div className="h-5 w-14 rounded bg-gray-200" />
+                <div className="mt-1.5 h-3 w-20 max-w-full rounded bg-gray-100" />
               </div>
-              <div className="grid grid-cols-1 items-center sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-x-12 lg:gap-x-16">
-                <div className="flex shrink-0 items-center gap-2 sm:w-max sm:justify-self-center sm:flex-col sm:items-start sm:gap-1">
-                  <div className="h-4 w-16 rounded bg-gray-200" />
-                  <div className="h-4 w-16 rounded bg-gray-100" />
-                </div>
-                <div className="hidden h-4 w-14 rounded bg-blue-100 sm:block" />
+              <ArrowRight className="h-4 w-4 text-gray-300" />
+              <div>
+                <div className="ml-auto h-5 w-14 rounded bg-gray-200" />
+                <div className="ml-auto mt-1.5 h-3 w-24 max-w-full rounded bg-gray-100" />
               </div>
             </div>
+            <div className="grid grid-cols-1 items-center sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-x-12 lg:gap-x-16">
+              <div className="flex shrink-0 items-center gap-2 sm:w-max sm:justify-self-center sm:flex-col sm:items-start sm:gap-1">
+                <div className="h-4 w-16 rounded bg-gray-200" />
+                <div className="h-4 w-16 rounded bg-gray-100" />
+              </div>
+              <div className="hidden h-4 w-14 rounded bg-blue-100 sm:block" />
+            </div>
           </div>
-          <div className={cn(
-            "h-8 w-20 rounded-md border border-green-200 bg-green-100 sm:-mr-2.5 sm:block sm:w-24",
-            priceInMobileHeader ? "hidden" : "-mr-2 block"
-          )} />
-          <div className="col-span-2 mt-1.5 h-4 w-28 rounded bg-blue-100 sm:hidden" />
         </div>
+        <div className={cn(
+          "h-8 w-20 rounded-md border border-green-200 bg-green-100 sm:block sm:w-24",
+          priceInMobileHeader ? "hidden" : "block"
+        )} />
+        <div className="col-span-2 mt-1.5 h-4 w-28 rounded bg-blue-100 sm:hidden" />
       </div>
     </div>
   )
@@ -705,6 +814,9 @@ function RoundTripDirectionPanel({
   destination,
   widthReferenceOrigin,
   widthReferenceDestination,
+  onTransfersClick,
+  transfersExpanded = false,
+  transfersControlsId,
   position,
   dense,
 }: {
@@ -719,6 +831,9 @@ function RoundTripDirectionPanel({
   destination?: string
   widthReferenceOrigin?: string
   widthReferenceDestination?: string
+  onTransfersClick?: () => void
+  transfersExpanded?: boolean
+  transfersControlsId?: string
   position: "first" | "last"
   dense?: boolean
 }) {
@@ -748,6 +863,9 @@ function RoundTripDirectionPanel({
             destination={arrivalStation}
             transfers={transfers}
             legs={legs}
+            onTransfersClick={onTransfersClick}
+            transfersExpanded={transfersExpanded}
+            transfersControlsId={transfersControlsId}
             widthReferenceOrigin={widthReferenceOrigin}
             widthReferenceDestination={widthReferenceDestination}
           />
@@ -790,8 +908,10 @@ export function RoundTripJourneySummary({
   priceTone,
   dense = false,
   stackHeaderOnMobile = true,
-  hasDirectBadge = false,
   isFastestJourney = false,
+  onTransfersClick,
+  transfersExpanded = false,
+  transfersControlsId,
   stationWidthReference,
 }: {
   journey: RoundTripJourneyData
@@ -801,8 +921,10 @@ export function RoundTripJourneySummary({
   priceTone: string
   dense?: boolean
   stackHeaderOnMobile?: boolean
-  hasDirectBadge?: boolean
   isFastestJourney?: boolean
+  onTransfersClick?: () => void
+  transfersExpanded?: boolean
+  transfersControlsId?: string
   stationWidthReference?: { origin?: string; destination?: string }
 }) {
   const totalTravelTime = formatTravelMinutes(getRoundTripTravelMinutes(journey))
@@ -820,8 +942,10 @@ export function RoundTripJourneySummary({
         priceTone={priceTone}
         totalDuration={totalTravelTime}
         totalTransfers={totalTransfers}
-        hasDirectBadge={hasDirectBadge}
-        highlightTotalDurationOnMobile={isFastestJourney}
+        highlightTotalDuration={isFastestJourney}
+        onTransfersClick={onTransfersClick}
+        transfersExpanded={transfersExpanded}
+        transfersControlsId={transfersControlsId}
         stackOnMobile={stackHeaderOnMobile}
       />
       <div className={cn("p-2.5 sm:p-3.5", dense && "sm:p-2.5")}>
@@ -838,6 +962,9 @@ export function RoundTripJourneySummary({
             destination={journey.outwardDestination}
             widthReferenceOrigin={stationWidthReference?.origin}
             widthReferenceDestination={stationWidthReference?.destination}
+            onTransfersClick={onTransfersClick}
+            transfersExpanded={transfersExpanded}
+            transfersControlsId={transfersControlsId}
             position="first"
             dense={dense}
           />
@@ -854,6 +981,9 @@ export function RoundTripJourneySummary({
             destination={journey.returnDestination}
             widthReferenceOrigin={stationWidthReference?.destination}
             widthReferenceDestination={stationWidthReference?.origin}
+            onTransfersClick={onTransfersClick}
+            transfersExpanded={transfersExpanded}
+            transfersControlsId={transfersControlsId}
             position="last"
             dense={dense}
           />
@@ -863,14 +993,14 @@ export function RoundTripJourneySummary({
   )
 }
 
-export function RoundTripJourneyDetails({ journey }: { journey: RoundTripJourneyData }) {
+export function RoundTripJourneyDetails({ journey, id }: { journey: RoundTripJourneyData; id?: string }) {
   const outwardLegs = journey.outwardLegs || []
   const returnLegs = journey.returnLegs || []
 
   if (outwardLegs.length === 0 && returnLegs.length === 0) return null
 
   return (
-    <div className="grid gap-3 border-t border-gray-200 bg-white p-3 sm:p-4 lg:grid-cols-2">
+    <div id={id} className="grid gap-3 border-t border-gray-200 bg-white p-3 sm:p-4 lg:grid-cols-2">
       {([
         ["Fahrtverlauf Hinfahrt", outwardLegs],
         ["Fahrtverlauf Rückfahrt", returnLegs],
@@ -909,7 +1039,10 @@ export function RoundTripJourneySummaryPlaceholder({
   const resolvedNights = typeof nights === "number" ? nights : getStayNights(outwardDate, returnDate)
 
   const DirectionPlaceholder = ({ direction, date }: { direction: string; date?: string }) => (
-    <div className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 py-0.5 sm:grid-cols-[1.75rem_minmax(0,1fr)] sm:gap-x-3">
+    <div className={cn(
+      "grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 py-0.5 sm:grid-cols-[1.75rem_minmax(0,1fr)] sm:gap-x-3",
+      dense ? "sm:min-h-[3.875rem]" : "sm:min-h-[4.125rem]"
+    )}>
       <div className="relative">
         <span className="absolute left-1/2 top-1/2 z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-200 bg-white" />
       </div>
