@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-10T20:49:25.805Z",
+  "title": "Design System: sparpreis.guru",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Fahrplanblau", "canonical": "#2563eb", "tonalRamp": ["#1e3a8a", "#1e40af", "#1d4ed8", "#2563eb", "#60a5fa", "#bfdbfe", "#dbeafe", "#eff6ff"] },
+      "primary-hover": { "role": "primary", "displayName": "Tiefes Fahrplanblau", "canonical": "#1d4ed8", "tonalRamp": ["#1e3a8a", "#1e40af", "#1d4ed8", "#2563eb", "#60a5fa", "#bfdbfe", "#dbeafe", "#eff6ff"] },
+      "primary-soft": { "role": "primary", "displayName": "Helles Fahrplanblau", "canonical": "#eff6ff", "tonalRamp": ["#1e3a8a", "#1e40af", "#1d4ed8", "#2563eb", "#60a5fa", "#bfdbfe", "#dbeafe", "#eff6ff"] },
+      "surface": { "role": "neutral", "displayName": "Papierweiß", "canonical": "#ffffff", "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#9ca3af", "#d1d5db", "#e5e7eb", "#ffffff"] },
+      "surface-muted": { "role": "neutral", "displayName": "Leises Papiergrau", "canonical": "#f9fafb", "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#9ca3af", "#d1d5db", "#e5e7eb", "#f9fafb"] },
+      "surface-subtle": { "role": "neutral", "displayName": "Rastergrau", "canonical": "#f3f4f6", "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#9ca3af", "#d1d5db", "#e5e7eb", "#f9fafb"] },
+      "text-strong": { "role": "neutral", "displayName": "Fahrplanschwarz", "canonical": "#111827", "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#9ca3af", "#d1d5db", "#e5e7eb", "#f9fafb"] },
+      "text": { "role": "neutral", "displayName": "Lesegrau", "canonical": "#374151", "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#9ca3af", "#d1d5db", "#e5e7eb", "#f9fafb"] },
+      "text-muted": { "role": "neutral", "displayName": "Hinweisgrau", "canonical": "#6b7280", "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#9ca3af", "#d1d5db", "#e5e7eb", "#f9fafb"] },
+      "border": { "role": "neutral", "displayName": "Feines Raster", "canonical": "#e5e7eb", "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#9ca3af", "#d1d5db", "#e5e7eb", "#f9fafb"] },
+      "border-strong": { "role": "neutral", "displayName": "Kräftiges Raster", "canonical": "#d1d5db", "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#9ca3af", "#d1d5db", "#e5e7eb", "#f9fafb"] },
+      "price-best": { "role": "tertiary", "displayName": "Preisgrün", "canonical": "#15803d", "tonalRamp": ["#14532d", "#166534", "#15803d", "#16a34a", "#4ade80", "#bbf7d0", "#dcfce7", "#f0fdf4"] },
+      "price-best-bg": { "role": "tertiary", "displayName": "Helles Preisgrün", "canonical": "#f0fdf4", "tonalRamp": ["#14532d", "#166534", "#15803d", "#16a34a", "#4ade80", "#bbf7d0", "#dcfce7", "#f0fdf4"] },
+      "price-mid": { "role": "tertiary", "displayName": "Hinweisamber", "canonical": "#b45309", "tonalRamp": ["#78350f", "#92400e", "#b45309", "#d97706", "#f59e0b", "#fcd34d", "#fde68a", "#fffbeb"] },
+      "price-mid-bg": { "role": "tertiary", "displayName": "Helles Hinweisamber", "canonical": "#fffbeb", "tonalRamp": ["#78350f", "#92400e", "#b45309", "#d97706", "#f59e0b", "#fcd34d", "#fde68a", "#fffbeb"] },
+      "danger": { "role": "tertiary", "displayName": "Fehlerrot", "canonical": "#b91c1c", "tonalRamp": ["#7f1d1d", "#991b1b", "#b91c1c", "#dc2626", "#f87171", "#fecaca", "#fee2e2", "#fef2f2"] },
+      "danger-bg": { "role": "tertiary", "displayName": "Helles Fehlerrot", "canonical": "#fef2f2", "tonalRamp": ["#7f1d1d", "#991b1b", "#b91c1c", "#dc2626", "#f87171", "#fecaca", "#fee2e2", "#fef2f2"] },
+      "direct": { "role": "tertiary", "displayName": "Direktviolett", "canonical": "#7e22ce", "tonalRamp": ["#581c87", "#6b21a8", "#7e22ce", "#9333ea", "#c084fc", "#e9d5ff", "#f3e8ff", "#faf5ff"] },
+      "direct-bg": { "role": "tertiary", "displayName": "Helles Direktviolett", "canonical": "#faf5ff", "tonalRamp": ["#581c87", "#6b21a8", "#7e22ce", "#9333ea", "#c084fc", "#e9d5ff", "#f3e8ff", "#faf5ff"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Wortmarke", "purpose": "Produktidentität und seltene übergeordnete Momente." },
+      "headline": { "displayName": "Abschnittsüberschrift", "purpose": "Seiten- und Ergebnisbereiche." },
+      "title": { "displayName": "Modultitel", "purpose": "Arbeitsmodule, aktive Navigation und wichtige Zusammenfassungen." },
+      "body": { "displayName": "Arbeitstext", "purpose": "Fakten, Erklärungen und reguläre Steuerungen." },
+      "label": { "displayName": "Strukturlabel", "purpose": "Feldbezeichnungen, Metadaten und kompakte Statushinweise." }
+    },
+    "shadows": [
+      { "name": "surface-low", "value": "0 1px 2px rgba(0,0,0,0.05)", "purpose": "Dezente Abhebung kleiner interaktiver Flächen." },
+      { "name": "result-card", "value": "0 1px 4px rgba(15,23,42,0.10)", "purpose": "Lesbare Trennung wiederholter Ergebniszeilen." },
+      { "name": "overlay", "value": "0 10px 15px -3px rgba(0,0,0,0.10), 0 4px 6px -4px rgba(0,0,0,0.10)", "purpose": "Dropdowns, Dialoge und mobile Sticky-Aktionen." }
+    ],
+    "motion": [
+      { "name": "state-standard", "value": "color 150ms cubic-bezier(0.4,0,0.2,1), background-color 150ms cubic-bezier(0.4,0,0.2,1), border-color 150ms cubic-bezier(0.4,0,0.2,1)", "purpose": "Hover-, Auswahl- und Fokusübergänge." },
+      { "name": "disclosure", "value": "200ms ease-out", "purpose": "Accordion- und Disclosure-Bewegungen." },
+      { "name": "matrix-focus", "value": "500ms ease-out", "purpose": "Breiten- und Höhenwechsel des Desktop-Matrixfokus; mit reduziertem Bewegungsmodus deaktivieren." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Search Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Breite primäre Aktion für den Start einer Preis- oder Zielsuche.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z\"/><path d=\"M13 5v2M13 11v2M13 17v2\"/></svg>Bestpreise suchen</button>",
+      "css": ".ds-btn-primary{height:44px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 24px;border:0;border-radius:8px;background:#2563eb;color:#fff;font:600 14px/1.25 Geist,Arial,sans-serif;cursor:pointer;transition:background-color 150ms cubic-bezier(.4,0,.2,1)}.ds-btn-primary svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.ds-btn-primary:hover{background:#1d4ed8}.ds-btn-primary:focus-visible{outline:2px solid #2563eb;outline-offset:2px}.ds-btn-primary:active{background:#1e40af}.ds-btn-primary:disabled{cursor:not-allowed;opacity:.5}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Ruhige Nebenaktion mit feinem Rahmen.",
+      "html": "<button class=\"ds-btn-secondary\" type=\"button\">Angaben zurücksetzen</button>",
+      "css": ".ds-btn-secondary{height:40px;display:inline-flex;align-items:center;justify-content:center;padding:0 12px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#374151;font:500 14px/1.25 Geist,Arial,sans-serif;cursor:pointer;transition:color 150ms,border-color 150ms,background-color 150ms}.ds-btn-secondary:hover{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.ds-btn-secondary:focus-visible{outline:2px solid #2563eb;outline-offset:2px}.ds-btn-secondary:active{background:#dbeafe}"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "Bahnhofs- oder Filterfeld mit stabiler 44-Pixel-Höhe.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Startbahnhof</span><input class=\"ds-input-search\" value=\"München Hbf\" aria-label=\"Startbahnhof\"></label>",
+      "css": ".ds-field{display:grid;gap:4px;color:#374151;font-family:Geist,Arial,sans-serif}.ds-field-label{font-size:12px;font-weight:500;line-height:1.33}.ds-input-search{box-sizing:border-box;width:100%;height:44px;padding:0 12px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#111827;font:400 16px/1.2 Geist,Arial,sans-serif;transition:border-color 150ms,box-shadow 150ms}.ds-input-search::placeholder{color:#6b7280}.ds-input-search:hover{border-color:#9ca3af}.ds-input-search:focus{border-color:#2563eb;outline:none;box-shadow:0 0 0 3px #dbeafe}.ds-input-search:disabled{cursor:not-allowed;opacity:.5}@media(min-width:768px){.ds-input-search{font-size:14px}}"
+    },
+    {
+      "name": "Filter Chips",
+      "kind": "chip",
+      "refersTo": "filter-chip-active",
+      "description": "Kompakte Auswahl zwischen einem aktiven und ruhenden Filterzustand.",
+      "html": "<div class=\"ds-chip-row\" role=\"group\" aria-label=\"Reisezeit\"><button class=\"ds-chip ds-chip-active\" aria-pressed=\"true\">Ganztägig</button><button class=\"ds-chip\" aria-pressed=\"false\">Morgens</button><button class=\"ds-chip\" aria-pressed=\"false\">Abends</button></div>",
+      "css": ".ds-chip-row{display:flex;flex-wrap:wrap;gap:8px}.ds-chip{padding:6px 12px;border:1px solid #e5e7eb;border-radius:9999px;background:#fff;color:#374151;font:500 14px/1.25 Geist,Arial,sans-serif;cursor:pointer;transition:color 150ms,border-color 150ms,background-color 150ms}.ds-chip:hover{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.ds-chip:focus-visible{outline:2px solid #2563eb;outline-offset:2px}.ds-chip-active{border-color:#2563eb;background:#2563eb;color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.05)}.ds-chip-active:hover{border-color:#1d4ed8;background:#1d4ed8;color:#fff}"
+    },
+    {
+      "name": "Primary Navigation",
+      "kind": "nav",
+      "refersTo": "nav-active",
+      "description": "Segmentierte Desktopnavigation mit einer eindeutig aktiven weißen Fläche.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Hauptnavigation\"><a class=\"ds-nav-item ds-nav-active\" href=\"#\">Bestpreissuche</a><a class=\"ds-nav-item\" href=\"#\">Urlaubsfinder</a><a class=\"ds-nav-item\" href=\"#\">Direktverbindungen</a></nav>",
+      "css": ".ds-nav{display:flex;flex-wrap:wrap;gap:4px;padding:4px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;font-family:Geist,Arial,sans-serif}.ds-nav-item{padding:8px 12px;border-radius:6px;color:#4b5563;font-size:14px;font-weight:600;text-decoration:none;transition:color 150ms,background-color 150ms}.ds-nav-item:hover{background:rgba(255,255,255,.8);color:#1d4ed8}.ds-nav-item:focus-visible{outline:2px solid #2563eb;outline-offset:1px}.ds-nav-active{background:#fff;color:#1d4ed8;box-shadow:0 1px 2px rgba(0,0,0,.05),0 0 0 1px #e5e7eb}.ds-nav-active:active{background:#eff6ff}"
+    },
+    {
+      "name": "Search Module",
+      "kind": "card",
+      "description": "Großes Formularmodul mit Icon, Titel, Zusammenfassung und Disclosure-Hinweis.",
+      "html": "<section class=\"ds-search-module\"><button class=\"ds-search-module-head\" type=\"button\" aria-expanded=\"false\"><span class=\"ds-search-module-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/></svg></span><span class=\"ds-search-module-copy\"><strong>Reisezeiten</strong><small>Ganztägig · für Hin- und Rückfahrt</small></span><span class=\"ds-search-module-meta\">Optional&nbsp;⌄</span></button></section>",
+      "css": ".ds-search-module{overflow:hidden;border:1px solid #e5e7eb;border-radius:12px;background:#fff;font-family:Geist,Arial,sans-serif}.ds-search-module-head{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border:0;background:#fff;color:#374151;text-align:left;cursor:pointer}.ds-search-module-head:hover{background:#f9fafb}.ds-search-module-head:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}.ds-search-module-head:active{background:#eff6ff}.ds-search-module-icon{width:36px;height:36px;display:grid;place-items:center;flex:0 0 auto;border-radius:8px;background:#dbeafe;color:#1d4ed8}.ds-search-module-icon svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.ds-search-module-copy{min-width:0;display:grid;gap:2px;flex:1}.ds-search-module-copy strong{font-size:14px;line-height:20px;color:#1f2937}.ds-search-module-copy small{overflow:hidden;color:#6b7280;font-size:12px;line-height:16px;text-overflow:ellipsis;white-space:nowrap}.ds-search-module-meta{flex:0 0 auto;color:#1d4ed8;font-size:12px;font-weight:500}"
+    },
+    {
+      "name": "Journey Result Card",
+      "kind": "custom",
+      "refersTo": "card-result",
+      "description": "Signaturkarte für Verbindung, Preis, Qualität und Buchungsaktion.",
+      "html": "<article class=\"ds-journey\"><header class=\"ds-journey-head\"><span class=\"ds-badge-best\">Bestpreis</span><span class=\"ds-journey-price\">13,49 €</span></header><div class=\"ds-journey-body\"><div class=\"ds-times\"><div><strong>08:17</strong><span>München Hbf</span></div><span class=\"ds-arrow\">→</span><div class=\"ds-arrival\"><strong>08:57</strong><span>Ingolstadt Hbf</span></div></div><div class=\"ds-journey-meta\"><span>38 Min.</span><span>Direkt</span></div><button class=\"ds-journey-book\" type=\"button\">Buchen</button></div></article>",
+      "css": ".ds-journey{overflow:hidden;border:1px solid #4ade80;border-radius:8px;background:rgba(220,252,231,.6);color:#374151;font-family:Geist,Arial,sans-serif;box-shadow:0 1px 4px rgba(15,23,42,.10)}.ds-journey-head{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 12px;border-bottom:1px solid #e5e7eb;background:rgba(255,255,255,.8)}.ds-badge-best{padding:2px 8px;border:1px solid #4ade80;border-radius:9999px;background:#f0fdf4;color:#15803d;font-size:12px;font-weight:600}.ds-journey-price{padding:4px 8px;border:1px solid #bbf7d0;border-radius:6px;background:#f0fdf4;color:#15803d;font-size:20px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.ds-journey-body{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px}.ds-times{display:grid;grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr);align-items:center;gap:4px;padding:8px 12px;border-radius:8px;background:rgba(248,250,252,.8)}.ds-times div{min-width:0;display:grid;gap:6px}.ds-times strong{color:#111827;font-size:18px;line-height:1;font-variant-numeric:tabular-nums}.ds-times span{overflow:hidden;color:#374151;font-size:12px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}.ds-arrival{text-align:right}.ds-arrow{color:#60a5fa;text-align:center}.ds-journey-meta{display:flex;gap:12px;padding:0 12px;color:#6b7280;font-size:12px}.ds-journey-book{height:32px;padding:0 12px;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:12px;font-weight:600;cursor:pointer}.ds-journey-book:hover{background:#1d4ed8}.ds-journey-book:focus-visible{outline:2px solid #2563eb;outline-offset:2px}.ds-journey-book:active{background:#1e40af}@media(max-width:639px){.ds-journey-body{grid-template-columns:1fr}.ds-journey-book{justify-self:end}.ds-journey-meta{grid-row:2}}"
+    },
+    {
+      "name": "Best Price Badge",
+      "kind": "chip",
+      "refersTo": "badge-best",
+      "description": "Nicht-interaktive Statusanzeige für den fachlich besten Preis.",
+      "html": "<span class=\"ds-badge-best-standalone\">Bestpreis</span>",
+      "css": ".ds-badge-best-standalone{display:inline-flex;align-items:center;padding:2px 8px;border:1px solid #4ade80;border-radius:9999px;background:#f0fdf4;color:#15803d;font:600 12px/1.33 Geist,Arial,sans-serif;cursor:default}.ds-badge-best-standalone:focus-visible{outline:2px solid #15803d;outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Das digitale Fahrplanblatt",
+    "overview": "sparpreis.guru ist eine klare, sachliche und hilfreiche Arbeitsoberfläche für eine informationsreiche Reiseplanung. Wie ein gut gesetztes Fahrplanblatt ordnet das System viele Zeiten, Preise, Orte und Zustände in stabile Raster, damit Nutzer schnell vergleichen können, ohne dass die Oberfläche selbst um Aufmerksamkeit konkurriert.\n\nDie moderne Produktoberfläche ist kompakt, hell und überwiegend flach. Weiß und ruhige Grautöne bilden die Arbeitsfläche; Fahrplanblau führt durch Interaktionen, während Preis- und Statusfarben ausschließlich fachliche Bedeutung tragen. Der eigenständige Klassikmodus ist eine bewusst isolierte historische Darstellung und keine Vorlage für neue moderne Oberflächen.",
+    "keyCharacteristics": [
+      "Hohe Informationsdichte mit klarer Gruppierung statt großer Leerflächen.",
+      "Fahrplanblau als eindeutiges Interaktions- und Navigationssignal.",
+      "Preis- und Statusfarben als Datenkodierung, nicht als Dekoration.",
+      "Feine Rahmen und tonale Ebenen; Schatten nur bei tatsächlicher Hervorhebung oder Überlagerung.",
+      "Responsive Verdichtung mit lokalem Innenabstand und wenigen semantischen Bedienelementen."
+    ],
+    "rules": [
+      { "name": "Die Fahrplanblau-Regel", "body": "Fahrplanblau kennzeichnet Bedienung, Auswahl oder Navigation; es wird nicht als großflächige Dekoration eingesetzt.", "section": "colors" },
+      { "name": "Die Preisfarbe-ist-Daten-Regel", "body": "Grün, Amber und Rot werden nur verwendet, wenn sie eine echte Preis- oder Statusaussage transportieren.", "section": "colors" },
+      { "name": "Die Scan-vor-Show-Regel", "body": "Typografie dient zuerst der schnellen Erfassung von Zeiten, Orten, Preisen und Zuständen; dekorative Größen- oder Schriftsprünge sind systemfremd.", "section": "typography" },
+      { "name": "Die Lokaler-Innenabstand-Regel", "body": "Mobile Seiten bleiben außen bündig; Innenabstand wird an der tatsächlichen Inhaltsgruppe vergeben, nicht durch eine pauschale äußere Kartenhülle.", "section": "layout" },
+      { "name": "Die Flach-im-Ruhezustand-Regel", "body": "Schatten zeigen eine echte Ebene oder Priorität; sie werden nicht dekorativ auf jede Karte gelegt.", "section": "elevation" },
+      { "name": "Die Zustandsklarheit-Regel", "body": "Interaktive Kontrolle, fachlicher Status und reine Information müssen durch Form, Farbe und Verhalten eindeutig unterscheidbar bleiben.", "section": "components" }
+    ],
+    "dos": [
+      "Do use Fahrplanblau für aktive Bedienung und semantische Farben nur für echte Daten- oder Statusaussagen.",
+      "Do preserve kompakte 8–16 px Innenabstände innerhalb dichter Arbeitsmodule.",
+      "Do reserve stable space for prices, badges, station names, actions and loading states.",
+      "Do reuse the shared journey-result, sorting and status patterns across all modern search surfaces.",
+      "Do keep the Klassikmodus visually isolated as an intentional legacy exception."
+    ],
+    "donts": [
+      "Don't use verspielte Reiseportal-Optik, dekorative Illustrationen oder große Hero-Gesten in den Arbeitsoberflächen.",
+      "Don't use übergroße Karten, übermäßige Abstände oder dekorative Schatten, die die Informationsdichte schwächen.",
+      "Don't create Ansammlungen gleichwertig wirkender Buttons when one semantic selector and one direction control are sufficient.",
+      "Don't mark a best price with a thicker side border that shifts content; keep border width stable and use tone plus color.",
+      "Don't animate or darken status badges on hover; badges communicate state and are not controls."
+    ]
+  }
+}
