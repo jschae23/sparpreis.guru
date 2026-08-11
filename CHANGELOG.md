@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.2.0...v2.3.0) (2026-08-11)
+
+
+### Features
+
+* add database maintenance commands ([0d70aab](https://github.com/sparpreis-guru/sparpreis.guru/commit/0d70aabc4a332e9fdc7c0dcea69d94d2a1d95f44))
+* improve journey result interactions ([b48e2f4](https://github.com/sparpreis-guru/sparpreis.guru/commit/b48e2f4b25a1e4f4af320b0d7771157df1b0bd0b))
+
+
+### Bug Fixes
+
+* align direct connection controls ([1925912](https://github.com/sparpreis-guru/sparpreis.guru/commit/19259120a64f9aec06d37617a9a417a39df2a3ba))
+* compact search progress shortcut ([8e93e28](https://github.com/sparpreis-guru/sparpreis.guru/commit/8e93e2879b976b14f2166c0871f784fa97811f8f))
+* improve search form accessibility ([b21d864](https://github.com/sparpreis-guru/sparpreis.guru/commit/b21d864ddbf18816f5f2ae7693602d70bbb72b14))
+* isolate station search traffic ([2c0b509](https://github.com/sparpreis-guru/sparpreis.guru/commit/2c0b509b61acbdeca0ea77aee502a5d06ad1b226))
+
 ## [2.2.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.1.1...v2.2.0) (2026-08-10)
 
 
