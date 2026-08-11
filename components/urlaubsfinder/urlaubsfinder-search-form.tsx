@@ -560,10 +560,12 @@ export function UrlauberfinderSearchForm({
       <DateTimeControlStyle />
       <div className="mb-5 flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-gray-900 sm:text-2xl">Urlaubsfinder</h2>
+          <h2 className="text-lg font-bold text-gray-900 sm:text-2xl">Urlaubsfinder</h2>
           <p className="mt-1 text-sm text-gray-600">Günstige Reiseziele für deine Reisedaten finden.</p>
         </div>
-        <FAQPopup context="urlaubsfinder" />
+        <div className="hidden sm:block">
+          <FAQPopup context="urlaubsfinder" />
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

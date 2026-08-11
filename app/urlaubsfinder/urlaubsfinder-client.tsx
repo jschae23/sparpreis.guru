@@ -8,6 +8,7 @@ import { IncompleteSearchNotice } from '@/components/search/incomplete-search-no
 import { AlertCircle } from 'lucide-react'
 import { Footer } from '@/components/layout/footer'
 import { BrandLogo } from '@/components/layout/brand-logo'
+import { FAQPopup } from '@/components/layout/faq-popup'
 import { MainNavigation } from '@/components/layout/main-navigation'
 import { PageContainer } from '@/components/layout/page-container'
 import { ICE_STATIONS } from '@/lib/stations/ice-stations'
@@ -410,6 +411,9 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
               <h1 className="min-w-0">
                 <BrandLogo />
               </h1>
+            </div>
+            <div className="sm:hidden">
+              <FAQPopup context="urlaubsfinder" />
             </div>
             <div className="hidden sm:block">
               <MainNavigation active="urlaubsfinder" />

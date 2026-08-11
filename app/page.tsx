@@ -2,6 +2,7 @@ import { TrainSearchForm } from "@/components/bestpreissuche/train-search-form"
 import { TrainResults } from "@/components/bestpreissuche/train-results"
 import { Footer } from "@/components/layout/footer"
 import { BrandLogo } from "@/components/layout/brand-logo"
+import { FAQPopup } from "@/components/layout/faq-popup"
 import { MainNavigation } from "@/components/layout/main-navigation"
 import { PageContainer } from "@/components/layout/page-container"
 import { isFooterEnabled, isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
@@ -135,6 +136,9 @@ export default async function Page({
               <h1 className="min-w-0">
                 <BrandLogo />
               </h1>
+            </div>
+            <div className="sm:hidden">
+              <FAQPopup context="bestpreissuche" />
             </div>
             <div className="hidden sm:block">
               <MainNavigation active="bestpreissuche" showUrlaubsfinder={urlaubsfinderEnabled} />
