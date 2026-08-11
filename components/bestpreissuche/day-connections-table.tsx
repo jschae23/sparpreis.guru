@@ -145,11 +145,22 @@ export function ConnectionsTable({
           }
           const rowKey = `${interval.abfahrtsZeitpunkt}-${interval.ankunftsZeitpunkt}-${interval.preis}-${index}`
           const historyKey = `${rowKey}-history`
+          const journeyDetailsId = `journey-details-${encodeURIComponent(rowKey)}`
           const journeyOpen = expandedItems.has(rowKey)
           const historyOpen = expandedItems.has(historyKey)
           const hasHistory = interval.priceHistory?.length > 1
           const hasMetadataBadges =
             isBestPrice || isRecommended || isFastest || interval.umstiegsAnzahl === 0
+          const mobileMetadataBadges = isBestPrice || isRecommended ? (
+            <>
+              {isBestPrice && (
+                <Badge className="rounded-full border border-green-400 bg-green-100 font-semibold text-green-800 shadow-sm">
+                  <Euro className="mr-1 h-3 w-3" /> Bestpreis
+                </Badge>
+              )}
+              {isRecommended && <RecommendationBadge explanation={recommendation?.explanation?.reason} />}
+            </>
+          ) : undefined
           const metadataBadges = hasMetadataBadges ? (
             <>
               {isBestPrice && (
@@ -168,7 +179,6 @@ export function ConnectionsTable({
               )}
             </>
           ) : undefined
-
           return (
             <article
               key={rowKey}
@@ -176,17 +186,22 @@ export function ConnectionsTable({
             >
               <OneWayJourneySummary
                 journey={journey}
-                mobileBadges={metadataBadges}
+                mobileBadges={mobileMetadataBadges}
                 desktopBadges={metadataBadges}
                 priceTone={getIntervalPriceColor(interval.preis)}
                 priceInMobileHeader
+                highlightDuration={isFastest}
+                onTransfersClick={interval.abschnitte?.length > 0 ? () => toggleExclusive(rowKey, historyKey) : undefined}
+                transfersExpanded={journeyOpen}
+                transfersControlsId={journeyDetailsId}
               />
 
               <JourneyResultActionBar
+                inlineBookingOnMobile
                 secondaryColumns={interval.abschnitte?.length > 0 && hasHistory ? 2 : 1}
                 bookingActions={bookingLink ? (
-                  <JourneyBookingButtonGroup>
-                    <JourneyBookingButton direction="one-way" href={bookingLink} />
+                  <JourneyBookingButtonGroup compactOnMobile>
+                    <JourneyBookingButton direction="one-way" href={bookingLink} compactOnMobile />
                   </JourneyBookingButtonGroup>
                 ) : undefined}
                 secondaryActions={(
@@ -196,7 +211,7 @@ export function ConnectionsTable({
                       icon={<Train className="h-3.5 w-3.5" />}
                       label="Fahrtverlauf anzeigen"
                       expandedLabel="Fahrtverlauf schließen"
-                      mobileLabel="Fahrtverlauf"
+                      mobileLabel="Verlauf"
                       expanded={journeyOpen}
                       onClick={() => toggleExclusive(rowKey, historyKey)}
                     />
@@ -206,7 +221,7 @@ export function ConnectionsTable({
                       icon={getTrendIcon(interval.priceHistory)}
                       label="Preisentwicklung anzeigen"
                       expandedLabel="Preisentwicklung schließen"
-                      mobileLabel="Preisentwicklung"
+                      mobileLabel="Preise"
                       expanded={historyOpen}
                       onClick={() => toggleExclusive(historyKey, rowKey)}
                     />
@@ -220,7 +235,7 @@ export function ConnectionsTable({
                   <PriceHistoryChart history={interval.priceHistory} title="Preisentwicklung dieser Verbindung" />
                 </div>
               )}
-              {journeyOpen && <OneWayJourneyDetails journey={journey} />}
+              {journeyOpen && <OneWayJourneyDetails journey={journey} id={journeyDetailsId} />}
             </article>
           )
         })}
@@ -238,11 +253,19 @@ function RecommendationBadge({ explanation }: { explanation?: string }) {
         </Badge>
       </PopoverTrigger>
       <PopoverContent className="w-64 text-sm">
-        <div className="mb-2 font-semibold text-amber-800">Intelligente Empfehlung</div>
-        <p className="text-xs text-gray-600">Berücksichtigt Preis, Reisezeit und Anzahl der Umstiege.</p>
-        {explanation && <div className="mt-2 rounded bg-amber-100 p-2 text-xs font-medium">{explanation}</div>}
+        <RecommendationExplanation explanation={explanation} />
       </PopoverContent>
     </Popover>
+  )
+}
+
+function RecommendationExplanation({ explanation }: { explanation?: string }) {
+  return (
+    <>
+      <div className="mb-2 font-semibold text-amber-800">Intelligente Empfehlung</div>
+      <p className="text-xs text-gray-600">Berücksichtigt Preis, Reisezeit und Anzahl der Umstiege.</p>
+      {explanation && <div className="mt-2 rounded bg-amber-100 p-2 text-xs font-medium">{explanation}</div>}
+    </>
   )
 }
 

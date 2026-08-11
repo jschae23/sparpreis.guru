@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
 import {
   AlertCircle,
@@ -172,6 +172,7 @@ function ResultCard({
   const isRoundTrip = Boolean(result.returnDate && result.returnDeparture)
   const isDirect = result.outwardTransfers === 0 && (!isRoundTrip || result.returnTransfers === 0)
   const hasJourneyDetails = Boolean(result.outwardLegs?.length || result.returnLegs?.length)
+  const journeyDetailsId = `journey-details-${useId()}`
 
   const outBooking = searchParams
     ? createBookingLink(
@@ -241,15 +242,14 @@ function ResultCard({
     transfers: result.outwardTransfers,
     legs: result.outwardLegs,
   }
-  const metadataBadges = isDirect
-    ? <DirectJourneyBadge className={isRoundTrip ? "hidden sm:inline-flex" : undefined} />
+  const metadataBadges = isDirect && !isRoundTrip
+    ? <DirectJourneyBadge />
     : undefined
   const destinationHeader = (
-    <div className="flex max-w-full flex-wrap items-center gap-3">
+    <div className="max-w-full">
       <strong className="min-w-0 max-w-full truncate text-sm font-bold text-gray-950 sm:text-base" title={result.destination}>
         {result.destination}
       </strong>
-      {metadataBadges}
     </div>
   )
 
@@ -264,24 +264,31 @@ function ResultCard({
           leadingContent={destinationHeader}
           priceTone={priceTone}
           stackHeaderOnMobile
-          hasDirectBadge={isDirect}
+          onTransfersClick={hasJourneyDetails ? handleToggle : undefined}
+          transfersExpanded={isExpanded}
+          transfersControlsId={journeyDetailsId}
           stationWidthReference={stationWidthReference}
         />
       ) : (
         <OneWayJourneySummary
           journey={oneWayJourney}
           leadingContent={destinationHeader}
+          desktopBadges={metadataBadges}
           priceTone={priceTone}
           showDate
           priceInMobileHeader
+          onTransfersClick={hasJourneyDetails ? handleToggle : undefined}
+          transfersExpanded={isExpanded}
+          transfersControlsId={journeyDetailsId}
           stationWidthReference={stationWidthReference}
         />
       )}
 
       <JourneyResultActionBar
+        inlineBookingOnMobile={!isRoundTrip}
         bookingActions={searchParams ? (
-            <JourneyBookingButtonGroup>
-                <JourneyBookingButton direction={isRoundTrip ? "outward" : "one-way"} href={outBooking} />
+            <JourneyBookingButtonGroup compactOnMobile={!isRoundTrip}>
+                <JourneyBookingButton direction={isRoundTrip ? "outward" : "one-way"} href={outBooking} compactOnMobile={!isRoundTrip} />
                 {result.returnDeparture && (
                   <JourneyBookingButton direction="return" href={retBooking} />
                 )}
@@ -301,8 +308,8 @@ function ResultCard({
 
       {isExpanded && (
         isRoundTrip
-          ? <RoundTripJourneyDetails journey={roundTripJourney} />
-          : <OneWayJourneyDetails journey={oneWayJourney} />
+          ? <RoundTripJourneyDetails journey={roundTripJourney} id={journeyDetailsId} />
+          : <OneWayJourneyDetails journey={oneWayJourney} id={journeyDetailsId} />
       )}
     </article>
   )
@@ -313,8 +320,9 @@ function ResultCardPlaceholder({ isRoundTrip }: { isRoundTrip: boolean }) {
     <div className="overflow-hidden rounded-lg border border-gray-300 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.10)]" aria-hidden="true">
       {isRoundTrip ? <RoundTripJourneySummaryPlaceholder stackHeaderOnMobile /> : <OneWayJourneySummaryPlaceholder showDate showBadges priceInMobileHeader />}
       <JourneyResultActionBar
+        inlineBookingOnMobile={!isRoundTrip}
         bookingActions={(
-          <div className={`grid w-full gap-2 sm:flex sm:w-auto ${isRoundTrip ? "grid-cols-2" : "grid-cols-1"}`}>
+          <div className={`grid gap-2 sm:flex sm:w-auto ${isRoundTrip ? "w-full grid-cols-2" : "w-auto grid-cols-1"}`}>
             <div className="h-8 rounded-md bg-blue-100 sm:w-28" />
             {isRoundTrip && <div className="h-8 rounded-md border border-blue-100 bg-white sm:w-28" />}
           </div>

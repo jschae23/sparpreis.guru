@@ -1,0 +1,5 @@
+{
+  "connectionRetentionDays": 90,
+  "stationSearchRetentionDays": 7,
+  "stationUsageRetentionDays": 180
+}

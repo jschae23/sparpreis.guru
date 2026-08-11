@@ -9,13 +9,13 @@ if [ "$(id -u)" = "0" ]; then
   fi
 
   if command -v runuser >/dev/null 2>&1; then
-    runuser -u node -- node /app/scripts/migrate-database.cjs
+    runuser -u node -- node /app/scripts/prepare-database.cjs
     exec runuser -u node -- "$@"
   fi
 
-  su node -s /bin/sh -c 'node /app/scripts/migrate-database.cjs'
+  su node -s /bin/sh -c 'node /app/scripts/prepare-database.cjs'
   exec su node -s /bin/sh -c 'exec "$@"' -- "$@"
 fi
 
-node /app/scripts/migrate-database.cjs
+node /app/scripts/prepare-database.cjs
 exec "$@"

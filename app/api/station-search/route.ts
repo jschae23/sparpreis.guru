@@ -1,183 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  getCachedStationSearch,
-  getStableStationExtId,
-  rankStationSearchResults,
   recordStationSearchClick,
-  setCachedStationSearch,
   type StationSearchResult,
 } from '@/app/api/search-prices/cache'
-import { globalRateLimiter } from '@/app/api/search-prices/rate-limiter'
 import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logError, logWarn } from '@/lib/shared/logger'
-import { fetchBahn, isTemporaryBahnNetworkError } from '@/app/api/search-prices/bahn-http'
+import { isTemporaryBahnNetworkError } from '@/app/api/search-prices/bahn-http'
+import { StationRateLimitError } from './rate-limit'
+import { searchStations, StationSearchUpstreamError } from './search-stations'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-const LOG_SCOPE = "station-search"
+const LOG_SCOPE = 'station-search'
 
 export async function GET(request: NextRequest) {
+  const query = request.nextUrl.searchParams.get('q')
+  if (!query || query.trim().length < 2) {
+    return NextResponse.json({ results: [] })
+  }
+
   try {
-    const searchParams = request.nextUrl.searchParams
-    const query = searchParams.get('q')
-    
-    if (!query || query.trim().length < 2) {
-      return NextResponse.json({ results: [] })
-    }
-    
-    const normalizedQuery = query.trim()
-    
-    // Check cache first
-    const cachedResults = getCachedStationSearch(normalizedQuery)
-    if (cachedResults) {
-      metricsCollector.recordCacheHit('station')
-      logDebug(LOG_SCOPE, "🚉 Station search cache hit", {
-        query: normalizedQuery,
-        resultCount: cachedResults.length,
-        topResult: cachedResults[0]?.name,
-      })
-      return NextResponse.json({ results: cachedResults, cached: true })
-    }
-    
-    // Use global rate limiter instead of separate token bucket
-    metricsCollector.recordCacheMiss('station')
-    logDebug(LOG_SCOPE, "🔍 Station search cache miss; fetching from Bahn API", {
-      query: normalizedQuery,
-    })
-    
-    try {
-      const data = await globalRateLimiter.addToQueue<Array<{
-        extId: string
-        id: string
-        name: string
-        lat?: number
-        lon?: number
-        type?: string
-        products?: string[]
-      }> | { __httpStatus: number; __errorText: string }>(
-        `station-search-${normalizedQuery}`,
-        async () => {
-          const encodedQuery = encodeURIComponent(normalizedQuery)
-          const url = `https://www.bahn.de/web/api/reiseloesung/orte?suchbegriff=${encodedQuery}&typ=ALL&limit=10`
-          const apiStartTime = Date.now()
-          
-          let response: Awaited<ReturnType<typeof fetchBahn>>
-          try {
-            response = await fetchBahn(url, {
-              headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json',
-                'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
-                'Referer': 'https://www.bahn.de/',
-              },
-            })
-          } catch (error) {
-            metricsCollector.recordStationSearchApiRequest(Date.now() - apiStartTime, 500)
-            throw error
-          }
-
-          metricsCollector.recordStationSearchApiRequest(Date.now() - apiStartTime, response.status)
-          
-          if (!response.ok) {
-            // Return sentinel object for rate limit handling
-            if (response.status === 429) {
-              return { __httpStatus: 429, __errorText: 'Rate limit exceeded' }
-            }
-            throw new Error(`API error: ${response.status}`)
-          }
-          
-          return await response.json<Array<{
-            extId: string
-            id: string
-            name: string
-            lat?: number
-            lon?: number
-            type?: string
-            products?: string[]
-          }>>()
-        },
-        'station-search' // Use a specific session ID for station searches
-      )
-      
-      // Handle sentinel object (rate limit or error)
-      if (data && typeof data === 'object' && '__httpStatus' in data) {
-        const status = Number((data as any).__httpStatus)
-        logWarn(LOG_SCOPE, "Station search API returned sentinel status", {
-          query: normalizedQuery,
-          status,
-        })
-        return NextResponse.json(
-          { results: [], error: 'API error' },
-          { status }
-        )
-      }
-      
-      // Filter out invalid stations and map to results
-      const results: StationSearchResult[] = data
-        .filter(station => {
-          // Must have extId and name
-          if (!station.extId || !station.name) {
-            logWarn(LOG_SCOPE, "Ignored station search result without extId or name", {
-              query: normalizedQuery,
-              station,
-            })
-            return false
-          }
-          return true
-        })
-        .map(station => ({
-          extId: getStableStationExtId(station),
-          id: station.id || station.extId, // Fallback to extId if id is missing
-          name: station.name,
-          lat: station.lat,
-          lon: station.lon,
-          type: station.type,
-          products: station.products
-        }))
-      const rankedResults = rankStationSearchResults(normalizedQuery, results)
-      
-      // Cache results (only valid ones)
-      if (rankedResults.length > 0) {
-        setCachedStationSearch(normalizedQuery, rankedResults)
-        for (const result of rankedResults) {
-          setCachedStationSearch(result.extId, [result])
-        }
-      }
-      
-      return NextResponse.json({ results: rankedResults, cached: false })
-    } catch (error) {
-      // Handle rate limit errors from the global rate limiter
-      if (error instanceof Error && error.message.includes('429')) {
-        logWarn(LOG_SCOPE, "Station search was rate limited", {
-          query: normalizedQuery,
-        })
-        return NextResponse.json(
-          { results: [], error: 'Rate limit exceeded', retryAfter: 2000 },
-          { 
-            status: 429,
-            headers: { 'Retry-After': '2' }
-          }
-        )
-      }
-
-      if (isTemporaryBahnNetworkError(error)) {
-        logWarn(LOG_SCOPE, "Bahn station search is temporarily unavailable", {
-          query: normalizedQuery,
-        })
-        return NextResponse.json(
-          { results: [], error: 'Bahn API temporarily unavailable', retryAfter: 5000 },
-          {
-            status: 503,
-            headers: { 'Retry-After': '5' }
-          }
-        )
-      }
-
-      throw error
-    }
+    const result = await searchStations(query)
+    return NextResponse.json(result)
   } catch (error) {
-    logError(LOG_SCOPE, "Station search failed", error)
+    if (error instanceof StationRateLimitError) {
+      const retryAfterMs = Math.max(100, error.retryAfterMs)
+      const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000))
+      logWarn(LOG_SCOPE, 'Station search was rate limited', { retryAfterMs })
+      return NextResponse.json(
+        { results: [], error: 'Rate limit exceeded', retryAfter: retryAfterMs },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(retryAfterSeconds) },
+        }
+      )
+    }
+
+    if (isTemporaryBahnNetworkError(error)) {
+      logWarn(LOG_SCOPE, 'Bahn station search is temporarily unavailable')
+      return NextResponse.json(
+        { results: [], error: 'Bahn API temporarily unavailable', retryAfter: 5000 },
+        {
+          status: 503,
+          headers: { 'Retry-After': '5' },
+        }
+      )
+    }
+
+    if (error instanceof StationSearchUpstreamError) {
+      logWarn(LOG_SCOPE, 'Bahn station search returned an upstream error', {
+        status: error.status,
+      })
+      return NextResponse.json(
+        { results: [], error: 'Bahn API error' },
+        { status: 502 }
+      )
+    }
+
+    logError(LOG_SCOPE, 'Station search failed', error)
     return NextResponse.json({ results: [], error: 'Internal error' }, { status: 500 })
   }
 }
@@ -201,7 +82,7 @@ export async function POST(request: NextRequest) {
     })
     metricsCollector.recordStationSearchClick()
 
-    logDebug(LOG_SCOPE, "👆 Station search click recorded", {
+    logDebug(LOG_SCOPE, 'Station search click recorded', {
       query,
       stationName: station.name,
       stationId: station.extId,
@@ -209,7 +90,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    logError(LOG_SCOPE, "Station search click tracking failed", error)
+    logError(LOG_SCOPE, 'Station search click tracking failed', error)
     return NextResponse.json({ ok: false, error: 'Internal error' }, { status: 500 })
   }
 }

@@ -31,13 +31,13 @@ const dateTimeCtrl = dateTimeControlClass
 
 const ALL_WEEKDAYS = ALL_SEARCH_WEEKDAYS
 const WEEKDAY_OPTIONS = [
-  { label: "Mo", value: 1 },
-  { label: "Di", value: 2 },
-  { label: "Mi", value: 3 },
-  { label: "Do", value: 4 },
-  { label: "Fr", value: 5 },
-  { label: "Sa", value: 6 },
-  { label: "So", value: 0 },
+  { label: "Mo", fullLabel: "Montag", value: 1 },
+  { label: "Di", fullLabel: "Dienstag", value: 2 },
+  { label: "Mi", fullLabel: "Mittwoch", value: 3 },
+  { label: "Do", fullLabel: "Donnerstag", value: 4 },
+  { label: "Fr", fullLabel: "Freitag", value: 5 },
+  { label: "Sa", fullLabel: "Samstag", value: 6 },
+  { label: "So", fullLabel: "Sonntag", value: 0 },
 ]
 
 function sortWeekdays(weekdays: number[]) {
@@ -81,28 +81,25 @@ function WeekdaySelector({ direction, showDirection = true, selected, onChange }
   return (
     <fieldset>
       <legend className="sr-only">{selectionLabel}</legend>
-      <div className="mb-2 text-sm font-medium text-gray-700">{selectionLabel}</div>
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label={`${selectionLabel} auswählen`}>
+      <div className="mb-2 flex items-center gap-2">
+        <div className="text-sm font-medium text-gray-700">{selectionLabel}</div>
         <button
           type="button"
-          className={`inline-flex min-h-9 items-center gap-1 rounded-md border border-dashed px-2.5 text-xs font-semibold transition-colors ${
-            allDaysSelected
-              ? "border-blue-200 bg-blue-50/60 text-blue-700"
-              : "border-blue-300 bg-white text-blue-700 hover:border-blue-400 hover:bg-blue-50"
-          }`}
+          className={`inline-flex min-h-9 items-center rounded-md px-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50 hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${allDaysSelected ? "invisible" : "visible"}`}
           onClick={() => onChange([...ALL_WEEKDAYS])}
           disabled={allDaysSelected}
-          aria-label={`Alle Wochentage der ${direction} auswählen`}
+          aria-hidden={allDaysSelected}
+          aria-label={`${selectionLabel}: alle auswählen`}
         >
-          {allDaysSelected && <Check className="h-3.5 w-3.5" />}
-          {allDaysSelected ? "Alle Tage aktiv" : "Alle Tage auswählen"}
+          Alle auswählen
         </button>
-        <span className="hidden h-7 w-px bg-gray-200 sm:block" aria-hidden="true" />
+      </div>
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
         {WEEKDAY_OPTIONS.map((weekday) => (
           <button
             key={weekday.value}
             type="button"
-            className={`inline-flex min-w-[3.25rem] items-center justify-center gap-1 rounded-md border px-2.5 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-md border px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
               selected.includes(weekday.value)
                 ? "border-blue-400 bg-blue-100/70 text-blue-900 hover:bg-blue-100"
                 : "border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
@@ -115,6 +112,7 @@ function WeekdaySelector({ direction, showDirection = true, selected, onChange }
               )
             }}
             aria-pressed={selected.includes(weekday.value)}
+            aria-label={`${weekday.fullLabel} ${selected.includes(weekday.value) ? "abwählen" : "auswählen"}`}
           >
             <Check
               className={`h-3.5 w-3.5 ${selected.includes(weekday.value) ? "opacity-100" : "opacity-0"}`}
@@ -205,6 +203,8 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   const [zielSuggestions, setZielSuggestions] = useState<StationSuggestion[]>([])
   const [showStartSuggestions, setShowStartSuggestions] = useState(false)
   const [showZielSuggestions, setShowZielSuggestions] = useState(false)
+  const [activeStartSuggestionIndex, setActiveStartSuggestionIndex] = useState(-1)
+  const [activeZielSuggestionIndex, setActiveZielSuggestionIndex] = useState(-1)
   const [loadingStart, setLoadingStart] = useState(false)
   const [loadingZiel, setLoadingZiel] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
@@ -375,9 +375,11 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
       if (data.results) {
         if (type === 'start') {
           setStartSuggestions(data.results)
+          setActiveStartSuggestionIndex(-1)
           setShowStartSuggestions(true)
         } else {
           setZielSuggestions(data.results)
+          setActiveZielSuggestionIndex(-1)
           setShowZielSuggestions(true)
         }
       }
@@ -405,6 +407,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   const handleStartInput = useCallback((value: string) => {
     setStart(value)
     setStartId("") // Clear ID when manually typing
+    setActiveStartSuggestionIndex(-1)
     
     if (startDebounceRef.current) {
       clearTimeout(startDebounceRef.current)
@@ -418,6 +421,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   const handleZielInput = useCallback((value: string) => {
     setZiel(value)
     setZielId("") // Clear ID when manually typing
+    setActiveZielSuggestionIndex(-1)
     
     if (zielDebounceRef.current) {
       clearTimeout(zielDebounceRef.current)
@@ -447,6 +451,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     recordStationSelection(start, suggestion)
     setStart(suggestion.name)
     setStartId(suggestion.extId)
+    setActiveStartSuggestionIndex(-1)
     setShowStartSuggestions(false)
   }, [recordStationSelection, start])
   
@@ -454,8 +459,75 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     recordStationSelection(ziel, suggestion)
     setZiel(suggestion.name)
     setZielId(suggestion.extId)
+    setActiveZielSuggestionIndex(-1)
     setShowZielSuggestions(false)
   }, [recordStationSelection, ziel])
+
+  const handleStationKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+    type: 'start' | 'ziel'
+  ) => {
+    const suggestions = type === 'start' ? startSuggestions : zielSuggestions
+    const isOpen = type === 'start' ? showStartSuggestions : showZielSuggestions
+    const activeIndex = type === 'start' ? activeStartSuggestionIndex : activeZielSuggestionIndex
+    const setOpen = type === 'start' ? setShowStartSuggestions : setShowZielSuggestions
+    const setActiveIndex = type === 'start' ? setActiveStartSuggestionIndex : setActiveZielSuggestionIndex
+    const selectSuggestion = type === 'start' ? selectStartSuggestion : selectZielSuggestion
+
+    const activateSuggestion = (index: number) => {
+      setActiveIndex(index)
+      window.requestAnimationFrame(() => {
+        document.getElementById(`${type}-suggestion-${index}`)?.scrollIntoView({ block: 'nearest' })
+      })
+    }
+
+    if (event.key === 'Escape') {
+      if (!isOpen) return
+      event.preventDefault()
+      setOpen(false)
+      setActiveIndex(-1)
+      return
+    }
+
+    if (event.key === 'Tab') {
+      setOpen(false)
+      setActiveIndex(-1)
+      return
+    }
+
+    if (suggestions.length === 0) return
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setOpen(true)
+      activateSuggestion(activeIndex < suggestions.length - 1 ? activeIndex + 1 : 0)
+      return
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setOpen(true)
+      activateSuggestion(activeIndex > 0 ? activeIndex - 1 : suggestions.length - 1)
+      return
+    }
+
+    if (isOpen && event.key === 'Home') {
+      event.preventDefault()
+      activateSuggestion(0)
+      return
+    }
+
+    if (isOpen && event.key === 'End') {
+      event.preventDefault()
+      activateSuggestion(suggestions.length - 1)
+      return
+    }
+
+    if (isOpen && event.key === 'Enter' && activeIndex >= 0) {
+      event.preventDefault()
+      selectSuggestion(suggestions[activeIndex])
+    }
+  }
   
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -463,10 +535,12 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
       if (startInputRef.current && !startInputRef.current.contains(event.target as Node) &&
           startSuggestionsRef.current && !startSuggestionsRef.current.contains(event.target as Node)) {
         setShowStartSuggestions(false)
+        setActiveStartSuggestionIndex(-1)
       }
       if (zielInputRef.current && !zielInputRef.current.contains(event.target as Node) &&
           zielSuggestionsRef.current && !zielSuggestionsRef.current.contains(event.target as Node)) {
         setShowZielSuggestions(false)
+        setActiveZielSuggestionIndex(-1)
       }
     }
     
@@ -719,7 +793,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
           </div>
           <p className="mt-1 whitespace-nowrap text-xs text-gray-600 sm:text-sm">Zeitraum wählen, Bestpreis finden.</p>
         </div>
-        <FAQPopup context="bestpreissuche" />
+        <div className="hidden sm:block">
+          <FAQPopup context="bestpreissuche" />
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -751,7 +827,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
             </div>
           </fieldset>
 
-          <div className="order-2 mb-4 grid grid-cols-[minmax(0,1fr)_1.75rem_minmax(0,1fr)] items-end gap-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-2">
+          <div className="order-2 mb-4 grid grid-cols-[minmax(0,1fr)_2.75rem_minmax(0,1fr)] items-end gap-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-2">
             <div className="relative min-w-0">
               <Label htmlFor="start" className="mb-2 block text-sm font-medium text-gray-600">
                 <span className="inline-flex items-center gap-1">
@@ -766,7 +842,8 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                 placeholder="München Hbf"
                 value={start}
                 onChange={(e) => handleStartInput(e.target.value)}
-                onFocus={() => start.length >= 2 && setShowStartSuggestions(true)}
+                onFocus={() => start.length >= 2 && startSuggestions.length > 0 && setShowStartSuggestions(true)}
+                onKeyDown={(event) => handleStationKeyDown(event, 'start')}
                 required
                 className={ctrl}
                 autoComplete="off"
@@ -774,6 +851,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                 aria-autocomplete="list"
                 aria-expanded={showStartSuggestions}
                 aria-controls="start-suggestions"
+                aria-activedescendant={showStartSuggestions && activeStartSuggestionIndex >= 0 ? `start-suggestion-${activeStartSuggestionIndex}` : undefined}
               />
               {startError && (
                 <div className="absolute z-50 w-full mt-1 bg-amber-50 border border-amber-300 rounded-md shadow-sm p-2">
@@ -796,14 +874,18 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                       Lädt...
                     </div>
                   )}
-                  {startSuggestions.map((suggestion) => (
+                  {startSuggestions.map((suggestion, index) => (
                     <button
                       key={suggestion.extId}
+                      id={`start-suggestion-${index}`}
                       type="button"
-                      className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm border-b border-gray-100 last:border-b-0"
+                      tabIndex={-1}
+                      className={`min-h-11 w-full border-b border-gray-100 px-3 py-2 text-left text-sm last:border-b-0 ${activeStartSuggestionIndex === index ? "bg-blue-50 text-blue-950" : "text-gray-900 hover:bg-blue-50"}`}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActiveStartSuggestionIndex(index)}
                       onClick={() => selectStartSuggestion(suggestion)}
                       role="option"
-                      aria-selected="false"
+                      aria-selected={activeStartSuggestionIndex === index}
                     >
                       <div className="font-medium text-gray-900">{suggestion.name}</div>
                     </button>
@@ -817,10 +899,10 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                 variant="outline"
                 size="icon"
                 onClick={switchStations}
-                className="h-7 w-7 rounded-full border-gray-300 bg-white p-0 text-gray-600 shadow-none hover:bg-gray-50 sm:h-11 sm:w-11 sm:rounded-md"
+                className="h-11 w-11 rounded-md border-gray-300 bg-white p-0 text-gray-600 shadow-none hover:bg-gray-50"
                 aria-label="Bahnhöfe tauschen"
               >
-                <ArrowLeftRight className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
+                <ArrowLeftRight className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
             <div className="relative min-w-0">
@@ -837,7 +919,8 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                 placeholder="Berlin Hbf"
                 value={ziel}
                 onChange={(e) => handleZielInput(e.target.value)}
-                onFocus={() => ziel.length >= 2 && setShowZielSuggestions(true)}
+                onFocus={() => ziel.length >= 2 && zielSuggestions.length > 0 && setShowZielSuggestions(true)}
+                onKeyDown={(event) => handleStationKeyDown(event, 'ziel')}
                 required
                 className={ctrl}
                 autoComplete="off"
@@ -845,6 +928,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                 aria-autocomplete="list"
                 aria-expanded={showZielSuggestions}
                 aria-controls="ziel-suggestions"
+                aria-activedescendant={showZielSuggestions && activeZielSuggestionIndex >= 0 ? `ziel-suggestion-${activeZielSuggestionIndex}` : undefined}
               />
               {zielError && (
                 <div className="absolute z-50 w-full mt-1 bg-amber-50 border border-amber-300 rounded-md shadow-sm p-2">
@@ -867,14 +951,18 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                       Lädt...
                     </div>
                   )}
-                  {zielSuggestions.map((suggestion) => (
+                  {zielSuggestions.map((suggestion, index) => (
                     <button
                       key={suggestion.extId}
+                      id={`ziel-suggestion-${index}`}
                       type="button"
-                      className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm border-b border-gray-100 last:border-b-0"
+                      tabIndex={-1}
+                      className={`min-h-11 w-full border-b border-gray-100 px-3 py-2 text-left text-sm last:border-b-0 ${activeZielSuggestionIndex === index ? "bg-blue-50 text-blue-950" : "text-gray-900 hover:bg-blue-50"}`}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActiveZielSuggestionIndex(index)}
                       onClick={() => selectZielSuggestion(suggestion)}
                       role="option"
-                      aria-selected="false"
+                      aria-selected={activeZielSuggestionIndex === index}
                     >
                       <div className="font-medium text-gray-900">{suggestion.name}</div>
                     </button>
@@ -956,7 +1044,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                         className={`${ctrl} pr-16`}
                         required={rueckfahrtAktiv}
                       />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">Nächte</span>
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">
+                        {Number.parseInt(minNaechte, 10) === 1 ? "Nacht" : "Nächte"}
+                      </span>
                     </div>
                   </div>
                   <div>
@@ -974,7 +1064,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                         onChange={(event) => setMaxNaechte(event.target.value)}
                         className={`${ctrl} pr-16`}
                       />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">Nächte</span>
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">
+                        {Number.parseInt(maxNaechte, 10) === 1 ? "Nacht" : "Nächte"}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -985,7 +1077,11 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
                         : "Die maximale Dauer muss mindestens der minimalen entsprechen.")
                     : hasImpossibleStay
                       ? impossibleStayMessage
-                    : `Rückfahrt nach ${minNaechte}${maxNaechte ? ` bis ${maxNaechte}` : " oder mehr"} Nächten.`}
+                    : maxNaechte && minNaechte === maxNaechte
+                      ? `Rückfahrt nach ${minNaechte} ${Number.parseInt(minNaechte, 10) === 1 ? "Nacht" : "Nächten"}.`
+                      : maxNaechte
+                        ? `Rückfahrt nach ${minNaechte} bis ${maxNaechte} Nächten.`
+                        : `Rückfahrt nach ${minNaechte} ${Number.parseInt(minNaechte, 10) === 1 ? "Nacht" : "Nächten"} oder mehr.`}
                 </p>
               </fieldset>
             )}
