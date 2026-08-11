@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.1.1...v2.2.0) (2026-08-10)
+
+
+### Features
+
+* improve search filter controls ([7f2b172](https://github.com/sparpreis-guru/sparpreis.guru/commit/7f2b172c113272c63ce3028e563cc57a041c7f26))
+* redesign journey result cards ([6f65934](https://github.com/sparpreis-guru/sparpreis.guru/commit/6f65934d041c862cc911cabe9390e208c76aab36))
+
+
+### Bug Fixes
+
+* improve mobile round-trip result headers ([8a2d2cd](https://github.com/sparpreis-guru/sparpreis.guru/commit/8a2d2cdfdca0beb05c4d2a0aa622a23ddbf8b475))
+* stabilize lazy calendar day loading ([a87b456](https://github.com/sparpreis-guru/sparpreis.guru/commit/a87b456c53b065051f2deb47160e4ce00c3fdd3c))
+
 ## [2.1.1](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.1.0...v2.1.1) (2026-08-09)
 
 
