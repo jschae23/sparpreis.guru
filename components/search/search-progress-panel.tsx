@@ -51,7 +51,6 @@ export function SearchProgressPanel({
 }: SearchProgressPanelProps) {
   const panelId = useId()
   const panelRef = useRef<HTMLElement>(null)
-  const wasActiveRef = useRef(isActive)
   const wasTimingRef = useRef(isActive)
   const hasAutoScrolledRef = useRef(false)
   const searchStartedAtRef = useRef<number | null>(isActive ? Date.now() : null)
@@ -112,17 +111,19 @@ export function SearchProgressPanel({
 
   useEffect(() => {
     if (isActive) {
-      wasActiveRef.current = true
       setShowTerminalShortcut(false)
       return
     }
 
-    if (!wasActiveRef.current) return
-    wasActiveRef.current = false
+    if (!isCancelled) {
+      setShowTerminalShortcut(false)
+      return
+    }
+
     setShowTerminalShortcut(true)
     const hideTimer = window.setTimeout(() => setShowTerminalShortcut(false), 3000)
     return () => window.clearTimeout(hideTimer)
-  }, [isActive])
+  }, [isActive, isCancelled])
 
   if (!isActive && !isCancelled && safeTotalItems === 0) return null
 
@@ -261,51 +262,32 @@ export function SearchProgressPanel({
         <button
           type="button"
           className={cn(
-            "fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-3 z-[1500] inline-flex min-h-12 items-center gap-2.5 overflow-hidden rounded-xl border px-4 py-2.5 text-left text-sm font-semibold shadow-xl transition-all sm:bottom-4 sm:right-4",
-            state === "active" && "left-3 min-h-16 border-blue-700 bg-blue-600 px-3.5 py-3 text-white shadow-[0_16px_40px_-12px_rgba(30,64,175,0.75)] ring-2 ring-blue-300/70 hover:bg-blue-700 sm:left-auto sm:min-w-[21rem] sm:px-4",
-            state === "completed" && "border-green-300 bg-white text-green-900 hover:bg-green-50",
+            "fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-3 z-[1500] inline-flex min-h-12 items-center gap-2 overflow-hidden rounded-xl border px-3.5 py-2.5 text-left text-sm font-semibold shadow-xl transition-all sm:bottom-4 sm:right-4",
+            state === "active" && "border-blue-700 bg-blue-600 text-white shadow-[0_12px_30px_-12px_rgba(30,64,175,0.65)] hover:bg-blue-700",
             state === "cancelled" && "border-amber-300 bg-white text-amber-950 hover:bg-amber-50"
           )}
           onClick={scrollToPanel}
           aria-controls={panelId}
-          aria-label={state === "active" ? `Suche läuft, ${progress} Prozent abgeschlossen. Suchstatus anzeigen` : "Suchstatus anzeigen"}
+          aria-label={state === "active" ? `Suche läuft, ${progress} Prozent abgeschlossen. Suchstatus anzeigen` : "Suche abgebrochen. Suchstatus anzeigen"}
           title="Suchstatus anzeigen"
         >
           {state === "active" ? (
-            <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/25">
-              <span className="absolute h-2.5 w-2.5 animate-ping rounded-full bg-white/70 motion-reduce:animate-none" aria-hidden="true" />
-              <Loader2 className="relative h-5 w-5 animate-spin text-white" />
-            </span>
-          ) : state === "cancelled" ? (
-            <CircleX className="h-5 w-5 text-amber-600" />
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
           ) : (
-            <CheckCircle2 className="h-5 w-5 text-green-600" />
+            <CircleX className="h-5 w-5 text-amber-600" />
           )}
           {state === "active" ? (
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center justify-between gap-3">
-                <span className="font-bold">Suche läuft weiter</span>
-                <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs font-bold tabular-nums ring-1 ring-white/20">
-                  {progress}%
-                </span>
+            <>
+              <span>Suche läuft</span>
+              <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs font-bold tabular-nums ring-1 ring-white/20">
+                {progress}%
               </span>
-              <span className="mt-0.5 block truncate text-xs font-medium text-blue-50">
-                {safeCompletedItems}/{safeTotalItems} geprüft · noch ca. {formatEta(queueStatus.estimatedTimeRemaining)}
-              </span>
-              <span className="mt-2 block h-1 overflow-hidden rounded-full bg-blue-950/30" aria-hidden="true">
-                <span
-                  className="block h-full rounded-full bg-white transition-[width] duration-500 ease-out"
-                  style={{ width: `${progress || 2}%` }}
-                />
-              </span>
-            </span>
-          ) : state === "cancelled" ? (
+            </>
+          ) : (
             <span>
               <span className="block">Suche abgebrochen</span>
               <span className="block text-[10px] font-medium text-amber-800">Ergebnisse unvollständig</span>
             </span>
-          ) : (
-            <span>Suche abgeschlossen</span>
           )}
           <span className={cn(
             "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
